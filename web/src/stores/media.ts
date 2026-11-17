@@ -10,6 +10,7 @@ import { defineStore } from 'pinia'
 import { api } from '@/api/client'
 import type { MediaItem } from '@/api/types'
 import { useFilterStore } from './filters'
+import { pageSizeFor } from '@/composables/useScrollRestore'
 import type { Facets } from './filters'
 
 export const useMediaStore = defineStore('media', () => {
@@ -32,7 +33,8 @@ export const useMediaStore = defineStore('media', () => {
   const hasMore = computed(() => items.value.length < total.value)
   const isEmpty = computed(() => !loading.value && items.value.length === 0)
 
-  const PAGE_SIZE = 48
+  /** 默认分页 48；弱网/省流量降为 24（D-17） */
+  const PAGE_SIZE = pageSizeFor(48, 24)
 
   /**
    * 请求序号：用于丢弃过期响应，防止快速切换筛选时

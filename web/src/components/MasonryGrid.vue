@@ -30,6 +30,16 @@ defineEmits<{
   (e: 'open', index: number): void
 }>()
 
+/**
+ * 虚拟化的目的（D-17）：DOM 随滚动无限增长会拖慢合成与内存。
+ * 做法是保留可视区 ± 2 屏的真实卡片，其余以等高占位替代——
+ * 占位仍参与布局（用同一份 layout 数据），因此滚动条总高与卡片位置不变。
+ */
+/** 可视区上下各保留几屏，过低会在快速滚动时闪白 */
+const OVERSCAN_SCREENS = 2
+/** scrollY 的采样节流（ms）：滚动中不必每帧重算可见区间 */
+const SCROLL_THROTTLE_MS = 60
+
 const containerRef = ref<HTMLElement | null>(null)
 const containerWidth = ref(0)
 
@@ -141,24 +151,95 @@ const containerHeight = computed(() => {
 
 let observer: ResizeObserver | null = null
 
+/** 当前滚动位置与视口高度：驱动可见区间计算 */
+const scrollY = ref(0)
+const viewportH = ref(0)
+/** 弱网/省流量模式：批量降为 24（D-17） */
+const saveData = ref(false)
+
 function measure() {
   if (containerRef.value) {
     containerWidth.value = containerRef.value.clientWidth
   }
+  viewportH.value = window.innerHeight
 }
+
+let scrollTimer: number | undefined
+
+function onScroll() {
+  if (scrollTimer !== undefined) return
+  scrollTimer = window.setTimeout(() => {
+    scrollTimer = undefined
+    // 用容器相对视口的位置换算，避免把整页 header 也算进去
+    const el = containerRef.value
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    scrollY.value = -rect.top
+  }, SCROLL_THROTTLE_MS)
+}
+
+/**
+ * 可见区间：以容器自身坐标为准（scrollY 是容器顶边滚出视口的距离）。
+ * 上下各留 OVERSCAN_SCREENS 屏，快速滚动时不至于露出空白。
+ */
+const visibleRange = computed(() => {
+  const h = viewportH.value || 800
+  const pad = h * OVERSCAN_SCREENS
+  const top = scrollY.value - pad
+  const bottom = scrollY.value + h + pad
+  return { top, bottom }
+})
+
+/**
+ * 回收判定：卡片底部在区间上方，或顶部在区间下方 ⇒ 用占位替代。
+ * 保留首屏前 4 张强制渲染（LCP 元素不能被回收）。
+ */
+function isVisible(index: number): boolean {
+  if (index < 4) return true
+  const pos = layout.value[index]
+  if (!pos) return false
+  const top = pos.top
+  const bottom = pos.top + pos.height + META_HEIGHT
+  return bottom >= visibleRange.value.top && top <= visibleRange.value.bottom
+}
+
+/** 实际渲染的条目数（用于测试与观测） */
+const renderedCount = computed(() => {
+  let n = 0
+  for (let i = 0; i < layout.value.length; i++) if (isVisible(i)) n++
+  return n
+})
 
 onMounted(() => {
   measure()
   // 容器宽度变化（窗口缩放、侧栏开合）时重排
   observer = new ResizeObserver(measure)
   if (containerRef.value) observer.observe(containerRef.value)
+
+  const conn = (navigator as Navigator & {
+    connection?: { saveData?: boolean; effectiveType?: string }
+  }).connection
+  saveData.value = Boolean(conn?.saveData)
+
+  window.addEventListener('scroll', onScroll, { passive: true })
+  window.addEventListener('resize', measure, { passive: true })
+  onScroll()
 })
 
 onUnmounted(() => {
   observer?.disconnect()
+  window.removeEventListener('scroll', onScroll)
+  window.removeEventListener('resize', measure)
+  if (scrollTimer !== undefined) window.clearTimeout(scrollTimer)
 })
 
-watch(() => props.items.length, measure)
+// 条目追加后立即重算一次，避免新卡片在可视区外被误判为回收
+watch(() => props.items.length, () => {
+  measure()
+  onScroll()
+})
+
+defineExpose({ renderedCount, isVisible, visibleRange, saveData })
 </script>
 
 <template>
@@ -171,15 +252,24 @@ watch(() => props.items.length, measure)
       v-for="(item, index) in items"
       :key="item.id"
       class="masonry__cell"
+      :data-item-id="item.id"
       :style="{
         transform: `translate3d(${layout[index]?.left ?? 0}px, ${layout[index]?.top ?? 0}px, 0)`,
         width: `${layout[index]?.width ?? 0}px`,
       }"
     >
       <MLMediaCard
+        v-if="isVisible(index)"
         :item="item"
         :priority="index < 4"
         @open="$emit('open', index)"
+      />
+      <!-- 回收态占位：与卡片同尺寸同位置，保证滚动条总高与已渲染卡片零位移 -->
+      <div
+        v-else
+        class="masonry__ghost"
+        :style="{ height: `${(layout[index]?.height ?? 0) + META_HEIGHT}px` }"
+        aria-hidden="true"
       />
     </div>
   </div>
@@ -189,6 +279,11 @@ watch(() => props.items.length, measure)
 .masonry {
   position: relative;
   width: 100%;
+}
+
+.masonry__ghost {
+  /* 占位不绘制任何内容，避免触发额外绘制与图片请求 */
+  background: transparent;
 }
 
 .masonry__cell {

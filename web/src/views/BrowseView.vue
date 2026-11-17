@@ -17,6 +17,13 @@ import FacetPanel from '@/components/FacetPanel.vue'
 import MLButton from '@/components/MLButton.vue'
 import MLChip from '@/components/MLChip.vue'
 import type { SortKey } from '@/api/types'
+import {
+  clearScrollAnchor,
+  readScrollAnchor,
+  restoreScrollAnchor,
+  sampleAnchor,
+  saveScrollAnchor,
+} from '@/composables/useScrollRestore'
 
 const store = useMediaStore()
 const filters = useFilterStore()
@@ -56,6 +63,7 @@ function changeSort(value: SortKey) {
 
 /** 应用筛选后统一刷新（标签切换等由面板触发） */
 function applyAndRefresh() {
+  clearScrollAnchor()
   store.refresh()
 }
 
@@ -67,7 +75,16 @@ function applyAndRefresh() {
  * invalid state"）。改由灯箱自身的进入动画承担过渡，功能一致且无报错。
  */
 function openLightbox(index: number) {
+  // 进灯箱前记录锚点（D-17）：返回列表时按资产定位，而非纯像素
+  const anchor = sampleAnchor()
+  if (anchor) saveScrollAnchor(anchor)
   store.openLightbox(index)
+}
+
+/** 从灯箱返回：还原锚点（列数变化也能回到同一资产） */
+function onCloseLightbox() {
+  store.closeLightbox()
+  restoreScrollAnchor(readScrollAnchor(), store.items)
 }
 
 /**
@@ -86,10 +103,12 @@ function onFilterColor(color: string) {
 }
 
 // 从 URL 还原筛选，然后加载
-onMounted(() => {
+onMounted(async () => {
   filters.fromUrlQuery(route.query as Record<string, string>)
   searchInput.value = filters.q
-  store.refresh()
+  await store.refresh()
+  // 首次渲染后还原上次锚点（D-17 验收 3）
+  restoreScrollAnchor(readScrollAnchor(), store.items)
 })
 
 // 筛选变化时刷新（面板内直接改 store 的路径）
@@ -252,7 +271,7 @@ watch(
       :has-prev="store.lightboxIndex > 0"
       :has-next="store.lightboxIndex < store.items.length - 1"
       :candidates="compareCandidates"
-      @close="store.closeLightbox"
+      @close="onCloseLightbox"
       @prev="store.stepLightbox(-1)"
       @next="store.stepLightbox(1)"
       @filter-color="onFilterColor"
