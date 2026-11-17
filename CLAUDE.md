@@ -57,10 +57,15 @@ open-pic/
    - 代码注释与文档统一使用中文。
 
 5. **前端重构约定（v2.0）**：
-   - 新前端源码在 `web/`，构建产物输出到 `media-library/scripts/static/app/`，**产物纳入版本库**，NAS 端只需 `git pull`。
+   - 新前端源码在 `web/`，构建产物输出到 `media-library/scripts/static/app/`，**产物纳入版本库**，NAS 端从远程仓库 pull 即可获得产物（无需在 NAS 构建）；**部署仍须显式重启服务**，见第 6 条。
    - `static/app/` 为构建产物，**禁止手改**；所有改动在 `web/src/` 内完成并重新 `bash scripts/build-web.sh`。
    - 双前端切换：环境变量 `MEDIA_LIB_FRONTEND=next|legacy`，未设置时依据产物存在性自动判定。旧前端保留至重构验收通过。
    - 样式只消费 `web/src/styles/tokens.css` 的语义变量，组件内禁止硬编码颜色（浅色编辑纸感为设计基准）。
+
+6. **部署约定：`push → NAS pull → 显式重启`**：
+   - 顺序固定：先 `git push nas main` 到远程裸仓库，再由 NAS 端 `git clone`/`rsync` 拉取代码到部署目录，**最后显式重启服务**。不要把本地未提交的改动直接拷到 NAS。
+   - **必须显式重启**：`ensure.sh` 只保证「有进程在跑」，不会重启已在运行的旧进程。仅 pull 后直接 `ensure.sh`，服务仍是旧代码（表现为新路由 404）。重启用 `--stop` + `ensure.sh`。
+   - 部署后用 `--status`、`/healthz` 及新产物/新接口做一次线上验证，不要只凭「进程在跑」判定上线成功。
 
 ## 常用命令
 
@@ -84,4 +89,26 @@ cd web && pnpm test
 bash /vol1/picoclaw/.picoclaw/workspace/skills/media-library/scripts/ensure.sh
 /vol1/picoclaw/.picoclaw/workspace/skills/media-library/venv/bin/python3 \
   /vol1/picoclaw/.picoclaw/workspace/skills/media-library/scripts/server.py --status
+```
+
+### 部署（push → NAS pull → 显式重启）
+
+```bash
+# 1. 本地：提交后推送到远程裸仓库
+git push nas main
+
+# 2. NAS：从裸仓库拉取并同步到部署目录
+ssh fnos 'rm -rf /tmp/open-pic-deploy && \
+  git clone --depth 1 --branch main \
+    /vol1/picoclaw/.picoclaw/workspace/skills/open-pic.git /tmp/open-pic-deploy && \
+  rsync -a --delete /tmp/open-pic-deploy/media-library/scripts/ \
+    /vol1/picoclaw/.picoclaw/workspace/skills/media-library/scripts/'
+
+# 3. NAS：显式重启（ensure.sh 不会重启旧进程，这步不能省）
+ssh fnos 'cd /vol1/picoclaw/.picoclaw/workspace/skills/media-library && \
+  venv/bin/python3 scripts/server.py --stop && sleep 2 && bash scripts/ensure.sh'
+
+# 4. 线上验证
+curl -s http://192.168.31.188:18100/healthz
+ssh fnos 'cd .../media-library && venv/bin/python3 scripts/server.py --status'
 ```
