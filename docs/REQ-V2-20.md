@@ -666,9 +666,20 @@
 | **S0 工程前置** | ✅ 完成 | Vite + Vue3 + TS 脚手架、路由、Pinia、API 客户端、设计 Token 三层结构、6 个基础组件、双前端切换开关 | 前端 9 项单测、后端 3 项集成测试、typecheck、构建通过，首包 gzip 40KB |
 | **S1 视觉跃升** | ✅ 完成 | **A-01** 三层 Token 体系（浅色编辑纸感基准）+ 组件库 7 个、**A-02** 编辑化首页（Hero/横向精选带/Editorial Grid 混排）、**A-03** 动效 Token + View Transitions 共享元素转场 + `prefers-reduced-motion` 全链路降级、**A-05** `/img` 按需变换、**B-10** 分面统计 + URL 即状态 | 后端 14 项新测试、前端 13 项单测、typecheck、构建 |
 | S1 遗留 | ⬜ 待补 | A-02 的「人工精选排布」需 `featured` 表与 `PATCH /api/featured`（当前 Hero/精选按规则自动选取）；A-01 组件库可继续扩充 | — |
-| S2–S4 | ⬜ 未开始 | — | — |
+| **S2 专业闭环** | 🟡 部分 | **B-06** 检索内核重建：FTS5 真正启用（改造前表建了但查询走 LIKE 全表扫）、预分词 `seg` 列、中文两字词可命中、单字走标签前缀兜底、旧库自动迁移 | 新增 16 项检索测试、全量 33 passed |
+| S2 剩余 | ⬜ 待做 | A-04 灯箱 2.0（对比/连播/色板/快捷键表）、C-11 授权署名、D-16 管线异步化、E-20 无障碍与双语 | — |
+| S3–S4 | ⬜ 未开始 | — | — |
 
 ### 已落地的技术细节
+
+**检索（B-06）**：
+
+- 根因：`items_fts` 表建了、也写了，但 `query_items` 完全没查它——实际是六路 `LIKE '%kw%'` 全表扫。
+- 现在查询走 `MATCH`，`EXPLAIN QUERY PLAN` 确认命中 `SCAN items_fts VIRTUAL TABLE INDEX`，不再扫 `items`。
+- 中文分词：jieba 可用时用 `cut_for_search`，缺失时退化 2-gram（当前环境未装 jieba，实际走 2-gram，两字词仍可命中）。
+- 单字查询不构造 `MATCH`（会命中近乎全库），改为标题前缀 + 标签前缀匹配。
+- 旧库兼容：`_migrate_fts_seg` 检测到 FTS 表缺 `seg` 列时自动重建并回填，实测存量库可直接升级。
+
 
 - **`/img/{id}?w=&fm=&q=`**：尺寸白名单 360–3840、上限 4096；缓存键含源文件 mtime，源更新自动失效；LRU 上限默认 4GB（`MEDIA_LIB_IMGCACHE_BYTES` 可调）；AVIF 编码失败回退 WebP，彻底失败回退原图，请求不失败。
 - **旧路径完全保留**：`/t/ /f/ /p/` 与存量 `_sm/_md/_lg` 未受影响，v1 契约兼容。

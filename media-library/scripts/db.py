@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import sqlite3
+import search_index
 import threading
 import time
 from contextlib import contextmanager
@@ -114,6 +115,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
     source,
     notes,
     ocr_text,
+    seg,
     tokenize='unicode61'
 );
 """
@@ -167,7 +169,49 @@ class MediaDB:
     def _init_db(self):
         with self._write_lock, self.connect() as conn:
             conn.executescript(SCHEMA_SQL)
+            self._migrate_fts_seg(conn)
             conn.commit()
+
+    def _migrate_fts_seg(self, conn: sqlite3.Connection) -> None:
+        """迁移旧库的 FTS 表，补齐预分词列 seg（REQ-V2-20 B-06）。
+
+        旧版本 items_fts 没有 seg 列，直接查会报错。
+        FTS5 虚拟表不支持 ALTER TABLE ADD COLUMN，只能重建并回填。
+        """
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(items_fts)").fetchall()}
+        if not cols or "seg" in cols:
+            return
+
+        conn.executescript(
+            """
+            DROP TABLE IF EXISTS items_fts;
+            CREATE VIRTUAL TABLE items_fts USING fts5(
+                item_id UNINDEXED, title, name, tags_text, source, notes, ocr_text, seg,
+                tokenize='unicode61'
+            );
+            """
+        )
+        # 回填全部条目
+        rows = conn.execute(
+            "SELECT id, title, name, source, notes, ocr_text FROM items"
+        ).fetchall()
+        for row in rows:
+            tag_rows = conn.execute(
+                "SELECT t.name FROM tags t JOIN item_tags it ON t.id=it.tag_id WHERE it.item_id=?",
+                (row["id"],),
+            ).fetchall()
+            tags_text = " ".join(r["name"] for r in tag_rows)
+            seg_text = search_index.build_fts_text(
+                row["title"], row["name"], tags_text, row["notes"], row["ocr_text"]
+            )
+            conn.execute(
+                "INSERT INTO items_fts(item_id, title, name, tags_text, source, notes, ocr_text, seg)"
+                " VALUES (?,?,?,?,?,?,?,?)",
+                (
+                    row["id"], row["title"], row["name"], tags_text,
+                    row["source"], row["notes"], row["ocr_text"], seg_text,
+                ),
+            )
 
     # ---------- 迁移与同步 ----------
 
@@ -274,8 +318,14 @@ class MediaDB:
             (item_id,),
         ).fetchall()
         tags_text = " ".join(r["name"] for r in tag_rows)
+        # 预分词：中文按 jieba（缺失时 2-gram）切分后写入 seg 列，
+        # 使两字词也能被 FTS 索引命中（unicode61 会把中文切成单字）
+        seg_text = search_index.build_fts_text(
+            row["title"], row["name"], tags_text, row["notes"], row["ocr_text"]
+        )
         conn.execute(
-            "INSERT INTO items_fts(item_id, title, name, tags_text, source, notes, ocr_text) VALUES (?,?,?,?,?,?,?)",
+            "INSERT INTO items_fts(item_id, title, name, tags_text, source, notes, ocr_text, seg)"
+            " VALUES (?,?,?,?,?,?,?,?)",
             (
                 row["id"],
                 row["title"],
@@ -284,6 +334,7 @@ class MediaDB:
                 row["source"],
                 row["notes"],
                 row["ocr_text"],
+                seg_text,
             ),
         )
 
@@ -490,17 +541,25 @@ class MediaDB:
             params.append(et)
 
         if q.strip():
-            # 同时支持 FTS5 词元匹配与 LIKE 子串兜底，确保中文单字/任意片段都能命中
-            tokens = [tok for tok in re.split(r"\s+", q.strip()) if tok]
-            for tok in tokens:
-                like = f"%{tok}%"
+            # 检索走 FTS5 索引（REQ-V2-20 B-06）：
+            #   seg 列为预分词结果，中文两字词可命中；
+            #   单字查询不构造 MATCH（几乎命中全库），改为标签精确 + 标题前缀。
+            match_expr = search_index.build_match_query(q)
+            if match_expr and not search_index.is_single_char_cjk(q):
+                where.append("i.id IN (SELECT item_id FROM items_fts WHERE items_fts MATCH ?)")
+                params.append(match_expr)
+            else:
+                # 单字/极短查询：走前缀匹配（可利用索引），避免 %kw% 全表扫。
+                # 标签用前缀而非全等："城" 应能命中标签 "城市"。
+                kw = q.strip()
                 where.append(
                     "("
-                    "i.title LIKE ? OR i.name LIKE ? OR i.source LIKE ? OR i.notes LIKE ? OR i.ocr_text LIKE ? "
-                    "OR EXISTS (SELECT 1 FROM item_tags it JOIN tags tg ON it.tag_id=tg.id WHERE it.item_id=i.id AND tg.name LIKE ?)"
+                    "i.title LIKE ? OR i.name LIKE ? "
+                    "OR EXISTS (SELECT 1 FROM item_tags it JOIN tags tg ON it.tag_id=tg.id "
+                    "WHERE it.item_id=i.id AND tg.name LIKE ?)"
                     ")"
                 )
-                params.extend([like, like, like, like, like, like])
+                params.extend([f"{kw}%", f"{kw}%", f"{kw}%"])
 
         where_sql = " AND ".join(where)
         order_map = {
