@@ -46,6 +46,8 @@ export const useMediaStore = defineStore('media', () => {
    * 先发的慢请求覆盖后发的快请求（B-10 验收要求）。
    */
   let requestSeq = 0
+  /** 分面请求的独立序号：与列表请求节奏不同，需单独防竞态 */
+  let facetsSeq = 0
 
   async function load(reset = false) {
     if (!reset && loading.value) return
@@ -83,19 +85,38 @@ export const useMediaStore = defineStore('media', () => {
 
   /** 拉取分面统计 */
   async function loadFacets() {
+    // 序号防竞态：快速切换筛选时丢弃过期响应（与 load 的 requestSeq 同款口径）
+    const seq = ++facetsSeq
     facetsLoading.value = true
     try {
-      facets.value = await api.facets({
+      const res = await api.facets({
         kind: filters.kind,
         ext: filters.ext,
         orientation: filters.orientation,
         platform: filters.platform,
       })
+      if (seq !== facetsSeq) return
+      facets.value = res
     } catch {
+      if (seq !== facetsSeq) return
       // 分面统计失败不影响主列表展示
       facets.value = null
     } finally {
-      facetsLoading.value = false
+      if (seq === facetsSeq) facetsLoading.value = false
+    }
+  }
+
+  /**
+   * 单卡更新（SSE media_ready 用）：异步处理完成后仅刷新该资产，
+   * 不重置列表，避免打断浏览位置与已加载的分页。
+   */
+  async function updateItem(id: string) {
+    try {
+      const next = await api.item(id)
+      const i = items.value.findIndex((it) => it.id === id)
+      if (i >= 0) items.value[i] = next
+    } catch {
+      // 单卡更新失败静默：下一次全量刷新自然修正
     }
   }
 
@@ -162,10 +183,11 @@ export const useMediaStore = defineStore('media', () => {
     isEmpty,
     settled,
     load,
+    loadFacets,
+    updateItem,
     replaceItems,
     promoteFeatured,
     refresh,
-    loadFacets,
     openLightbox,
     closeLightbox,
     stepLightbox,

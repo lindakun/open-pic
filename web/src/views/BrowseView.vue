@@ -271,6 +271,12 @@ onMounted(async () => {
   void loadCollections()
   void loadLikes()
   window.addEventListener('paste', onPaste)
+  // 订阅任务事件：异步处理完成后自动补全卡片（缩略图/元数据）
+  if (typeof EventSource !== 'undefined') {
+    es = new EventSource('/api/jobs/stream')
+    es.addEventListener('media_ready', onMediaReady as EventListener)
+    es.addEventListener('library_updated', scheduleLibraryRefresh)
+  }
 })
 
 // 组合式函数必须在 setup 同步作用域调用：
@@ -294,7 +300,35 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('paste', onPaste)
   pageObserver?.disconnect()
+  es?.close()
+  if (sseRefreshTimer !== undefined) window.clearTimeout(sseRefreshTimer)
 })
+
+// ---------- 任务事件流（SSE） ----------
+// 上传走快速路径（D-16）：先落盘返回，缩略图/元数据由后台任务补齐。
+// 不订阅事件的话，卡片会一直停留在「加载失败」占位直到手动刷新。
+let es: EventSource | null = null
+let sseRefreshTimer: number | undefined
+
+/** 单卡更新：media_ready 只带 item_id，替换对应卡片即可，不打断浏览位置 */
+function onMediaReady(e: MessageEvent) {
+  try {
+    const data = JSON.parse(e.data) as { item_id?: string }
+    if (data.item_id) void store.updateItem(data.item_id)
+  } catch {
+    // 事件数据异常时忽略
+  }
+}
+
+/** 全量刷新（入库/采集等批量变化）：节流合并，且灯箱打开时跳过避免资产错位 */
+function scheduleLibraryRefresh() {
+  if (sseRefreshTimer !== undefined) return
+  sseRefreshTimer = window.setTimeout(() => {
+    sseRefreshTimer = undefined
+    if (store.currentItem) return
+    void store.refresh()
+  }, 1500)
+}
 
 // 筛选变化时刷新（面板内直接改 store 的路径）
 watch(
@@ -305,9 +339,21 @@ watch(
     filters.orientation,
     filters.platform,
     filters.ext,
+    // color 必须监听：仅用色彩筛选时点「清空」，其余值不变，
+    // 缺了它 watch 不触发，列表会停留在旧的色彩筛选结果
+    filters.color,
   ],
   () => {
     applyAndRefresh()
+  },
+)
+
+// 筛选状态被外部路径清空（分面面板/空态的「清空」按钮）时，
+// 同步搜索框显示，避免输入框残留旧词而实际已无筛选
+watch(
+  () => filters.q,
+  (v) => {
+    if (v !== searchInput.value) searchInput.value = v
   },
 )
 

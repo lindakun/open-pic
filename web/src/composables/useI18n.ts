@@ -61,6 +61,8 @@ const messages: Record<Locale, Dict> = {
     'browse.loadMore': '加载更多',
     'browse.activeFilters': '已选筛选条件',
     'browse.removeFilter': '移除筛选',
+    // 卡片无标题时的读屏描述（有标题时 alt 为空，避免重复朗读）
+    'card.mediaAlt': '媒体资源：{name}',
     'browse.keyword': '关键词：{value}',
 
     // 排序
@@ -259,6 +261,7 @@ const messages: Record<Locale, Dict> = {
     'browse.loadMore': 'Load more',
     'browse.activeFilters': 'Active filters',
     'browse.removeFilter': 'Remove filter',
+    'card.mediaAlt': 'Media asset: {name}',
     'browse.keyword': 'Keyword: {value}',
 
     'sort.newest': 'Newest',

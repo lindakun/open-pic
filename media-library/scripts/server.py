@@ -157,13 +157,14 @@ AI_PROVIDER_FACTORY = ai_provider.get_provider
 
 
 def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers: bool = True) -> FastAPI:
-    global DATA, FILES, THUMBS, PREVIEWS, PLAY_DIR, INDEX_JSON, DB_PATH, PIDFILE
+    global DATA, FILES, THUMBS, PREVIEWS, PLAY_DIR, IMG_CACHE_DIR, INDEX_JSON, DB_PATH, PIDFILE
     if data_dir:
         DATA = data_dir
         FILES = os.path.join(DATA, "files")
         THUMBS = os.path.join(DATA, "thumbs")
         PREVIEWS = os.path.join(DATA, "previews")
         PLAY_DIR = os.path.join(DATA, "play")
+        IMG_CACHE_DIR = os.path.join(DATA, "imgcache")
         INDEX_JSON = os.path.join(DATA, "index.json")
         DB_PATH = os.path.join(DATA, "media.db")
         PIDFILE = os.path.join(DATA, "server.pid")
@@ -537,6 +538,10 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
         if not it:
             raise HTTPException(status_code=404, detail="not found")
         if dl:
+            # 下载=再次分发：软删除资产不允许下载（须先恢复），
+            # 普通浏览放行以保持回收站预览可用
+            if it.get("deleted_at"):
+                raise HTTPException(status_code=404, detail="资源已删除，请先从回收站恢复")
             db.increment_counter(iid, "downloads")
         # 若请求兼容播放副本且存在
         if play and it.get("play_file"):
@@ -1438,6 +1443,8 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
             "thumbs": dir_size(THUMBS),
             "previews": dir_size(PREVIEWS),
             "play": dir_size(PLAY_DIR),
+            # 按需变换缓存（A-05）：纳入概览便于发现缓存膨胀
+            "imgcache": img_transform.cache_stats(IMG_CACHE_DIR),
             "disk_total": disk.total,
             "disk_free": disk.free,
         }

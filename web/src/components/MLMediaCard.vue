@@ -72,7 +72,7 @@ const meta = computed(() => {
  * 仅当无标题时才生成描述性文本。
  */
 const altText = computed(() =>
-  props.item.title ? '' : `媒体资源：${props.item.name}`,
+  props.item.title ? '' : t('card.mediaAlt', { name: props.item.name }),
 )
 
 </script>

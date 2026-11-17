@@ -748,7 +748,11 @@ class MediaDB:
         # 发布状态（REQ-V2-20 C-12）：
         #   - 默认只出 published，且定时到期的 draft 视为已发布（惰性查询兜底）
         #   - 管理端可用 status= 显式查某一状态，或 include_unpublished 查全部
-        if status:
+        #   - 回收站视图（deleted=True）不做状态过滤：软删除资产无论
+        #     draft/archived 都必须可见可恢复，否则会变成无法找回的幽灵资产
+        if deleted:
+            pass
+        elif status:
             where.append("i.status = ?")
             params.append(status)
         elif not include_unpublished:
@@ -1150,7 +1154,8 @@ class MediaDB:
                 "platforms": platforms,
             }
 
-    def get_facets(self, **filters) -> Dict[str, Any]:
+    def get_facets(self, kind: str = "", ext: str = "", orientation: str = "",
+                   platform: str = "") -> Dict[str, Any]:
         """分面统计（REQ-V2-20 B-10）。
 
         返回在当前筛选上下文下，各维度的可选值与计数，
@@ -1165,22 +1170,48 @@ class MediaDB:
                 row = conn.execute(sql, params).fetchone()
                 return int(row[0]) if row else 0
 
-            base = "FROM items i WHERE i.deleted_at IS NULL"
+            def facet_where(exclude: str) -> Tuple[str, List[Any]]:
+                """构造聚合 where：应用除 exclude 维度外的全部筛选条件。"""
+                where = ["i.deleted_at IS NULL"]
+                params: List[Any] = []
+                if exclude != "kind" and kind in ("image", "video"):
+                    where.append("i.kind = ?")
+                    params.append(kind)
+                if exclude != "ext" and ext:
+                    e = ext if ext.startswith(".") else "." + ext
+                    where.append("i.ext = ?")
+                    params.append(e.lower())
+                if exclude != "orientation" and orientation == "landscape":
+                    where.append("i.width > i.height AND i.width > 0")
+                elif exclude != "orientation" and orientation == "portrait":
+                    where.append("i.height > i.width AND i.height > 0")
+                elif exclude != "orientation" and orientation == "square":
+                    where.append("i.width > 0 AND ABS(i.aspect_ratio - 1.0) <= 0.12")
+                if exclude != "platform" and platform:
+                    where.append("i.source_platform = ?")
+                    params.append(platform)
+                return " AND ".join(where), params
+
             result: Dict[str, Any] = {}
 
             # 类型
+            cond, params = facet_where("kind")
             rows = conn.execute(
-                f"SELECT i.kind AS k, COUNT(*) AS c {base} GROUP BY i.kind ORDER BY c DESC"
+                f"SELECT i.kind AS k, COUNT(*) AS c FROM items i WHERE {cond} GROUP BY i.kind ORDER BY c DESC",
+                params,
             ).fetchall()
             result["kind"] = [{"value": r["k"], "count": r["c"]} for r in rows]
 
             # 格式
+            cond, params = facet_where("ext")
             rows = conn.execute(
-                f"SELECT i.ext AS k, COUNT(*) AS c {base} GROUP BY i.ext ORDER BY c DESC"
+                f"SELECT i.ext AS k, COUNT(*) AS c FROM items i WHERE {cond} GROUP BY i.ext ORDER BY c DESC",
+                params,
             ).fetchall()
             result["ext"] = [{"value": r["k"], "count": r["c"]} for r in rows]
 
             # 方向（用 SQL 表达式直接分桶，避免逐行计算）
+            cond, params = facet_where("orientation")
             rows = conn.execute(
                 f"""
                 SELECT
@@ -1191,35 +1222,41 @@ class MediaDB:
                         ELSE 'portrait'
                     END AS k,
                     COUNT(*) AS c
-                {base} GROUP BY k ORDER BY c DESC
-                """
+                FROM items i WHERE {cond} GROUP BY k ORDER BY c DESC
+                """,
+                params,
             ).fetchall()
             result["orientation"] = [
                 {"value": r["k"], "count": r["c"]} for r in rows if r["k"] != "unknown"
             ]
 
             # 来源平台
+            cond, params = facet_where("platform")
             rows = conn.execute(
-                f"SELECT i.source_platform AS k, COUNT(*) AS c {base} GROUP BY i.source_platform ORDER BY c DESC"
+                f"SELECT i.source_platform AS k, COUNT(*) AS c FROM items i WHERE {cond} GROUP BY i.source_platform ORDER BY c DESC",
+                params,
             ).fetchall()
             result["platform"] = [{"value": r["k"], "count": r["c"]} for r in rows]
 
-            # 标签 Top 20（排除已删除资产）
+            # 标签 Top 20（排除已删除资产，应用全部筛选条件）
+            cond, params = facet_where("")
             rows = conn.execute(
-                """
+                f"""
                 SELECT t.name AS k, COUNT(it.item_id) AS c
                 FROM tags t
                 JOIN item_tags it ON t.id = it.tag_id
                 JOIN items i ON it.item_id = i.id
-                WHERE i.deleted_at IS NULL
+                WHERE {cond}
                 GROUP BY t.id
                 ORDER BY c DESC, t.name ASC
                 LIMIT 20
-                """
+                """,
+                params,
             ).fetchall()
             result["tag"] = [{"value": r["k"], "count": r["c"]} for r in rows]
 
             # 尺寸区间
+            cond, params = facet_where("size_class")
             rows = conn.execute(
                 f"""
                 SELECT
@@ -1231,14 +1268,18 @@ class MediaDB:
                         ELSE 'unknown'
                     END AS k,
                     COUNT(*) AS c
-                {base} GROUP BY k ORDER BY c DESC
-                """
+                FROM items i WHERE {cond} GROUP BY k ORDER BY c DESC
+                """,
+                params,
             ).fetchall()
             result["size_class"] = [
                 {"value": r["k"], "count": r["c"]} for r in rows if r["k"] != "unknown"
             ]
 
-            result["total"] = scalar(f"SELECT COUNT(*) {base}", [])
+            total_cond, total_params = facet_where("")
+            result["total"] = scalar(
+                f"SELECT COUNT(*) FROM items i WHERE {total_cond}", total_params
+            )
             return result
 
     def get_analytics(self) -> Dict[str, Any]:

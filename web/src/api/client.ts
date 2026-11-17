@@ -108,7 +108,11 @@ export const api = {
   },
 
   collections(): Promise<Collection[]> {
-    return request<Collection[]>('/api/collections')
+    // 后端返回 { collections: [...] }，在此解构为纯数组，
+    // 否则调用方拿到的是对象，v-if="collections?.length" 恒为假
+    return request<{ collections: Collection[] }>('/api/collections').then(
+      (data) => data.collections,
+    )
   },
 
   /** 分面统计（B-10）：返回各筛选维度的可选值与计数 */
