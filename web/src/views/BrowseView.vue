@@ -10,6 +10,7 @@ import { useRoute } from 'vue-router'
 import { useMediaStore } from '@/stores/media'
 import { useFilterStore } from '@/stores/filters'
 import { useToast } from '@/composables/useToast'
+import { withViewTransition } from '@/composables/useViewTransition'
 import MasonryGrid from '@/components/MasonryGrid.vue'
 import LightboxViewer from '@/components/LightboxViewer.vue'
 import FacetPanel from '@/components/FacetPanel.vue'
@@ -53,6 +54,11 @@ function changeSort(value: SortKey) {
 /** 应用筛选后统一刷新（标签切换等由面板触发） */
 function applyAndRefresh() {
   store.refresh()
+}
+
+/** 打开灯箱：用共享元素转场让卡片"长成"大图（A-03） */
+function openLightbox(index: number) {
+  void withViewTransition(() => store.openLightbox(index))
 }
 
 // 从 URL 还原筛选，然后加载
@@ -199,7 +205,7 @@ watch(
           </MLButton>
         </div>
 
-        <MasonryGrid v-else :items="store.items" @open="store.openLightbox" />
+        <MasonryGrid v-else :items="store.items" @open="openLightbox" />
 
         <div v-if="store.hasMore" class="browse__more">
           <MLButton variant="ghost" :disabled="store.loading" @click="store.load()">

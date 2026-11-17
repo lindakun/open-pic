@@ -664,8 +664,8 @@
 | 阶段 | 状态 | 已交付 | 验证 |
 | :--- | :--- | :--- | :--- |
 | **S0 工程前置** | ✅ 完成 | Vite + Vue3 + TS 脚手架、路由、Pinia、API 客户端、设计 Token 三层结构、6 个基础组件、双前端切换开关 | 前端 9 项单测、后端 3 项集成测试、typecheck、构建通过，首包 gzip 40KB |
-| **S1 视觉跃升** | 🟡 部分 | **A-05** `/img` 按需变换（AVIF/WebP/JPEG/PNG，磁盘 LRU 缓存，AVIF 回退）、**B-10** `/api/facets` 分面统计 + URL 即状态 + chips 条 + 分面面板、**A-02** 编辑化首页（Hero/精选带/Editorial Grid）、**A-03** 动效 Token 与 `prefers-reduced-motion` 全局兜底 | 后端 14 项新测试（变换/缓存/分面/前端切换）、前端 9 项单测 |
-| S1 剩余 | ⬜ 待做 | A-01 完整 Token 体系与组件库扩充、A-02 合辑带数据源（需 featured 表）、A-03 共享元素转场（View Transitions） | — |
+| **S1 视觉跃升** | ✅ 完成 | **A-01** 三层 Token 体系（浅色编辑纸感基准）+ 组件库 7 个、**A-02** 编辑化首页（Hero/横向精选带/Editorial Grid 混排）、**A-03** 动效 Token + View Transitions 共享元素转场 + `prefers-reduced-motion` 全链路降级、**A-05** `/img` 按需变换、**B-10** 分面统计 + URL 即状态 | 后端 14 项新测试、前端 13 项单测、typecheck、构建 |
+| S1 遗留 | ⬜ 待补 | A-02 的「人工精选排布」需 `featured` 表与 `PATCH /api/featured`（当前 Hero/精选按规则自动选取）；A-01 组件库可继续扩充 | — |
 | S2–S4 | ⬜ 未开始 | — | — |
 
 ### 已落地的技术细节

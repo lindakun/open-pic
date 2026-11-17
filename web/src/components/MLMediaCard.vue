@@ -67,7 +67,10 @@ const altText = computed(() =>
     class="ml-card"
     @click="$emit('open', item)"
   >
-    <div class="ml-card__media">
+    <div
+      class="ml-card__media"
+      :style="{ viewTransitionName: `media-${item.id}` }"
+    >
       <SmartImage
         :id="item.id"
         :file="item.file"

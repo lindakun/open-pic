@@ -190,3 +190,32 @@ button {
   background: var(--accent-soft);
   color: var(--ink);
 }
+
+/* ---------- View Transitions 共享元素转场（A-03） ---------- */
+/* 转场名按资产 id 动态生成（media-{id}），故用通配符统一控制时序；
+   时长与缓动取自动效 Token，避免组件层裸写魔法数字。 */
+::view-transition-group(*) {
+  animation-duration: var(--p-dur-base);
+  animation-timing-function: var(--p-ease-out);
+}
+
+::view-transition-old(*),
+::view-transition-new(*) {
+  animation-duration: var(--p-dur-base);
+  animation-timing-function: var(--p-ease-out);
+}
+
+/* 卡片与会话快照尺寸差异大时，用混合模式避免中途发灰 */
+::view-transition-old(*),
+::view-transition-new(*) {
+  mix-blend-mode: normal;
+}
+
+/* 减弱动效：完全关闭转场动画 */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}

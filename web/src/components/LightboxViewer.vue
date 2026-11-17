@@ -106,7 +106,7 @@ onUnmounted(() => {
         :src="previewUrl"
         alt=""
         class="lightbox__img"
-        :style="{ transform: `scale(${zoom})` }"
+        :style="{ transform: `scale(${zoom})`, viewTransitionName: `media-${item.id}` }"
       />
       <video
         v-else
