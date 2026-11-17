@@ -70,10 +70,16 @@ const sizes = computed(() => {
   return `(max-width: 780px) 50vw, (max-width: 1120px) 33vw, ${cw}px`
 })
 
-/** 兜底 src：最小档 WebP；视频或无变换管线时回退原文件 */
+/**
+ * 兜底 src。
+ *
+ * 视频不能用 /f/ 原文件——浏览器会把视频当作图片解码失败，
+ * 表现为纯黑块（线上实测）。后端已为视频生成海报帧 /t/{id}.jpg，
+ * 这里直接用它作为卡片缩略图。
+ */
 const fallbackSrc = computed(() =>
-  props.kind === 'video' && props.file
-    ? `/f/${props.file}`
+  props.kind === 'video'
+    ? `/t/${props.id}.jpg`
     : `/img/${props.id}?w=720&fm=webp`,
 )
 </script>
