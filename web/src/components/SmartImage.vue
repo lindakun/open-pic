@@ -11,7 +11,7 @@
  * 注意：悬停预览等"换图"场景请用独立的叠加层元素，
  * 不要改写本组件的 src（会破坏 srcset 选择）。
  */
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = withDefaults(
   defineProps<{
@@ -29,6 +29,12 @@ const props = withDefaults(
     alt?: string
     /** 宽高比，用于预留高度防抖动 */
     ratio?: number
+    /**
+     * 版本号（通常传 item.updated_at）。
+     * 后台处理完成后版本变化会重置加载状态并给 URL 加缓存参数，
+     * 让之前 404 的缩略图重新拉取，而不是一直停在失败占位。
+     */
+    version?: number | string
   }>(),
   {
     kind: 'image',
@@ -42,6 +48,11 @@ const props = withDefaults(
 const loaded = ref(false)
 /** 加载失败：展示占位图标而非永远的空白块 */
 const failed = ref(false)
+
+const versionQuery = computed(() => {
+  const v = props.version
+  return v === undefined || v === null || v === '' ? '' : `v=${v}`
+})
 
 function onError() {
   failed.value = true
@@ -60,13 +71,13 @@ const availableWidths = computed(() => {
 
 const srcset = computed(() =>
   availableWidths.value
-    .map((w) => `/img/${props.id}?w=${w}&fm=webp ${w}w`)
+    .map((w) => `/img/${props.id}?w=${w}&fm=webp${versionQuery.value ? `&${versionQuery.value}` : ''} ${w}w`)
     .join(', '),
 )
 
 const avifSrcset = computed(() =>
   availableWidths.value
-    .map((w) => `/img/${props.id}?w=${w}&fm=avif ${w}w`)
+    .map((w) => `/img/${props.id}?w=${w}&fm=avif${versionQuery.value ? `&${versionQuery.value}` : ''} ${w}w`)
     .join(', '),
 )
 
@@ -85,10 +96,20 @@ const sizes = computed(() => {
  * 表现为纯黑块（线上实测）。后端已为视频生成海报帧 /t/{id}.jpg，
  * 这里直接用它作为卡片缩略图。
  */
-const fallbackSrc = computed(() =>
-  props.kind === 'video'
-    ? `/t/${props.id}.jpg`
-    : `/img/${props.id}?w=720&fm=webp`,
+const fallbackSrc = computed(() => {
+  const v = versionQuery.value
+  return props.kind === 'video'
+    ? `/t/${props.id}.jpg${v ? `?${v}` : ''}`
+    : `/img/${props.id}?w=720&fm=webp${v ? `&${v}` : ''}`
+})
+
+// 版本变化说明后台已补齐缩略图/元数据：重置失败态并重新发起加载
+watch(
+  () => props.version,
+  () => {
+    failed.value = false
+    loaded.value = false
+  },
 )
 </script>
 

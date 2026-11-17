@@ -107,6 +107,7 @@ const altText = computed(() =>
         :alt="altText"
         :ratio="ratio"
         :display-width="width"
+        :version="item.updated_at"
       />
       <!-- 视频悬停动态预览：叠加在海报帧上，移出即停。
            桌面 hover 设备才显示（触屏长按会误触） -->

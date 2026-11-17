@@ -16,18 +16,24 @@ const { t, locale, toggleLocale } = useI18n()
 
 const headerHidden = ref(false)
 let ticking = false
+/** 上一次滚动位置：用于判断方向，向上滚动时必须立刻复现顶栏 */
+let lastY = 0
 
 function onScroll() {
   if (ticking) return
   ticking = true
   requestAnimationFrame(() => {
     const y = window.scrollY
-    // 顶部 40px 内始终显示；下滚隐藏、上滚显示
+    // 顶部 40px 内始终显示；下滚隐藏、上滚显示。
+    // 仅按位置判断会在向上滚动时也保持隐藏，与「回看时顶栏复现」的预期相反。
     if (y < 40) {
       headerHidden.value = false
-    } else if (y > 200) {
+    } else if (y > lastY + 4 && y > 200) {
       headerHidden.value = true
+    } else if (y < lastY - 4) {
+      headerHidden.value = false
     }
+    lastY = y
     ticking = false
   })
 }

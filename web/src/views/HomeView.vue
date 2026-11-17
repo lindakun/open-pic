@@ -61,15 +61,11 @@ onMounted(async () => {
   // 首页是"全部资产"的图墙：清掉浏览页遗留的筛选，
   // 否则从浏览页返回首页时图片墙会静默变成筛选子集
   filters.reset()
-  if (store.items.length === 0) {
-    await store.refresh()
-    // 人工精选置顶（A-02）：不改变图片墙结构，只调整顺序
-    await store.promoteFeatured()
-  } else {
-    // 有缓存列表也要按无筛选状态刷新一次（可能上次是被筛选过的）
-    void store.refresh()
-    void store.promoteFeatured()
-  }
+  // 必须先等列表刷新完成再置顶精选：
+  // 两者并发时 refresh 会用接口结果覆盖 promoteFeatured 刚调整好的顺序，
+  // 首页精选位会随机丢失（实测踩到）。
+  await store.refresh()
+  await store.promoteFeatured()
   window.addEventListener('scroll', onScroll, { passive: true })
 
   observer = new IntersectionObserver(

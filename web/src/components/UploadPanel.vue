@@ -98,6 +98,8 @@ async function submit() {
   progress.value = { done: 0, total: queue.value.length }
   let ok = 0
   const failed: string[] = []
+  /** 失败文件保留在队列里，便于用户直接重试（此前成功即清空整个队列） */
+  const failedFiles: File[] = []
 
   // 三个一批并发上传：串行传 10 个文件要等 10 倍时间，
   // 并发过高又容易在弱网下集体超时
@@ -112,6 +114,7 @@ async function submit() {
         ok++
       } catch (e) {
         failed.push(`${file.name}: ${(e as Error).message}`)
+        failedFiles.push(file)
       }
       progress.value.done++
     }
@@ -121,8 +124,9 @@ async function submit() {
   uploading.value = false
   if (failed.length) errors.value = failed
   if (ok > 0) {
-    queue.value = []
-    title.value = ''
+    // 只清掉成功的；失败项留在队列里可直接重试
+    queue.value = failedFiles
+    if (!failedFiles.length) title.value = ''
     toast.success(t('upload.done', { count: ok }))
     emit('uploaded', ok)
     // 全部成功才自动关闭，有失败时留在面板里便于重试

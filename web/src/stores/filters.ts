@@ -34,6 +34,8 @@ export const useFilterStore = defineStore('filters', () => {
   const orientation = ref<'' | 'landscape' | 'portrait' | 'square'>('')
   const platform = ref('')
   const ext = ref('')
+  /** 分辨率分桶（分面面板的「分辨率」组，后端按长边分桶） */
+  const sizeClass = ref('')
   /** 主色筛选（A-04 色板 → B-10 色彩分面打通） */
   const color = ref('')
   const sort = ref<SortKey>('newest')
@@ -49,6 +51,7 @@ export const useFilterStore = defineStore('filters', () => {
       (orientation.value ? 1 : 0) +
       (platform.value ? 1 : 0) +
       (ext.value ? 1 : 0) +
+      (sizeClass.value ? 1 : 0) +
       (color.value ? 1 : 0),
   )
 
@@ -63,6 +66,7 @@ export const useFilterStore = defineStore('filters', () => {
     orientation: orientation.value,
     platform: platform.value,
     ext: ext.value,
+    size_class: sizeClass.value,
     color: color.value,
     sort: sort.value,
   }))
@@ -77,6 +81,7 @@ export const useFilterStore = defineStore('filters', () => {
     if (orientation.value) out.orientation = orientation.value
     if (platform.value) out.platform = platform.value
     if (ext.value) out.ext = ext.value
+    if (sizeClass.value) out.size = sizeClass.value
     if (color.value) out.color = color.value
     if (sort.value !== 'newest') out.sort = sort.value
     if (view.value !== 'masonry') out.view = view.value
@@ -98,6 +103,7 @@ export const useFilterStore = defineStore('filters', () => {
     orientation.value = (get('orientation') as '' | 'landscape' | 'portrait' | 'square') || ''
     platform.value = get('platform')
     ext.value = get('ext')
+    sizeClass.value = get('size')
     color.value = get('color')
     sort.value = (get('sort') as SortKey) || 'newest'
     view.value = (get('view') as ViewMode) || 'masonry'
@@ -169,6 +175,11 @@ export const useFilterStore = defineStore('filters', () => {
     syncUrl()
   }
 
+  function setSizeClass(value: string): void {
+    sizeClass.value = value
+    syncUrl()
+  }
+
   function setColor(value: string): void {
     color.value = value
     syncUrl()
@@ -193,6 +204,7 @@ export const useFilterStore = defineStore('filters', () => {
     orientation.value = ''
     platform.value = ''
     ext.value = ''
+    sizeClass.value = ''
     color.value = ''
     syncUrl()
   }
@@ -205,6 +217,7 @@ export const useFilterStore = defineStore('filters', () => {
     orientation,
     platform,
     ext,
+    sizeClass,
     color,
     sort,
     view,
@@ -223,6 +236,7 @@ export const useFilterStore = defineStore('filters', () => {
     setOrientation,
     setPlatform,
     setExt,
+    setSizeClass,
     setColor,
     setSort,
     setView,

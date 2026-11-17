@@ -690,17 +690,22 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
         platform: str = "",
         tag: str = "",
         exclude_tag: str = "",
+        q: str = "",
+        color: str = "",
+        size_class: str = "",
     ):
         """分面统计（REQ-V2-20 B-10）。
 
         返回各筛选维度的可选值与计数，前端据此渲染分面面板并对零结果项置灰。
-        标签筛选也参与上下文：否则选了标签后其他维度的计数仍是全集，误导点选。
+        关键词、标签、主色都参与上下文：否则筛选后其余维度的计数仍是全集，
+        点选后结果数与徽标对不上。
         """
         tags_list = [t.strip() for t in tag.split(",") if t.strip()] if tag else []
         ex_list = [t.strip() for t in exclude_tag.split(",") if t.strip()] if exclude_tag else []
         return db.get_facets(
             kind=kind, ext=ext, orientation=orientation, platform=platform,
             tags=tags_list, exclude_tags=ex_list,
+            q=q, color=color, size_class=size_class,
         )
 
     @app.get("/api/items")
@@ -716,6 +721,7 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
         platform: str = "",
         collection_id: Optional[int] = None,
         color: str = "",
+        size_class: str = "",
         sort: str = "newest",
         deleted: bool = False,
         status: str = "",
@@ -735,6 +741,7 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
             platform=platform,
             collection_id=collection_id,
             color=color,
+            size_class=size_class,
             sort=sort,
             deleted=deleted,
             status=status,

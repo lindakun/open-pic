@@ -76,9 +76,18 @@ const videoUrl = computed(() =>
 )
 /** 下载地址：带 dl=1 让后端计入下载量统计 */
 const downloadUrl = computed(() => `/f/${props.item.file}?dl=1`)
-const previewUrl = computed(() =>
-  props.item.thumb ? `/t/${props.item.id}_lg.webp` : `/f/${props.item.file}`,
-)
+
+/**
+ * 大图加载失败时回退原图。
+ *
+ * 快速上传路径下缩略图由后台任务生成，用户立刻点开时
+ * `_lg.webp` 可能还是 404；不回退会留下一个破图。
+ */
+function onImgError(event: Event, item: MediaItem) {
+  const img = event.target as HTMLImageElement
+  const fallback = `/f/${item.file}`
+  if (img.getAttribute('src') !== fallback) img.src = fallback
+}
 
 /** 固定浮点误差，保证对比模式下两图 transform 数值完全一致 */
 const priceScale = computed(() => Number(scale.value.toFixed(3)))
@@ -440,6 +449,7 @@ onUnmounted(() => {
     <div
       ref="stageRef"
       :class="['lightbox__stage', { 'lightbox__stage--compare': compareOn }]"
+      @click.self="close"
     >
       <template v-if="item.kind === 'image'">
         <figure v-for="it in compareOn ? compareItems : [item]" :key="it.id" class="lightbox__frame">
@@ -449,14 +459,18 @@ onUnmounted(() => {
             class="lightbox__img"
             :style="compareOn ? { transform: `scale(${priceScale})` } : { ...zoomStyle, viewTransitionName: `media-${item.id}` }"
             @dblclick="resetZoom()"
+            @error="onImgError($event, it)"
           />
           <figcaption v-if="compareOn" class="lightbox__cap mono">
             {{ it.width }}×{{ it.height }} · {{ it.ext.toUpperCase() }}
           </figcaption>
         </figure>
       </template>
+      <!-- key 强制切换条目时重建播放器：仅改 src 时部分浏览器
+           不会重新触发 autoplay，会停留在上一支视频的最后一帧 -->
       <video
         v-else
+        :key="item.id"
         :src="videoUrl"
         :poster="`/t/${item.id}.jpg`"
         :style="{ backgroundColor: item.dominant_color || '#12100d' }"
@@ -477,7 +491,10 @@ onUnmounted(() => {
           :class="['cmp-dot', { 'cmp-dot--on': inCompare(c.id) }]"
           :aria-pressed="inCompare(c.id)"
           :aria-label="`${t('lightbox.comparePick')} ${c.title || c.name}`"
-          :style="{ backgroundImage: `url(/t/${c.id}_sm.webp)` }"
+          :style="{
+            backgroundImage: `url(/t/${c.id}_sm.webp)`,
+            backgroundColor: c.dominant_color || 'var(--surface-sunken)',
+          }"
           @click="toggleCompare(c.id)"
         />
         <button

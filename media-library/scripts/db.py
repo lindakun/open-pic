@@ -727,6 +727,44 @@ class MediaDB:
             conn.execute(f"UPDATE items SET {col}={col}+1 WHERE id=?", (item_id,))
             conn.commit()
 
+    @staticmethod
+    def _keyword_condition(q: str) -> Optional[Tuple[str, List[Any]]]:
+        """关键词检索条件（列表与分面共用同一口径）。
+
+        FTS5 命中中文两字词；单字/极短查询走前缀匹配，
+        避免 `%kw%` 全表扫描。
+        """
+        q = (q or "").strip()
+        if not q:
+            return None
+        match_expr = search_index.build_match_query(q)
+        if match_expr and not search_index.is_single_char_cjk(q):
+            return (
+                "i.id IN (SELECT item_id FROM items_fts WHERE items_fts MATCH ?)",
+                [match_expr],
+            )
+        return (
+            "("
+            "i.title LIKE ? OR i.name LIKE ? "
+            "OR EXISTS (SELECT 1 FROM item_tags it JOIN tags tg ON it.tag_id=tg.id "
+            "WHERE it.item_id=i.id AND tg.name LIKE ?)"
+            ")",
+            [f"{q}%", f"{q}%", f"{q}%"],
+        )
+
+    @staticmethod
+    def _size_class_condition(size_class: str) -> Optional[str]:
+        """分辨率分桶条件，与 get_facets 的分桶阈值保持一致。"""
+        if size_class == "4k":
+            return "MAX(i.width, i.height) >= 3840"
+        if size_class == "hd":
+            return "MAX(i.width, i.height) >= 1920 AND MAX(i.width, i.height) < 3840"
+        if size_class == "sd":
+            return "MAX(i.width, i.height) >= 1280 AND MAX(i.width, i.height) < 1920"
+        if size_class == "small":
+            return "MAX(i.width, i.height) > 0 AND MAX(i.width, i.height) < 1280"
+        return None
+
     def query_items(
         self,
         limit: int = 60,
@@ -740,6 +778,7 @@ class MediaDB:
         platform: str = "",
         collection_id: Optional[int] = None,
         color: str = "",
+        size_class: str = "",
         sort: str = "newest",
         deleted: bool = False,
         status: str = "",
@@ -790,6 +829,9 @@ class MediaDB:
             where.append("i.height > i.width AND i.height > 0")
         elif orientation == "square":
             where.append("i.width > 0 AND ABS(i.aspect_ratio - 1.0) <= 0.12")
+        size_cond = self._size_class_condition(size_class)
+        if size_cond:
+            where.append(size_cond)
 
         if collection_id is not None:
             where.append("EXISTS (SELECT 1 FROM collection_items ci WHERE ci.item_id=i.id AND ci.collection_id=?)")
@@ -816,26 +858,10 @@ class MediaDB:
             )
             params.append(et)
 
-        if q.strip():
-            # 检索走 FTS5 索引（REQ-V2-20 B-06）：
-            #   seg 列为预分词结果，中文两字词可命中；
-            #   单字查询不构造 MATCH（几乎命中全库），改为标签精确 + 标题前缀。
-            match_expr = search_index.build_match_query(q)
-            if match_expr and not search_index.is_single_char_cjk(q):
-                where.append("i.id IN (SELECT item_id FROM items_fts WHERE items_fts MATCH ?)")
-                params.append(match_expr)
-            else:
-                # 单字/极短查询：走前缀匹配（可利用索引），避免 %kw% 全表扫。
-                # 标签用前缀而非全等："城" 应能命中标签 "城市"。
-                kw = q.strip()
-                where.append(
-                    "("
-                    "i.title LIKE ? OR i.name LIKE ? "
-                    "OR EXISTS (SELECT 1 FROM item_tags it JOIN tags tg ON it.tag_id=tg.id "
-                    "WHERE it.item_id=i.id AND tg.name LIKE ?)"
-                    ")"
-                )
-                params.extend([f"{kw}%", f"{kw}%", f"{kw}%"])
+        kw_cond = self._keyword_condition(q)
+        if kw_cond:
+            where.append(kw_cond[0])
+            params.extend(kw_cond[1])
 
         where_sql = " AND ".join(where)
         order_map = {
@@ -1132,40 +1158,58 @@ class MediaDB:
     # ---------- 统计与看板 ----------
 
     def get_stats(self) -> Dict[str, Any]:
+        """站点概览。
+
+        口径与默认列表（query_items 不带 include_unpublished）保持一致：
+        只统计 published 与已到期的定时 draft，否则首页计数会比
+        实际能翻到的条目多（草稿不可见却计入 total）。
+        """
+        now = int(time.time())
+        visible = (
+            "(i.status = 'published' OR (i.status = 'draft'"
+            " AND i.publish_at IS NOT NULL AND i.publish_at <= ?))"
+        )
         with self.connect() as conn:
             row = conn.execute(
-                """
+                f"""
                 SELECT
                     COUNT(*) AS total,
                     COALESCE(SUM(CASE WHEN kind='image' THEN 1 ELSE 0 END), 0) AS images,
                     COALESCE(SUM(CASE WHEN kind='video' THEN 1 ELSE 0 END), 0) AS videos,
                     COALESCE(SUM(size), 0) AS bytes
-                FROM items WHERE deleted_at IS NULL
-                """
+                FROM items i WHERE i.deleted_at IS NULL AND {visible}
+                """,
+                (now,),
             ).fetchone()
             trash_count = conn.execute("SELECT COUNT(*) FROM items WHERE deleted_at IS NOT NULL").fetchone()[0]
             collections_count = conn.execute("SELECT COUNT(*) FROM collections").fetchone()[0]
+            # 草稿/归档单独给出，便于后台判断「看不见的还有多少」
+            drafts = conn.execute(
+                "SELECT COUNT(*) FROM items WHERE deleted_at IS NULL AND status = 'draft'"
+            ).fetchone()[0]
 
             tag_rows = conn.execute(
-                """
+                f"""
                 SELECT t.name, COUNT(it.item_id) AS cnt
                 FROM tags t
                 JOIN item_tags it ON t.id=it.tag_id
                 JOIN items i ON it.item_id=i.id
-                WHERE i.deleted_at IS NULL
+                WHERE i.deleted_at IS NULL AND {visible}
                 GROUP BY t.id
                 ORDER BY cnt DESC, t.name ASC
-                """
+                """,
+                (now,),
             ).fetchall()
             tags_dict = {r["name"]: r["cnt"] for r in tag_rows}
             tags_list = [{"name": r["name"], "count": r["cnt"]} for r in tag_rows]
 
             plat_rows = conn.execute(
-                """
+                f"""
                 SELECT source_platform, COUNT(*) AS cnt
-                FROM items WHERE deleted_at IS NULL
+                FROM items i WHERE i.deleted_at IS NULL AND {visible}
                 GROUP BY source_platform ORDER BY cnt DESC
-                """
+                """,
+                (now,),
             ).fetchall()
             platforms = [{"name": r["source_platform"], "count": r["cnt"]} for r in plat_rows]
 
@@ -1174,6 +1218,7 @@ class MediaDB:
                 "images": row["images"],
                 "videos": row["videos"],
                 "bytes": row["bytes"],
+                "drafts": drafts,
                 "trash_count": trash_count,
                 "collections_count": collections_count,
                 "tags": tags_dict,
@@ -1183,7 +1228,8 @@ class MediaDB:
 
     def get_facets(self, kind: str = "", ext: str = "", orientation: str = "",
                    platform: str = "", tags: Optional[List[str]] = None,
-                   exclude_tags: Optional[List[str]] = None) -> Dict[str, Any]:
+                   exclude_tags: Optional[List[str]] = None,
+                   q: str = "", color: str = "", size_class: str = "") -> Dict[str, Any]:
         """分面统计（REQ-V2-20 B-10）。
 
         返回在当前筛选上下文下，各维度的可选值与计数，
@@ -1229,6 +1275,16 @@ class MediaDB:
                 if exclude != "platform" and platform:
                     where.append("i.source_platform = ?")
                     params.append(platform)
+                if exclude != "size_class":
+                    size_cond = self._size_class_condition(size_class)
+                    if size_cond:
+                        where.append(size_cond)
+                # 关键词上下文对所有维度生效：搜索时其余分面应显示
+                # 命中结果内的分布，而不是全库计数（否则点选后结果与数字不符）
+                kw_cond = self._keyword_condition(q)
+                if kw_cond:
+                    where.append(kw_cond[0])
+                    params.extend(kw_cond[1])
                 # 标签上下文对所有维度生效（标签不在分面面板自身的排除逻辑里，
                 # 因为标签是多选，排除自己会让计数回到全集，语义反直觉）
                 for t in tag_names:
@@ -1243,6 +1299,23 @@ class MediaDB:
                         " WHERE it.item_id=i.id AND tg.name=?)"
                     )
                     params.append(et)
+                # 主色无法在 SQL 里算色距：先按当前条件取候选行，
+                # 在 Python 侧过滤后回填 id 列表（个人库规模可接受）
+                if color:
+                    cond_sql = " AND ".join(where)
+                    color_rows = conn.execute(
+                        f"SELECT i.id, i.dominant_color FROM items i WHERE {cond_sql}",
+                        params,
+                    ).fetchall()
+                    matched = [
+                        r["id"] for r in color_rows
+                        if _color_distance(color, r["dominant_color"]) <= 115
+                    ]
+                    if matched:
+                        where.append(f"i.id IN ({','.join('?' * len(matched))})")
+                        params.extend(matched)
+                    else:
+                        where.append("0")
                 return " AND ".join(where), params
 
             result: Dict[str, Any] = {}

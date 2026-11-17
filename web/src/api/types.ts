@@ -90,6 +90,8 @@ export interface ItemQuery {
   platform?: string
   collection_id?: number | null
   color?: string
+  /** 分辨率分桶：4k / hd / sd / small */
+  size_class?: string
   sort?: string
   deleted?: boolean
 }

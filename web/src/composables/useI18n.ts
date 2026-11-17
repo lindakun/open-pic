@@ -65,6 +65,7 @@ const messages: Record<Locale, Dict> = {
     'card.mediaAlt': '媒体资源：{name}',
     'lightbox.filterTag': '按标签筛选',
     'browse.keyword': '关键词：{value}',
+    'browse.colorFilter': '主色 {value}',
 
     // 排序
     'sort.newest': '最新',
@@ -266,6 +267,7 @@ const messages: Record<Locale, Dict> = {
     'card.mediaAlt': 'Media asset: {name}',
     'lightbox.filterTag': 'Filter by tag',
     'browse.keyword': 'Keyword: {value}',
+    'browse.colorFilter': 'Color {value}',
 
     'sort.newest': 'Newest',
     'sort.oldest': 'Oldest',

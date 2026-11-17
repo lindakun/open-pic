@@ -77,7 +77,7 @@ function onSearchInput(value: string) {
   window.clearTimeout(debounceTimer)
   debounceTimer = window.setTimeout(async () => {
     filters.setQ(value)
-    await store.refresh()
+    await applyAndRefresh()
     // 记录搜索结果数：后续「零结果搜索词榜」直接来自这里（D-18）
     if (value.trim()) {
       track('search', { meta: { q: value.trim(), result_count: store.total } })
@@ -101,6 +101,14 @@ const ORIENTATION_KEY: Record<string, string> = {
   landscape: 'facet.landscape',
   portrait: 'facet.portrait',
   square: 'facet.square',
+}
+
+/** 分辨率分桶的 i18n key（与分面面板同源） */
+const SIZE_KEY: Record<string, string> = {
+  '4k': 'facet.size4k',
+  hd: 'facet.sizeHd',
+  sd: 'facet.sizeSd',
+  small: 'facet.sizeSmall',
 }
 
 function changeSort(value: SortKey) {
@@ -188,10 +196,25 @@ function onBatchDone() {
   clearSelection()
 }
 
-/** 应用筛选后统一刷新（标签切换等由面板触发） */
+/**
+ * 应用筛选后统一刷新（标签切换等由面板触发）。
+ *
+ * 筛选结果是一份全新的列表，必须回到顶部：
+ * 否则用户停在旧列表底部时，新列表更短会落在空白区，
+ * 而虚拟化只渲染可视区，看起来像「筛选后什么都没了」。
+ * 同时清空批量选择，避免对已被筛掉的条目执行操作。
+ */
 function applyAndRefresh() {
   clearScrollAnchor()
+  clearSelection()
+  window.scrollTo({ top: 0, behavior: 'auto' })
   store.refresh()
+}
+
+/** 只看喜欢：过滤的是已加载列表，切换后同样回到顶部 */
+function toggleOnlyLiked() {
+  onlyLiked.value = !onlyLiked.value
+  window.scrollTo({ top: 0, behavior: 'auto' })
 }
 
 /**
@@ -396,6 +419,7 @@ watch(
     filters.orientation,
     filters.platform,
     filters.ext,
+    filters.sizeClass,
     // color 必须监听：仅用色彩筛选时点「清空」，其余值不变，
     // 缺了它 watch 不触发，列表会停留在旧的色彩筛选结果
     filters.color,
@@ -491,11 +515,20 @@ watch(
         >
           ×
         </button>
-        <!-- AI 检索未启用时只给说明，不显示入口（B-08 验收 4） -->
-        <span v-if="aiStatus && !aiStatus.available" class="browse__ai-off" :title="aiStatus.hint">
+        <!-- AI 检索未启用时只给说明，不显示入口（B-08 验收 4）。
+             有搜索词时隐藏右侧标识，避免与「清除」按钮在同一位置重叠。 -->
+        <span
+          v-if="!searchInput && aiStatus && !aiStatus.available"
+          class="browse__ai-off"
+          :title="aiStatus.hint"
+        >
           {{ t('ai.disabled') }}
         </span>
-        <span v-else-if="aiStatus?.available" class="browse__ai-on" :title="t('ai.byImageHint')">
+        <span
+          v-else-if="!searchInput && aiStatus?.available"
+          class="browse__ai-on"
+          :title="t('ai.byImageHint')"
+        >
           {{ t('ai.byImage') }}
         </span>
       </div>
@@ -516,7 +549,7 @@ watch(
       <MLButton
         variant="quiet"
         :aria-pressed="onlyLiked"
-        @click="onlyLiked = !onlyLiked"
+        @click="toggleOnlyLiked"
       >
         {{ onlyLiked ? t('like.showAll') : t('like.onlyLiked') }}<template v-if="likedIds.length"> {{ likedIds.length }}</template>
       </MLButton>
@@ -575,6 +608,34 @@ watch(
         removable
         active
         @remove="filters.setOrientation(''); applyAndRefresh()"
+      />
+      <MLChip
+        v-if="filters.sizeClass"
+        :label="t(SIZE_KEY[filters.sizeClass] ?? 'facet.sizeClass')"
+        removable
+        active
+        @remove="filters.setSizeClass(''); applyAndRefresh()"
+      />
+      <MLChip
+        v-if="filters.ext"
+        :label="filters.ext.replace(/^\./, '').toUpperCase()"
+        removable
+        active
+        @remove="filters.setExt(''); applyAndRefresh()"
+      />
+      <MLChip
+        v-if="filters.platform"
+        :label="filters.platform"
+        removable
+        active
+        @remove="filters.setPlatform(''); applyAndRefresh()"
+      />
+      <MLChip
+        v-if="filters.color"
+        :label="t('browse.colorFilter', { value: filters.color })"
+        removable
+        active
+        @remove="filters.setColor(''); applyAndRefresh()"
       />
       <button type="button" class="browse__clear" @click="filters.reset(); applyAndRefresh()">
         {{ t('browse.clearAll') }}
@@ -773,7 +834,8 @@ watch(
   background: var(--surface);
   border: 1px solid var(--rule-strong);
   border-radius: var(--p-radius-md);
-  padding: var(--p-space-2) var(--p-space-3) var(--p-space-2) var(--p-space-7);
+  /* 右侧预留清除按钮/AI 标识的位置，长搜索词不会压在按钮下面 */
+  padding: var(--p-space-2) var(--p-space-7) var(--p-space-2) var(--p-space-7);
   min-height: 36px;
   transition: border-color var(--p-dur-fast) var(--p-ease-out);
 }

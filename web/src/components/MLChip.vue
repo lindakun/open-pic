@@ -12,11 +12,14 @@ withDefaults(
     label: string
     count?: number
     removable?: boolean
+    /** 可点击但非移除语义（分面面板的未选项）：渲染为 button 保证键盘可达 */
+    interactive?: boolean
     active?: boolean
     tone?: 'default' | 'exclude'
   }>(),
   {
     removable: false,
+    interactive: false,
     active: false,
     tone: 'default',
   },
@@ -32,8 +35,9 @@ const { t } = useI18n()
 
 <template>
   <component
-    :is="removable ? 'button' : 'span'"
-    :type="removable ? 'button' : undefined"
+    :is="removable || interactive ? 'button' : 'span'"
+    :type="removable || interactive ? 'button' : undefined"
+    :aria-pressed="interactive ? active : undefined"
     :class="['ml-chip', { 'ml-chip--active': active, 'ml-chip--exclude': tone === 'exclude' }]"
     @click="removable ? $emit('remove') : $emit('click')"
   >

@@ -99,7 +99,11 @@ export const useMediaStore = defineStore('media', () => {
         ext: filters.ext,
         orientation: filters.orientation,
         platform: filters.platform,
-        // 标签也参与分面上下文：否则选标签后其余维度仍显示全集计数
+        size_class: filters.sizeClass,
+        // 关键词/标签/主色都参与分面上下文：否则筛选后其余维度
+        // 仍显示全集计数，点选后结果数与徽标对不上
+        q: filters.q,
+        color: filters.color,
         tag: filters.tags,
         exclude_tag: filters.excludeTags,
       })

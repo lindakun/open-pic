@@ -51,6 +51,7 @@ function isActive(dimension: string, value: string): boolean {
   if (dimension === 'orientation') return filters.orientation === value
   if (dimension === 'platform') return filters.platform === value
   if (dimension === 'ext') return filters.ext === value
+  if (dimension === 'size_class') return filters.sizeClass === value
   return false
 }
 
@@ -74,6 +75,10 @@ function toggle(dimension: string, value: string): void {
   }
   if (dimension === 'ext') {
     filters.setExt(filters.ext === value ? '' : value)
+    return
+  }
+  if (dimension === 'size_class') {
+    filters.setSizeClass(filters.sizeClass === value ? '' : value)
   }
 }
 
@@ -91,8 +96,9 @@ const groups = computed(() => {
   ].filter((g) => g.options && g.options.length > 0)
 })
 
-function isDisabled(option: FacetOption): boolean {
-  return option.count === 0
+/** 零结果项不可点：保留展示但禁用交互 */
+function canToggle(option: FacetOption): boolean {
+  return option.count > 0
 }
 </script>
 
@@ -123,16 +129,20 @@ function isDisabled(option: FacetOption): boolean {
         <span class="facet__chevon" aria-hidden="true">›</span>
       </summary>
       <div class="facet__body">
+        <!-- 已选项渲染为可移除 chip（×），未选项渲染为普通 chip：
+             两者都点击即切换。此前未选项也带 ×，视觉上像「移除」而非「添加」。 -->
         <MLChip
           v-for="opt in group.options"
           :key="opt.value"
           :label="displayName(group.key, opt.value)"
           :count="opt.count"
           :active="isActive(group.key, opt.value)"
-          :removable="opt.count > 0 || isActive(group.key, opt.value)"
+          :removable="isActive(group.key, opt.value)"
+          :interactive="canToggle(opt) || isActive(group.key, opt.value)"
           :class="['facet__chip', { 'facet__chip--empty': opt.count === 0 }]"
-          :aria-disabled="opt.count === 0 && !isActive(group.key, opt.value)"
-          @remove="opt.count > 0 || isActive(group.key, opt.value) ? toggle(group.key, opt.value) : undefined"
+          :aria-disabled="!canToggle(opt) && !isActive(group.key, opt.value)"
+          @remove="toggle(group.key, opt.value)"
+          @click="canToggle(opt) || isActive(group.key, opt.value) ? toggle(group.key, opt.value) : undefined"
         />
       </div>
     </details>

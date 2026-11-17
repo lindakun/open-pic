@@ -52,6 +52,17 @@ describe('SmartImage', () => {
     expect(img.attributes('fetchpriority')).toBe('high')
   })
 
+  it('版本变化时重置失败态并给 URL 加缓存参数（后台补图后可重试）', async () => {
+    const wrapper = mount(SmartImage, { props: { id: 'retry', version: 1 } })
+    expect(wrapper.find('img').attributes('src')).toContain('v=1')
+    await wrapper.find('img').trigger('error')
+    expect(wrapper.find('.smart-image__failed').exists()).toBe(true)
+
+    await wrapper.setProps({ version: 2 })
+    expect(wrapper.find('.smart-image__failed').exists()).toBe(false)
+    expect(wrapper.find('img').attributes('src')).toContain('v=2')
+  })
+
   it('比率写入容器 aspect-ratio，防止加载时抖动', () => {
     const wrapper = mount(SmartImage, { props: { id: 'r1', ratio: 1.5 } })
     expect(wrapper.find('.smart-image').attributes('style')).toContain('aspect-ratio: 1 / 1.5')
