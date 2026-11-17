@@ -12,7 +12,6 @@
 import argparse
 import hashlib
 import html
-import io
 import json
 import mimetypes
 import os
@@ -47,6 +46,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 import ai_provider
 import export_seo
@@ -478,13 +478,16 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
         title_esc = html.escape(it["title"] or it["name"])
         thumb_url = f"{base_url}/t/{it['id']}.jpg"
         original_url = f"{base_url}/f/{it['file']}"
-        # 视频优先用后端生成的 H.264 兼容副本：HEVC/MKV 原文件在浏览器里
-        # 直接播放会黑屏，分享页必须走 ?play=1（与灯箱同款口径）
-        media_url = (
-            f"{original_url}?play=1"
-            if it["kind"] == "video" and it.get("play_file")
-            else original_url
-        )
+        if it["kind"] == "video":
+            # 视频优先用后端生成的 H.264 兼容副本：HEVC/MKV 原文件在浏览器里
+            # 直接播放会黑屏，分享页必须走 ?play=1（与灯箱同款口径）
+            media_url = (
+                f"{original_url}?play=1" if it.get("play_file") else original_url
+            )
+        else:
+            # 图片展示走按需变换（1920 长边 WebP）：分享页直接塞原图
+            # 会让 20MB 的素材拖慢首屏，而下载按钮仍指向原文件
+            media_url = f"{base_url}/img/{it['id']}?w=1920&fm=webp"
         tags_esc = html.escape(" ".join(f"#{t}" for t in it.get("tags", [])))
         dim_info = f"{it['width']}×{it['height']}" if it.get("width") else ""
         desc_esc = html.escape(f"{it['kind'].upper()} · {dim_info} · {tags_esc}".strip(" ·"))
@@ -876,10 +879,14 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
                             if total_bytes > MAX_UPLOAD:
                                 raise HTTPException(status_code=413, detail="too large")
                             out_f.write(chunk)
+                    if total_bytes == 0:
+                        # 空文件不应进入资产库：既占记录又无法生成缩略图
+                        os.remove(tp)
+                        continue
                     files_to_save.append((tp, val.filename))
 
             if not files_to_save:
-                raise HTTPException(status_code=400, detail="no file field")
+                raise HTTPException(status_code=400, detail="文件为空或未选择文件")
 
             out = []
             for tp, fname in files_to_save:
@@ -1023,21 +1030,39 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
                 },
             )
 
-        data = export_seo.build_zip_memory(
-            FILES,
-            items,
-            preset=req.preset,
-            fmt=req.format,
-            quality=req.quality,
-            base_url=base_url,
-        )
-        return StreamingResponse(
-            io.BytesIO(data),
+        # 同步导出也写临时文件后由 FileResponse 流式发送：
+        # build_zip_memory 会把整包读进内存（最大 200MB），
+        # 小批量导出没必要占用这么多内存
+        fd, tmp_zip = tempfile.mkstemp(prefix="mlib-pack-", suffix=".zip", dir=DATA)
+        os.close(fd)
+        try:
+            export_seo.build_zip_to_path(
+                FILES,
+                items,
+                tmp_zip,
+                preset=req.preset,
+                fmt=req.format,
+                quality=req.quality,
+                base_url=base_url,
+            )
+        except Exception as e:
+            try:
+                os.remove(tmp_zip)
+            except OSError:
+                pass
+            raise HTTPException(status_code=500, detail=f"导出失败: {e}")
+
+        def _cleanup_pack(path: str = tmp_zip):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+        return FileResponse(
+            tmp_zip,
             media_type="application/zip",
-            headers={
-                "Content-Disposition": "attachment; filename=medialib-pack.zip",
-                "Content-Length": str(len(data)),
-            },
+            filename="medialib-pack.zip",
+            background=BackgroundTask(_cleanup_pack),
         )
 
     @app.get("/api/exports/{name}")

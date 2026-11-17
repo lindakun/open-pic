@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
+import { useI18n } from '@/composables/useI18n'
+
+const { t } = useI18n()
 </script>
 
 <template>
   <div class="not-found">
     <p class="eyebrow">404</p>
-    <h1>这个页面不在库里</h1>
-    <p class="muted">链接可能已失效，或资源已被移除。</p>
-    <RouterLink to="/" class="back">← 回到首页</RouterLink>
+    <h1>{{ t('notfound.heading') }}</h1>
+    <p class="muted">{{ t('notfound.hint') }}</p>
+    <RouterLink to="/" class="back">← {{ t('notfound.back') }}</RouterLink>
   </div>
 </template>
 

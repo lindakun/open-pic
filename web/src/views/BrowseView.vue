@@ -131,6 +131,10 @@ async function searchByImage(file: File) {
     }
     const data = await res.json()
     store.replaceItems(data.items ?? [], data.total ?? 0)
+    // 一次性检索结果替换整份列表：与筛选切换同样需要回顶并清理旧选择
+    clearScrollAnchor()
+    clearSelection()
+    window.scrollTo({ top: 0, behavior: 'auto' })
   } finally {
     aiBusy.value = false
   }
@@ -171,6 +175,22 @@ function toggleSelect(id: string) {
 
 function clearSelection() {
   selectedIds.value = []
+}
+
+/** 是否已全选当前可见项 */
+const allSelected = computed(
+  () =>
+    visibleItems.value.length > 0 &&
+    selectedIds.value.length >= visibleItems.value.length,
+)
+
+/** 全选/取消全选已加载项：批量下载、加标签时不必逐个点 */
+function toggleSelectAll() {
+  if (allSelected.value) {
+    clearSelection()
+  } else {
+    selectedIds.value = visibleItems.value.map((i) => i.id)
+  }
 }
 
 /** 开启选择模式时清空旧选择，避免跨筛选的陈旧选择 */
@@ -280,6 +300,38 @@ const visibleItems = computed(() =>
     ? store.items.filter((i) => likedIds.value.includes(i.id))
     : store.items,
 )
+
+/** 当前灯箱项在「可见列表」中的位置（只看喜欢时与 store 索引不同） */
+const visibleIndex = computed(() => {
+  const cur = store.currentItem
+  return cur ? visibleItems.value.findIndex((i) => i.id === cur.id) : -1
+})
+const visibleHasPrev = computed(() => visibleIndex.value > 0)
+const visibleHasNext = computed(
+  () => visibleIndex.value >= 0 && visibleIndex.value < visibleItems.value.length - 1,
+)
+
+/**
+ * 灯箱在「可见列表」内前后切换。
+ *
+ * 只看喜欢时若直接用 store.stepLightbox，会把灯箱带到一条
+ * 未喜欢的资产上，与当前列表不符；这里先换算成可见位置。
+ */
+function stepVisible(delta: number) {
+  const next = visibleIndex.value + delta
+  const target = visibleItems.value[next]
+  if (!target) return
+  const real = store.items.findIndex((i) => i.id === target.id)
+  if (real >= 0) store.openLightbox(real)
+}
+
+/** 连播回到「可见列表」首项（与 stepVisible 同口径） */
+function stepVisibleToFirst() {
+  const first = visibleItems.value[0]
+  if (!first) return
+  const real = store.items.findIndex((i) => i.id === first.id)
+  if (real >= 0) store.openLightbox(real)
+}
 
 /** 从灯箱返回：还原锚点（列数变化也能回到同一资产） */
 function onCloseLightbox() {
@@ -561,6 +613,13 @@ watch(
       >
         {{ selectMode ? t('batch.exitSelect') : t('batch.select') }}
       </MLButton>
+      <MLButton
+        v-if="selectMode && visibleItems.length"
+        variant="quiet"
+        @click="toggleSelectAll"
+      >
+        {{ allSelected ? t('batch.unselectAll') : t('batch.selectAll') }}
+      </MLButton>
 
       <span class="browse__count mono" aria-live="polite">
         {{
@@ -702,13 +761,13 @@ watch(
     <LightboxViewer
       v-if="store.currentItem"
       :item="store.currentItem"
-      :has-prev="store.lightboxIndex > 0"
-      :has-next="store.lightboxIndex < store.items.length - 1"
+      :has-prev="visibleHasPrev"
+      :has-next="visibleHasNext"
       :candidates="compareCandidates"
       @close="onCloseLightbox"
-      @prev="store.stepLightbox(-1)"
-      @next="store.stepLightbox(1)"
-      @slideshow-end="store.stepToFirst()"
+      @prev="stepVisible(-1)"
+      @next="stepVisible(1)"
+      @slideshow-end="stepVisibleToFirst()"
       @filter-color="onFilterColor"
       @filter-tag="onFilterTag"
     />

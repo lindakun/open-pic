@@ -29,6 +29,8 @@ const toast = useToast()
 
 const busy = ref(false)
 const tagOpen = ref(false)
+/** 标签操作模式：新增或移除（后端 batch 接口两种都支持） */
+const tagMode = ref<'add' | 'remove'>('add')
 const tagDraft = ref('')
 const collectionOpen = ref(false)
 const targetCollection = ref<number | null>(null)
@@ -65,13 +67,20 @@ async function run(action: string, extra: Record<string, unknown> = {}) {
   }
 }
 
+/** 打开标签面板并指定模式（新增/移除） */
+function openTags(mode: 'add' | 'remove') {
+  tagMode.value = mode
+  tagDraft.value = ''
+  tagOpen.value = true
+}
+
 async function applyTags() {
   const tags = tagDraft.value
     .split(/[,，\s]+/)
     .map((s) => s.trim())
     .filter(Boolean)
   if (!tags.length) return
-  const ok = await run('add_tags', { tags })
+  const ok = await run(tagMode.value === 'remove' ? 'remove_tags' : 'add_tags', { tags })
   if (ok) {
     tagOpen.value = false
     tagDraft.value = ''
@@ -149,8 +158,11 @@ async function exportZip() {
     <span class="batch__count mono" aria-live="polite">{{ t('batch.selected', { count }) }}</span>
 
     <div class="batch__actions">
-      <MLButton variant="quiet" :disabled="busy" @click="tagOpen = true">
+      <MLButton variant="quiet" :disabled="busy" @click="openTags('add')">
         {{ t('batch.tags') }}
+      </MLButton>
+      <MLButton variant="quiet" :disabled="busy" @click="openTags('remove')">
+        {{ t('batch.tagsRemove') }}
       </MLButton>
       <MLButton
         v-if="collections?.length"
@@ -175,7 +187,11 @@ async function exportZip() {
     </div>
 
     <!-- 批量打标 -->
-    <MLSheet v-model:open="tagOpen" :title="t('batch.tagsTitle')" width="380px">
+    <MLSheet
+      v-model:open="tagOpen"
+      :title="tagMode === 'remove' ? t('batch.tagsRemoveTitle') : t('batch.tagsTitle')"
+      width="380px"
+    >
       <div class="batch__form">
         <MLField
           v-model="tagDraft"

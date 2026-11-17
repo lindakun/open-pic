@@ -114,6 +114,29 @@ describe('BatchBar 批量操作', () => {
     vi.unstubAllGlobals()
     wrapper.unmount()
   })
+
+  it('批量移除标签提交 remove_tags', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: async () => ({ ok: true, count: 2 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mountBar()
+    const btn = wrapper.findAll('.batch__actions button').find((b) => b.text().includes('移除标签'))!
+    await btn.trigger('click')
+    await flushPromises()
+
+    const tagSheet = wrapper.findAll('.batch__form').find((f) => f.find('input').exists())!
+    await tagSheet.find('input').setValue('城市')
+    await tagSheet.findAll('button').at(-1)!.trigger('click')
+    await flushPromises()
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(body.action).toBe('remove_tags')
+    expect(body.tags).toEqual(['城市'])
+    vi.unstubAllGlobals()
+    wrapper.unmount()
+  })
 })
 
 describe('BatchBar 导出', () => {

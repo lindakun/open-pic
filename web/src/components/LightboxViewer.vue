@@ -46,6 +46,8 @@ const { t, formatBytes, formatDate, formatNumber } = useI18n()
 
 const {
   scale,
+  x: zoomX,
+  y: zoomY,
   style: zoomStyle,
   reset: resetZoom,
   zoomBy,
@@ -457,7 +459,9 @@ onUnmounted(() => {
             :src="it.thumb ? `/t/${it.id}_lg.webp` : `/f/${it.file}`"
             :alt="it.title || it.name"
             class="lightbox__img"
-            :style="compareOn ? { transform: `scale(${priceScale})` } : { ...zoomStyle, viewTransitionName: `media-${item.id}` }"
+            :style="compareOn
+              ? { transform: `translate3d(${zoomX}px, ${zoomY}px, 0) scale(${priceScale})` }
+              : { ...zoomStyle, viewTransitionName: `media-${item.id}` }"
             @dblclick="resetZoom()"
             @error="onImgError($event, it)"
           />

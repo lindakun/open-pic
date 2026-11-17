@@ -1183,9 +1183,12 @@ class MediaDB:
             ).fetchone()
             trash_count = conn.execute("SELECT COUNT(*) FROM items WHERE deleted_at IS NOT NULL").fetchone()[0]
             collections_count = conn.execute("SELECT COUNT(*) FROM collections").fetchone()[0]
-            # 草稿/归档单独给出，便于后台判断「看不见的还有多少」
+            # 尚未到发布时间的草稿单独给出，便于后台判断「看不见的还有多少」。
+            # 已到期的定时草稿已在 total 中，不能重复计入 drafts。
             drafts = conn.execute(
                 "SELECT COUNT(*) FROM items WHERE deleted_at IS NULL AND status = 'draft'"
+                " AND (publish_at IS NULL OR publish_at > ?)",
+                (now,),
             ).fetchone()[0]
 
             tag_rows = conn.execute(
