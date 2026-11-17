@@ -27,15 +27,25 @@ const heroItem = computed(() => {
   )
 })
 
-/** 编辑精选带：跳过 Hero 后的 6 项 */
-const featured = computed(() =>
-  store.items.filter((i) => i.id !== heroItem.value?.id).slice(0, 6),
+/** 除 Hero 外的候选池 */
+const pool = computed(() =>
+  store.items.filter((i) => i.id !== heroItem.value?.id),
 )
 
-/** 最近上新：紧跟精选之后的 8 项，用混排网格 */
-const recent = computed(() =>
-  store.items.filter((i) => i.id !== heroItem.value?.id).slice(6, 14),
-)
+/**
+ * 精选带上限 6 项，但必须给「最近上新」留够空间：
+ * 数据不足时优先保证上新有内容，精选相应少取。
+ */
+const featured = computed(() => {
+  const total = pool.value.length
+  // 上新至少要 4 项（不足则有多少给多少）
+  const forRecent = Math.min(8, Math.max(total - 6, Math.min(total, 4)))
+  const forFeatured = Math.max(total - forRecent, 0)
+  return pool.value.slice(0, Math.min(forFeatured, 6))
+})
+
+/** 最近上新：取精选之后的剩余项，最多 8 项 */
+const recent = computed(() => pool.value.slice(featured.value.length, featured.value.length + 8))
 </script>
 
 <template>
@@ -44,9 +54,7 @@ const recent = computed(() =>
     <section class="hero">
       <div class="hero__text">
         <p class="eyebrow">Visual Asset Library</p>
-        <h1 class="hero__title">
-          把每一次<br />看见，都收进库里。
-        </h1>
+        <h1 class="hero__title">把每一次看见<br />都收进库里。</h1>
         <p class="hero__lede">
           一个为商业使用而建的视觉资产库——可检索、可策展、可交付。
         </p>
@@ -86,7 +94,7 @@ const recent = computed(() =>
         <h2 class="strip__title">编辑精选</h2>
         <RouterLink to="/browse" class="strip__more">查看全部</RouterLink>
       </header>
-      <div class="strip__rail">
+      <div :class="['strip__rail', { 'strip__rail--few': featured.length < 4 }]">
         <RouterLink
           v-for="item in featured"
           :key="item.id"
@@ -98,7 +106,7 @@ const recent = computed(() =>
             :file="item.file"
             :kind="item.kind"
             :color="item.dominant_color"
-            :ratio="0.75"
+            :ratio="1.33"
             :display-width="280"
             alt=""
           />
@@ -114,7 +122,10 @@ const recent = computed(() =>
         <RouterLink to="/browse" class="strip__more">查看全部</RouterLink>
       </header>
 
-      <div v-if="recent.length" class="recent__grid">
+      <div
+        v-if="recent.length"
+        :class="['recent__grid', { 'recent__grid--sparse': recent.length < 3 }]"
+      >
         <RouterLink
           v-for="item in recent"
           :key="item.id"
@@ -164,15 +175,17 @@ const recent = computed(() =>
 
 .hero__title {
   margin: var(--p-space-4) 0 var(--p-space-5);
-  font-size: clamp(2.5rem, 6vw, 5rem);
-  line-height: 1.02;
-  letter-spacing: -0.035em;
+  /* 收窄上限并略降字距，让两行排布稳定，避免末行孤字 */
+  font-size: clamp(2.25rem, 4.6vw, 4.25rem);
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
 }
 
 .hero__lede {
   font-size: var(--p-step-1);
   color: var(--ink-muted);
-  max-width: 34ch;
+  max-width: 36ch;
   line-height: 1.6;
 }
 
@@ -242,15 +255,25 @@ const recent = computed(() =>
 }
 
 /* ---------- 横向滚动带 ---------- */
+/* 横向带用固定列宽 + 溢出滚动，而不是 1fr 均分：
+   1fr 会让少量条目被拉得过大，失去"翻阅提案"的节奏感。 */
 .strip__rail {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(180px, 1fr);
+  grid-auto-columns: 220px;
   gap: var(--p-space-4);
   overflow-x: auto;
   padding-bottom: var(--p-space-2);
   scroll-snap-type: x proximity;
   scrollbar-width: thin;
+  overscroll-behavior-x: contain;
+}
+
+/* 条目不足 4 个时，拉开列间距让留白成为版面的一部分，
+   而不是右侧出现一整块突兀的空洞 */
+.strip__rail--few {
+  grid-auto-columns: minmax(220px, 280px);
+  gap: var(--p-space-6);
 }
 
 .strip__cell {
@@ -292,6 +315,18 @@ const recent = computed(() =>
   grid-column: span 6;
 }
 
+/* 条目过少时不启用跨列，避免单图占满版面 */
+.recent__grid--sparse .recent__cell,
+.recent__grid--sparse .recent__cell:nth-child(1),
+.recent__grid--sparse .recent__cell:nth-child(6) {
+  grid-column: span 4;
+}
+
+/* 卡片统一限制高度，防止宽列时图片过高 */
+.recent__cell :deep(.smart-image) {
+  max-height: 420px;
+}
+
 .recent__cell:hover {
   text-decoration: none;
 }
@@ -324,6 +359,10 @@ const recent = computed(() =>
 }
 
 @media (max-width: 900px) {
+  .strip__rail {
+    grid-auto-columns: 160px;
+  }
+
   .hero {
     grid-template-columns: 1fr;
     gap: var(--p-space-6);

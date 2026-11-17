@@ -219,3 +219,15 @@ button {
     animation: none !important;
   }
 }
+
+/* ---------- 灯箱开启时的全局状态 ---------- */
+/* 隐藏顶栏：dialog 在 top layer，但 sticky 顶栏仍会绘制其上 */
+html.lightbox-open .site-header {
+  visibility: hidden;
+}
+
+/* 锁定背景滚动，避免灯箱开启时页面还能滚 */
+html.lightbox-open,
+html.lightbox-open body {
+  overflow: hidden;
+}

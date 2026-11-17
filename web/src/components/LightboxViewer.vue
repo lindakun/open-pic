@@ -85,10 +85,15 @@ watch(
 onMounted(() => {
   dialogRef.value?.showModal()
   window.addEventListener('keydown', onKeydown)
+  // 标记"灯箱开启"：隐藏 sticky 顶栏并锁定背景滚动。
+  // dialog::backdrop 处于 top layer，但 sticky 元素仍会绘制在其上，
+  // 必须显式隐藏顶栏，否则顶栏会浮在灯箱之上（实测发现）。
+  document.documentElement.classList.add('lightbox-open')
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
+  document.documentElement.classList.remove('lightbox-open')
 })
 </script>
 
@@ -151,11 +156,16 @@ onUnmounted(() => {
   border: none;
   background: transparent;
   color: #faf8f5;
+  /* dialog 的 top layer 只盖得住同级 stacking context，
+     sticky 顶栏（z-index 40）仍在视口内可见，需显式提高层级 */
+  z-index: var(--p-z-lightbox);
 }
 
 .lightbox::backdrop {
   /* 灯箱用深底，让图片成为唯一焦点——这是纸感主题下唯一允许的深色面 */
   background: rgba(18, 16, 13, 0.94);
+  /* 遮住包含 sticky 顶栏的整个视口 */
+  z-index: var(--p-z-lightbox);
 }
 
 .lightbox__stage {

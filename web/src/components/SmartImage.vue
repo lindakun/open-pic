@@ -121,6 +121,15 @@ const fallbackSrc = computed(() =>
   border-radius: var(--p-radius-sm);
 }
 
+/* <picture> 默认是 inline 元素、无高度，
+   必须显式撑满容器，否则内部 img 的 height:100% 退化为 auto，
+   会在等高容器底部露出主色占位条（实测发现的缺陷）。 */
+.smart-image picture {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .smart-image__img {
   width: 100%;
   height: 100%;
