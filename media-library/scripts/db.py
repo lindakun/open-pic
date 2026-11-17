@@ -1,0 +1,832 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""SQLite 数据库层（WAL 模式 + FTS5 全文检索 + 软删除 + 画板 + 异步任务）"""
+
+import json
+import os
+import re
+import shutil
+import sqlite3
+import threading
+import time
+from contextlib import contextmanager
+from typing import Any, Dict, List, Optional, Tuple
+
+
+SCHEMA_SQL = """
+PRAGMA journal_mode=WAL;
+PRAGMA synchronous=NORMAL;
+PRAGMA foreign_keys=ON;
+PRAGMA temp_store=MEMORY;
+
+CREATE TABLE IF NOT EXISTS items (
+    id TEXT PRIMARY KEY,
+    file TEXT NOT NULL,
+    thumb TEXT,
+    play_file TEXT,
+    preview_file TEXT,
+    kind TEXT NOT NULL CHECK(kind IN ('image', 'video')),
+    ext TEXT NOT NULL,
+    name TEXT NOT NULL,
+    title TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '',
+    source_platform TEXT NOT NULL DEFAULT 'local',
+    author TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    size INTEGER NOT NULL DEFAULT 0,
+    width INTEGER NOT NULL DEFAULT 0,
+    height INTEGER NOT NULL DEFAULT 0,
+    aspect_ratio REAL NOT NULL DEFAULT 1.0,
+    duration REAL NOT NULL DEFAULT 0.0,
+    fps REAL NOT NULL DEFAULT 0.0,
+    codec TEXT NOT NULL DEFAULT '',
+    dominant_color TEXT NOT NULL DEFAULT '#1a1d24',
+    palette_json TEXT NOT NULL DEFAULT '[]',
+    exif_json TEXT NOT NULL DEFAULT '{}',
+    phash TEXT NOT NULL DEFAULT '',
+    ocr_text TEXT NOT NULL DEFAULT '',
+    views INTEGER NOT NULL DEFAULT 0,
+    downloads INTEGER NOT NULL DEFAULT 0,
+    ts INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER DEFAULT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_items_ts ON items(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_items_kind ON items(kind);
+CREATE INDEX IF NOT EXISTS idx_items_deleted ON items(deleted_at);
+CREATE INDEX IF NOT EXISTS idx_items_phash ON items(phash);
+CREATE INDEX IF NOT EXISTS idx_items_platform ON items(source_platform);
+
+CREATE TABLE IF NOT EXISTS tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS item_tags (
+    item_id TEXT NOT NULL,
+    tag_id INTEGER NOT NULL,
+    source TEXT NOT NULL DEFAULT 'manual',
+    PRIMARY KEY (item_id, tag_id),
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
+    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_item_tags_tag ON item_tags(tag_id);
+
+CREATE TABLE IF NOT EXISTS collections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    cover_item_id TEXT DEFAULT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS collection_items (
+    collection_id INTEGER NOT NULL,
+    item_id TEXT NOT NULL,
+    added_at INTEGER NOT NULL,
+    PRIMARY KEY (collection_id, item_id),
+    FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE,
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS ingest_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_type TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    progress INTEGER NOT NULL DEFAULT 0,
+    message TEXT NOT NULL DEFAULT '',
+    result_json TEXT NOT NULL DEFAULT '{}',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON ingest_jobs(status, created_at DESC);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
+    item_id UNINDEXED,
+    title,
+    name,
+    tags_text,
+    source,
+    notes,
+    ocr_text,
+    tokenize='unicode61'
+);
+"""
+
+
+def _hamming_hex(h1: str, h2: str) -> int:
+    """计算两个十六进制感知哈希的汉明距离"""
+    if not h1 or not h2 or len(h1) != len(h2):
+        return 999
+    try:
+        return bin(int(h1, 16) ^ int(h2, 16)).count("1")
+    except ValueError:
+        return 999
+
+
+def _hex_to_rgb(hx: str) -> Tuple[int, int, int]:
+    hx = hx.lstrip("#")
+    if len(hx) != 6:
+        return (26, 29, 36)
+    try:
+        return (int(hx[0:2], 16), int(hx[2:4], 16), int(hx[4:6], 16))
+    except ValueError:
+        return (26, 29, 36)
+
+
+def _color_distance(c1: str, c2: str) -> float:
+    r1, g1, b1 = _hex_to_rgb(c1)
+    r2, g2, b2 = _hex_to_rgb(c2)
+    return ((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2) ** 0.5
+
+
+class MediaDB:
+    """线程安全的 SQLite 媒体库仓储"""
+
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self._write_lock = threading.Lock()
+        os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
+        self._init_db()
+
+    @contextmanager
+    def connect(self):
+        conn = sqlite3.connect(self.db_path, timeout=30, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys=ON;")
+        try:
+            yield conn
+        finally:
+            conn.close()
+
+    def _init_db(self):
+        with self._write_lock, self.connect() as conn:
+            conn.executescript(SCHEMA_SQL)
+            conn.commit()
+
+    # ---------- 迁移与同步 ----------
+
+    def migrate_from_index_json(self, index_json_path: str) -> int:
+        """如果数据库为空且存在 index.json，则无损迁移存量记录"""
+        if not os.path.isfile(index_json_path):
+            return 0
+        with self.connect() as conn:
+            cnt = conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+            if cnt > 0:
+                return 0
+        try:
+            with open(index_json_path, "r", encoding="utf-8") as f:
+                raw_items = json.load(f)
+        except Exception:
+            return 0
+        if not isinstance(raw_items, list) or not raw_items:
+            return 0
+
+        migrated = 0
+        for it in raw_items:
+            iid = it.get("id")
+            if not iid:
+                continue
+            rec = {
+                "id": iid,
+                "file": it.get("file", ""),
+                "thumb": it.get("thumb"),
+                "play_file": it.get("play_file"),
+                "preview_file": it.get("preview_file"),
+                "kind": it.get("kind", "image"),
+                "ext": it.get("ext", ".jpg"),
+                "name": it.get("name", iid),
+                "title": it.get("title") or it.get("name") or iid,
+                "source": it.get("source", ""),
+                "source_platform": it.get("source_platform", self.detect_platform(it.get("source", ""))),
+                "author": it.get("author", ""),
+                "notes": it.get("notes", ""),
+                "size": int(it.get("size", 0)),
+                "width": int(it.get("width", 0)),
+                "height": int(it.get("height", 0)),
+                "aspect_ratio": float(it.get("aspect_ratio", 1.0)),
+                "duration": float(it.get("duration", 0.0)),
+                "fps": float(it.get("fps", 0.0)),
+                "codec": it.get("codec", ""),
+                "dominant_color": it.get("dominant_color", "#1a1d24"),
+                "palette_json": json.dumps(it.get("palette", []), ensure_ascii=False),
+                "exif_json": json.dumps(it.get("exif", {}), ensure_ascii=False),
+                "phash": it.get("phash", ""),
+                "ocr_text": it.get("ocr_text", ""),
+                "ts": int(it.get("ts", time.time())),
+                "tags": it.get("tags") or [],
+            }
+            if self.upsert_item(rec):
+                migrated += 1
+
+        # 备份原 index.json，保留历史依据
+        bak = index_json_path + ".migrated.bak"
+        if not os.path.exists(bak):
+            try:
+                shutil.copy2(index_json_path, bak)
+            except Exception:
+                pass
+        return migrated
+
+    @staticmethod
+    def detect_platform(source: str) -> str:
+        if not source:
+            return "local"
+        s = source.lower()
+        for host, name in (
+            ("x.com", "X"),
+            ("twitter.com", "X"),
+            ("bilibili.com", "B站"),
+            ("b23.tv", "B站"),
+            ("youtube.com", "YouTube"),
+            ("youtu.be", "YouTube"),
+            ("weibo.", "微博"),
+            ("xiaohongshu.com", "小红书"),
+            ("xhslink.com", "小红书"),
+            ("douyin.com", "抖音"),
+            ("tiktok.com", "TikTok"),
+            ("instagram.com", "Instagram"),
+            ("wallhaven.cc", "Wallhaven"),
+            ("pinterest.", "Pinterest"),
+            ("reddit.com", "Reddit"),
+        ):
+            if host in s:
+                return name
+        return "web" if s.startswith("http") else "local"
+
+    # ---------- CRUD ----------
+
+    def _sync_fts(self, conn: sqlite3.Connection, item_id: str):
+        row = conn.execute(
+            "SELECT id, title, name, source, notes, ocr_text FROM items WHERE id=?",
+            (item_id,),
+        ).fetchone()
+        conn.execute("DELETE FROM items_fts WHERE item_id=?", (item_id,))
+        if not row:
+            return
+        tag_rows = conn.execute(
+            "SELECT t.name FROM tags t JOIN item_tags it ON t.id=it.tag_id WHERE it.item_id=?",
+            (item_id,),
+        ).fetchall()
+        tags_text = " ".join(r["name"] for r in tag_rows)
+        conn.execute(
+            "INSERT INTO items_fts(item_id, title, name, tags_text, source, notes, ocr_text) VALUES (?,?,?,?,?,?,?)",
+            (
+                row["id"],
+                row["title"],
+                row["name"],
+                tags_text,
+                row["source"],
+                row["notes"],
+                row["ocr_text"],
+            ),
+        )
+
+    def _set_tags_tx(self, conn: sqlite3.Connection, item_id: str, tags: List[str], source: str = "manual"):
+        conn.execute("DELETE FROM item_tags WHERE item_id=?", (item_id,))
+        seen = set()
+        for raw in tags:
+            t = raw.strip()
+            if not t or t in seen:
+                continue
+            seen.add(t)
+            conn.execute("INSERT OR IGNORE INTO tags(name) VALUES (?)", (t,))
+            tid = conn.execute("SELECT id FROM tags WHERE name=?", (t,)).fetchone()["id"]
+            conn.execute(
+                "INSERT OR IGNORE INTO item_tags(item_id, tag_id, source) VALUES (?,?,?)",
+                (item_id, tid, source),
+            )
+
+    def upsert_item(self, rec: Dict[str, Any]) -> bool:
+        """插入或更新条目，返回是否为新增"""
+        now = int(time.time())
+        with self._write_lock, self.connect() as conn:
+            exists = conn.execute("SELECT id FROM items WHERE id=?", (rec["id"],)).fetchone()
+            if exists:
+                return False
+            conn.execute(
+                """
+                INSERT INTO items(
+                    id, file, thumb, play_file, preview_file, kind, ext, name, title,
+                    source, source_platform, author, notes, size, width, height, aspect_ratio,
+                    duration, fps, codec, dominant_color, palette_json, exif_json, phash, ocr_text,
+                    ts, updated_at, deleted_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
+                """,
+                (
+                    rec["id"],
+                    rec["file"],
+                    rec.get("thumb"),
+                    rec.get("play_file"),
+                    rec.get("preview_file"),
+                    rec["kind"],
+                    rec["ext"],
+                    rec["name"],
+                    rec["title"],
+                    rec.get("source", ""),
+                    rec.get("source_platform") or self.detect_platform(rec.get("source", "")),
+                    rec.get("author", ""),
+                    rec.get("notes", ""),
+                    int(rec.get("size", 0)),
+                    int(rec.get("width", 0)),
+                    int(rec.get("height", 0)),
+                    float(rec.get("aspect_ratio", 1.0)),
+                    float(rec.get("duration", 0.0)),
+                    float(rec.get("fps", 0.0)),
+                    rec.get("codec", ""),
+                    rec.get("dominant_color", "#1a1d24"),
+                    rec.get("palette_json") or json.dumps(rec.get("palette", []), ensure_ascii=False),
+                    rec.get("exif_json") or json.dumps(rec.get("exif", {}), ensure_ascii=False),
+                    rec.get("phash", ""),
+                    rec.get("ocr_text", ""),
+                    int(rec.get("ts", now)),
+                    now,
+                ),
+            )
+            self._set_tags_tx(conn, rec["id"], rec.get("tags") or [])
+            self._sync_fts(conn, rec["id"])
+            conn.commit()
+            return True
+
+    def _hydrate_rows(self, conn: sqlite3.Connection, rows: List[sqlite3.Row]) -> List[Dict[str, Any]]:
+        if not rows:
+            return []
+        ids = [r["id"] for r in rows]
+        placeholders = ",".join("?" for _ in ids)
+        tag_map: Dict[str, List[str]] = {i: [] for i in ids}
+        for tr in conn.execute(
+            f"""
+            SELECT it.item_id, t.name
+            FROM item_tags it JOIN tags t ON it.tag_id=t.id
+            WHERE it.item_id IN ({placeholders})
+            ORDER BY t.name
+            """,
+            ids,
+        ):
+            tag_map[tr["item_id"]].append(tr["name"])
+
+        col_map: Dict[str, List[int]] = {i: [] for i in ids}
+        for cr in conn.execute(
+            f"SELECT item_id, collection_id FROM collection_items WHERE item_id IN ({placeholders})",
+            ids,
+        ):
+            col_map[cr["item_id"]].append(cr["collection_id"])
+
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["tags"] = tag_map.get(r["id"], [])
+            d["collections"] = col_map.get(r["id"], [])
+            try:
+                d["palette"] = json.loads(d.pop("palette_json", "[]") or "[]")
+            except Exception:
+                d["palette"] = []
+            try:
+                d["exif"] = json.loads(d.pop("exif_json", "{}") or "{}")
+            except Exception:
+                d["exif"] = {}
+            out.append(d)
+        return out
+
+    def get_item(self, item_id: str) -> Optional[Dict[str, Any]]:
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
+            if not row:
+                return None
+            return self._hydrate_rows(conn, [row])[0]
+
+    def update_item(self, item_id: str, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        allowed = {
+            "title", "source", "source_platform", "author", "notes",
+            "thumb", "play_file", "preview_file", "width", "height",
+            "aspect_ratio", "duration", "fps", "codec", "dominant_color",
+            "palette_json", "exif_json", "phash", "ocr_text",
+        }
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if "source" in updates and "source_platform" not in updates:
+            updates["source_platform"] = self.detect_platform(updates["source"])
+        with self._write_lock, self.connect() as conn:
+            exists = conn.execute("SELECT id FROM items WHERE id=?", (item_id,)).fetchone()
+            if not exists:
+                return None
+            if updates:
+                updates["updated_at"] = int(time.time())
+                sets = ", ".join(f"{k}=?" for k in updates)
+                conn.execute(f"UPDATE items SET {sets} WHERE id=?", (*updates.values(), item_id))
+            if "tags" in fields and isinstance(fields["tags"], list):
+                self._set_tags_tx(conn, item_id, fields["tags"])
+            self._sync_fts(conn, item_id)
+            conn.commit()
+        return self.get_item(item_id)
+
+    def increment_counter(self, item_id: str, col: str):
+        if col not in ("views", "downloads"):
+            return
+        with self._write_lock, self.connect() as conn:
+            conn.execute(f"UPDATE items SET {col}={col}+1 WHERE id=?", (item_id,))
+            conn.commit()
+
+    def query_items(
+        self,
+        limit: int = 60,
+        offset: int = 0,
+        q: str = "",
+        tags: Optional[List[str]] = None,
+        exclude_tags: Optional[List[str]] = None,
+        kind: str = "",
+        ext: str = "",
+        orientation: str = "",
+        platform: str = "",
+        collection_id: Optional[int] = None,
+        color: str = "",
+        sort: str = "newest",
+        deleted: bool = False,
+    ) -> Tuple[int, List[Dict[str, Any]]]:
+        where = ["i.deleted_at IS NOT NULL" if deleted else "i.deleted_at IS NULL"]
+        params: List[Any] = []
+
+        if kind in ("image", "video"):
+            where.append("i.kind = ?")
+            params.append(kind)
+        if ext:
+            e = ext if ext.startswith(".") else "." + ext
+            where.append("i.ext = ?")
+            params.append(e.lower())
+        if platform:
+            where.append("i.source_platform = ?")
+            params.append(platform)
+        if orientation == "landscape":
+            where.append("i.width > i.height AND i.width > 0")
+        elif orientation == "portrait":
+            where.append("i.height > i.width AND i.height > 0")
+        elif orientation == "square":
+            where.append("i.width > 0 AND ABS(i.aspect_ratio - 1.0) <= 0.12")
+
+        if collection_id is not None:
+            where.append("EXISTS (SELECT 1 FROM collection_items ci WHERE ci.item_id=i.id AND ci.collection_id=?)")
+            params.append(collection_id)
+
+        for t in (tags or []):
+            t = t.strip()
+            if not t:
+                continue
+            where.append(
+                "EXISTS (SELECT 1 FROM item_tags it JOIN tags tg ON it.tag_id=tg.id WHERE it.item_id=i.id AND tg.name=?)"
+            )
+            params.append(t)
+
+        for et in (exclude_tags or []):
+            et = et.strip()
+            if not et:
+                continue
+            where.append(
+                "NOT EXISTS (SELECT 1 FROM item_tags it JOIN tags tg ON it.tag_id=tg.id WHERE it.item_id=i.id AND tg.name=?)"
+            )
+            params.append(et)
+
+        if q.strip():
+            # 同时支持 FTS5 词元匹配与 LIKE 子串兜底，确保中文单字/任意片段都能命中
+            tokens = [tok for tok in re.split(r"\s+", q.strip()) if tok]
+            for tok in tokens:
+                like = f"%{tok}%"
+                where.append(
+                    "("
+                    "i.title LIKE ? OR i.name LIKE ? OR i.source LIKE ? OR i.notes LIKE ? OR i.ocr_text LIKE ? "
+                    "OR EXISTS (SELECT 1 FROM item_tags it JOIN tags tg ON it.tag_id=tg.id WHERE it.item_id=i.id AND tg.name LIKE ?)"
+                    ")"
+                )
+                params.extend([like, like, like, like, like, like])
+
+        where_sql = " AND ".join(where)
+        order_map = {
+            "newest": "i.ts DESC, i.rowid DESC",
+            "oldest": "i.ts ASC, i.rowid ASC",
+            "size": "i.size DESC",
+            "pixels": "(i.width * i.height) DESC",
+            "views": "i.views DESC, i.ts DESC",
+            "random": "RANDOM()",
+        }
+        order_sql = order_map.get(sort, order_map["newest"])
+
+        with self.connect() as conn:
+            if color:
+                # 色彩筛选：按色距过滤并排序
+                rows = conn.execute(f"SELECT i.* FROM items i WHERE {where_sql}", params).fetchall()
+                matched = []
+                for r in rows:
+                    dist = _color_distance(color, r["dominant_color"])
+                    if dist <= 115:
+                        matched.append((dist, r))
+                matched.sort(key=lambda x: x[0])
+                total = len(matched)
+                sliced = [r for _, r in matched[offset:offset + limit]]
+                return total, self._hydrate_rows(conn, sliced)
+
+            total = conn.execute(f"SELECT COUNT(*) FROM items i WHERE {where_sql}", params).fetchone()[0]
+            rows = conn.execute(
+                f"SELECT i.* FROM items i WHERE {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?",
+                (*params, limit, offset),
+            ).fetchall()
+            return total, self._hydrate_rows(conn, rows)
+
+    def find_similar(self, item_id: str, limit: int = 12, max_dist: int = 14) -> List[Dict[str, Any]]:
+        """基于 pHash 与主色调检索视觉相似资产"""
+        with self.connect() as conn:
+            target = conn.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
+            if not target:
+                return []
+            ph = target["phash"]
+            dc = target["dominant_color"]
+            rows = conn.execute(
+                "SELECT * FROM items WHERE id != ? AND deleted_at IS NULL",
+                (item_id,),
+            ).fetchall()
+            scored = []
+            for r in rows:
+                if ph and r["phash"]:
+                    hd = _hamming_hex(ph, r["phash"])
+                    if hd <= max_dist:
+                        scored.append((hd, _color_distance(dc, r["dominant_color"]), r))
+                elif r["kind"] == target["kind"]:
+                    cd = _color_distance(dc, r["dominant_color"])
+                    if cd <= 55:
+                        scored.append((20, cd, r))
+            scored.sort(key=lambda x: (x[0], x[1]))
+            return self._hydrate_rows(conn, [r for _, _, r in scored[:limit]])
+
+    def find_near_duplicate(self, phash: str, max_dist: int = 4) -> Optional[Dict[str, Any]]:
+        if not phash:
+            return None
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM items WHERE phash != '' AND deleted_at IS NULL"
+            ).fetchall()
+            for r in rows:
+                if _hamming_hex(phash, r["phash"]) <= max_dist:
+                    return self._hydrate_rows(conn, [r])[0]
+        return None
+
+    # ---------- 批量与软删除 ----------
+
+    def soft_delete(self, item_ids: List[str]) -> int:
+        now = int(time.time())
+        if not item_ids:
+            return 0
+        placeholders = ",".join("?" for _ in item_ids)
+        with self._write_lock, self.connect() as conn:
+            cur = conn.execute(
+                f"UPDATE items SET deleted_at=? WHERE id IN ({placeholders}) AND deleted_at IS NULL",
+                (now, *item_ids),
+            )
+            conn.commit()
+            return cur.rowcount
+
+    def restore_items(self, item_ids: List[str]) -> int:
+        if not item_ids:
+            return 0
+        placeholders = ",".join("?" for _ in item_ids)
+        with self._write_lock, self.connect() as conn:
+            cur = conn.execute(
+                f"UPDATE items SET deleted_at=NULL WHERE id IN ({placeholders})",
+                item_ids,
+            )
+            conn.commit()
+            return cur.rowcount
+
+    def permanent_delete(self, item_ids: List[str]) -> List[Dict[str, Any]]:
+        if not item_ids:
+            return []
+        placeholders = ",".join("?" for _ in item_ids)
+        with self._write_lock, self.connect() as conn:
+            rows = conn.execute(f"SELECT * FROM items WHERE id IN ({placeholders})", item_ids).fetchall()
+            removed = [dict(r) for r in rows]
+            conn.execute(f"DELETE FROM items WHERE id IN ({placeholders})", item_ids)
+            conn.execute(f"DELETE FROM items_fts WHERE item_id IN ({placeholders})", item_ids)
+            conn.commit()
+            return removed
+
+    def batch_tags(self, item_ids: List[str], add_tags: Optional[List[str]] = None, remove_tags: Optional[List[str]] = None) -> int:
+        if not item_ids:
+            return 0
+        with self._write_lock, self.connect() as conn:
+            for iid in item_ids:
+                for t in (add_tags or []):
+                    t = t.strip()
+                    if not t:
+                        continue
+                    conn.execute("INSERT OR IGNORE INTO tags(name) VALUES (?)", (t,))
+                    tid = conn.execute("SELECT id FROM tags WHERE name=?", (t,)).fetchone()["id"]
+                    conn.execute("INSERT OR IGNORE INTO item_tags(item_id, tag_id, source) VALUES (?,?,?)", (iid, tid, "manual"))
+                for t in (remove_tags or []):
+                    t = t.strip()
+                    if not t:
+                        continue
+                    row = conn.execute("SELECT id FROM tags WHERE name=?", (t,)).fetchone()
+                    if row:
+                        conn.execute("DELETE FROM item_tags WHERE item_id=? AND tag_id=?", (iid, row["id"]))
+                self._sync_fts(conn, iid)
+            conn.commit()
+            return len(item_ids)
+
+    # ---------- 画板（Collections） ----------
+
+    def list_collections(self) -> List[Dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT c.*, COUNT(ci.item_id) AS item_count,
+                       COALESCE(c.cover_item_id, (
+                           SELECT ci2.item_id FROM collection_items ci2
+                           JOIN items i ON ci2.item_id=i.id
+                           WHERE ci2.collection_id=c.id AND i.deleted_at IS NULL
+                           ORDER BY ci2.added_at DESC LIMIT 1
+                       )) AS resolved_cover
+                FROM collections c
+                LEFT JOIN collection_items ci ON c.id=ci.collection_id
+                GROUP BY c.id
+                ORDER BY c.updated_at DESC
+                """
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def create_collection(self, name: str, description: str = "") -> Dict[str, Any]:
+        now = int(time.time())
+        with self._write_lock, self.connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO collections(name, description, created_at, updated_at) VALUES (?,?,?,?)",
+                (name.strip(), description.strip(), now, now),
+            )
+            cid = cur.lastrowid
+            conn.commit()
+        return [c for c in self.list_collections() if c["id"] == cid][0]
+
+    def update_collection(self, cid: int, name: Optional[str] = None, description: Optional[str] = None, cover_item_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        updates: Dict[str, Any] = {}
+        if name is not None:
+            updates["name"] = name.strip()
+        if description is not None:
+            updates["description"] = description.strip()
+        if cover_item_id is not None:
+            updates["cover_item_id"] = cover_item_id or None
+        if not updates:
+            return None
+        updates["updated_at"] = int(time.time())
+        sets = ", ".join(f"{k}=?" for k in updates)
+        with self._write_lock, self.connect() as conn:
+            conn.execute(f"UPDATE collections SET {sets} WHERE id=?", (*updates.values(), cid))
+            conn.commit()
+        cols = [c for c in self.list_collections() if c["id"] == cid]
+        return cols[0] if cols else None
+
+    def delete_collection(self, cid: int) -> bool:
+        with self._write_lock, self.connect() as conn:
+            cur = conn.execute("DELETE FROM collections WHERE id=?", (cid,))
+            conn.commit()
+            return cur.rowcount > 0
+
+    def add_to_collection(self, cid: int, item_ids: List[str]) -> int:
+        now = int(time.time())
+        with self._write_lock, self.connect() as conn:
+            added = 0
+            for iid in item_ids:
+                cur = conn.execute(
+                    "INSERT OR IGNORE INTO collection_items(collection_id, item_id, added_at) VALUES (?,?,?)",
+                    (cid, iid, now),
+                )
+                added += cur.rowcount
+            conn.execute("UPDATE collections SET updated_at=? WHERE id=?", (now, cid))
+            conn.commit()
+            return added
+
+    def remove_from_collection(self, cid: int, item_ids: List[str]) -> int:
+        if not item_ids:
+            return 0
+        placeholders = ",".join("?" for _ in item_ids)
+        with self._write_lock, self.connect() as conn:
+            cur = conn.execute(
+                f"DELETE FROM collection_items WHERE collection_id=? AND item_id IN ({placeholders})",
+                (cid, *item_ids),
+            )
+            conn.commit()
+            return cur.rowcount
+
+    # ---------- 统计与看板 ----------
+
+    def get_stats(self) -> Dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    COALESCE(SUM(CASE WHEN kind='image' THEN 1 ELSE 0 END), 0) AS images,
+                    COALESCE(SUM(CASE WHEN kind='video' THEN 1 ELSE 0 END), 0) AS videos,
+                    COALESCE(SUM(size), 0) AS bytes
+                FROM items WHERE deleted_at IS NULL
+                """
+            ).fetchone()
+            trash_count = conn.execute("SELECT COUNT(*) FROM items WHERE deleted_at IS NOT NULL").fetchone()[0]
+            collections_count = conn.execute("SELECT COUNT(*) FROM collections").fetchone()[0]
+
+            tag_rows = conn.execute(
+                """
+                SELECT t.name, COUNT(it.item_id) AS cnt
+                FROM tags t
+                JOIN item_tags it ON t.id=it.tag_id
+                JOIN items i ON it.item_id=i.id
+                WHERE i.deleted_at IS NULL
+                GROUP BY t.id
+                ORDER BY cnt DESC, t.name ASC
+                """
+            ).fetchall()
+            tags_dict = {r["name"]: r["cnt"] for r in tag_rows}
+            tags_list = [{"name": r["name"], "count": r["cnt"]} for r in tag_rows]
+
+            plat_rows = conn.execute(
+                """
+                SELECT source_platform, COUNT(*) AS cnt
+                FROM items WHERE deleted_at IS NULL
+                GROUP BY source_platform ORDER BY cnt DESC
+                """
+            ).fetchall()
+            platforms = [{"name": r["source_platform"], "count": r["cnt"]} for r in plat_rows]
+
+            return {
+                "total": row["total"],
+                "images": row["images"],
+                "videos": row["videos"],
+                "bytes": row["bytes"],
+                "trash_count": trash_count,
+                "collections_count": collections_count,
+                "tags": tags_dict,
+                "tags_list": tags_list,
+                "platforms": platforms,
+            }
+
+    def get_analytics(self) -> Dict[str, Any]:
+        with self.connect() as conn:
+            top_viewed = conn.execute(
+                "SELECT id, title, kind, thumb, file, views, downloads FROM items WHERE deleted_at IS NULL ORDER BY views DESC LIMIT 10"
+            ).fetchall()
+            daily = conn.execute(
+                """
+                SELECT strftime('%Y-%m-%d', ts, 'unixepoch', 'localtime') AS day, COUNT(*) AS cnt
+                FROM items WHERE deleted_at IS NULL AND ts >= ?
+                GROUP BY day ORDER BY day ASC
+                """,
+                (int(time.time()) - 30 * 86400,),
+            ).fetchall()
+            return {
+                "top_viewed": [dict(r) for r in top_viewed],
+                "daily_ingest": [dict(r) for r in daily],
+            }
+
+    # ---------- 异步任务表 ----------
+
+    def create_job(self, job_type: str, payload: Dict[str, Any]) -> int:
+        now = int(time.time())
+        with self._write_lock, self.connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO ingest_jobs(job_type, payload, status, progress, message, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+                (job_type, json.dumps(payload, ensure_ascii=False), "pending", 0, "排队中", now, now),
+            )
+            conn.commit()
+            return cur.lastrowid
+
+    def update_job(self, job_id: int, status: Optional[str] = None, progress: Optional[int] = None, message: Optional[str] = None, result: Optional[Dict[str, Any]] = None):
+        updates: Dict[str, Any] = {"updated_at": int(time.time())}
+        if status is not None:
+            updates["status"] = status
+        if progress is not None:
+            updates["progress"] = progress
+        if message is not None:
+            updates["message"] = message
+        if result is not None:
+            updates["result_json"] = json.dumps(result, ensure_ascii=False)
+        sets = ", ".join(f"{k}=?" for k in updates)
+        with self._write_lock, self.connect() as conn:
+            conn.execute(f"UPDATE ingest_jobs SET {sets} WHERE id=?", (*updates.values(), job_id))
+            conn.commit()
+
+    def list_jobs(self, limit: int = 50) -> List[Dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM ingest_jobs ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                try:
+                    d["payload"] = json.loads(d["payload"])
+                except Exception:
+                    pass
+                try:
+                    d["result"] = json.loads(d.pop("result_json", "{}") or "{}")
+                except Exception:
+                    d["result"] = {}
+                out.append(d)
+            return out
