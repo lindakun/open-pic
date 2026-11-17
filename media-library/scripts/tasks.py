@@ -118,8 +118,61 @@ class TaskManager:
             self._handle_media_process(job_id, payload)
         elif jtype == "backfill_metadata":
             self._handle_backfill(job_id)
+        elif jtype == "export_zip":
+            self._handle_export_zip(job_id, payload)
         else:
             self._update(job_id, "failed", 100, f"未知任务类型: {jtype}")
+
+    def _handle_export_zip(self, job_id: int, payload: Dict[str, Any]):
+        """异步批量导出（REQ-V2-20 C-13）。
+
+        产物落在数据目录 exports/ 下，任务结果里回传下载文件名；
+        不在请求线程里做 IO，也不把整包读进内存。
+        """
+        import export_seo
+
+        ids = payload.get("ids") or []
+        if not ids:
+            self._update(job_id, "failed", 100, "缺少导出项")
+            return
+        items = []
+        for iid in ids:
+            it = self.db.get_item(iid)
+            if it and not it.get("deleted_at"):
+                items.append(it)
+        if not items:
+            self._update(job_id, "failed", 100, "没有可导出的文件")
+            return
+
+        out_dir = os.path.join(self.data_dir, "exports")
+        os.makedirs(out_dir, exist_ok=True)
+        name = f"medialib-{job_id}.zip"
+        out_path = os.path.join(out_dir, name)
+
+        self._update(job_id, "running", 10, f"正在导出 {len(items)} 项")
+        try:
+            result = export_seo.build_zip_to_path(
+                self.files_dir,
+                items,
+                out_path,
+                preset=payload.get("preset", "original"),
+                fmt=payload.get("format", "jpeg"),
+                quality=int(payload.get("quality", 85)),
+                base_url=payload.get("base_url", ""),
+            )
+        except Exception as e:
+            self._update(job_id, "failed", 100, f"导出失败: {e}")
+            return
+
+        msg = f"已导出 {result['count']} 项"
+        if result["failures"]:
+            msg += f"，{len(result['failures'])} 项失败"
+        self._update(
+            job_id, "done", 100, msg,
+            {"file": name, "count": result["count"], "bytes": result["bytes"],
+             "failures": result["failures"][:10]},
+        )
+        self.broadcast("library_updated", {"reason": "export_zip"})
 
     def _handle_ingest_url(self, job_id: int, payload: Dict[str, Any]):
         url = payload.get("url", "").strip()

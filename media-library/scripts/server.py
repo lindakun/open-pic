@@ -48,6 +48,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import export_seo
 import media_proc
 import img_transform
 from db import MediaDB
@@ -141,6 +142,10 @@ class CollectionItemsReq(BaseModel):
 
 class ZipReq(BaseModel):
     ids: List[str]
+    # 多规格导出（REQ-V2-20 C-13）：不传时保持旧行为（原图直出，文件名不变）
+    preset: str = "original"
+    format: str = ""
+    quality: int = 85
 
 
 # ---------- 核心服务工厂 ----------
@@ -298,6 +303,17 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
             # 同步模式下才可能已算好近似重复；异步模式由任务完成后回传
             return saved, True, None
 
+    def _find_by_short_id(short: str) -> Optional[Dict[str, Any]]:
+        """按短 ID（id 前 6–8 位）定位资产，供 /a/ 语义路由使用（E-19）。
+
+        短 ID 是 id 的前缀，命中多条时取最新一条，避免歧义报错。
+        """
+        short = (short or "").strip().lower()
+        if not re.match(r"^[0-9a-f]{6,32}$", short):
+            return None
+        rows = db.find_by_id_prefix(short)
+        return rows[0] if rows else None
+
     def _serve_range_file(request: Request, path: str, download_name: Optional[str] = None, ctype: Optional[str] = None, immutable: bool = True) -> Response:
         if not os.path.isfile(path):
             raise HTTPException(status_code=404, detail="not found")
@@ -402,6 +418,33 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
             raise HTTPException(status_code=404, detail="新前端未构建")
         return HTMLResponse(shell, headers={"Cache-Control": "no-cache"})
 
+    @app.get("/a/{slug_id}", response_class=HTMLResponse)
+    def asset_page(slug_id: str, request: Request):
+        """语义资产页 /a/{slug}-{shortId}（REQ-V2-20 E-19）。
+
+        以短 ID 为准定位资产：slug 仅用于可读性与分享，冲突或改名不影响访问。
+        旧 /s/{id} 保留并 301 到新地址，不破坏既有分享链接。
+        """
+        short = slug_id.rsplit("-", 1)[-1]
+        it = _find_by_short_id(short)
+        if not it:
+            raise HTTPException(status_code=404, detail="资源不存在或已删除")
+        return RedirectResponse(
+            url=export_seo.asset_path(it.get("slug") or "", it["id"]), status_code=307
+        )
+
+    @app.get("/sitemap.xml")
+    def sitemap(request: Request):
+        """单文件 sitemap，仅收录 published（E-19 验收 2）。"""
+        items = db.list_published_items()
+        xml = export_seo.sitemap_xml(items, base_url=str(request.base_url).rstrip("/"))
+        return Response(content=xml, media_type="application/xml")
+
+    @app.get("/robots.txt")
+    def robots(request: Request):
+        txt = export_seo.robots_txt(str(request.base_url).rstrip("/"))
+        return Response(content=txt, media_type="text/plain")
+
     @app.get("/s/{item_id}", response_class=HTMLResponse)
     def share_page(item_id: str, request: Request):
         it = db.get_item(item_id)
@@ -421,13 +464,25 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
             if it["kind"] == "video"
             else f'<img src="{media_url}" alt="{title_esc}" style="max-width:92vw;max-height:76vh;border-radius:10px;object-fit:contain">'
         )
+        # 语义 URL 与结构化数据（E-19）：slug 缺失时先补齐，保证 canonical 稳定
+        if not it.get("slug"):
+            it["slug"] = db.ensure_slug(it["id"])
+        canonical_url = f"{base_url}{export_seo.asset_path(it.get('slug') or '', it['id'])}"
+        jsonld = json.dumps(
+            export_seo.jsonld_for_item(it, base_url=base_url), ensure_ascii=False
+        ).replace("</", "<\\/")
+
         return HTMLResponse(f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title_esc} - MediaLib 分享</title>
+<link rel="canonical" href="{canonical_url}">
+<script type="application/ld+json">{jsonld}</script>
+<meta name="description" content="{desc_esc}">
 <meta property="og:title" content="{title_esc}">
+<meta property="og:url" content="{canonical_url}">
 <meta property="og:description" content="{desc_esc}">
 <meta property="og:type" content="{og_type}">
 <meta property="og:image" content="{thumb_url}">
@@ -597,6 +652,8 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
         color: str = "",
         sort: str = "newest",
         deleted: bool = False,
+        status: str = "",
+        include_unpublished: bool = False,
     ):
         tags_list = [t.strip() for t in tag.split(",") if t.strip()] if tag else []
         ex_list = [t.strip() for t in exclude_tag.split(",") if t.strip()] if exclude_tag else []
@@ -614,6 +671,8 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
             color=color,
             sort=sort,
             deleted=deleted,
+            status=status,
+            include_unpublished=include_unpublished,
         )
         return {"total": total, "items": items}
 
@@ -650,6 +709,31 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
         fields = {k: v for k, v in req.model_dump().items() if v is not None}
         updated = db.update_license(item_id, **fields)
         return updated
+
+    class StatusReq(BaseModel):
+        status: str
+        publish_at: Optional[int] = None
+
+    @app.patch("/api/item/{item_id}/status")
+    def api_set_status(item_id: str, req: StatusReq):
+        """发布状态与定时发布（REQ-V2-20 C-12）。
+
+        非法流转返回 409 并给出允许路径，而不是静默接受。
+        """
+        if not re.match(r"^[0-9a-f]{6,32}$", item_id):
+            raise HTTPException(status_code=404, detail="not found")
+        if not db.get_item(item_id):
+            raise HTTPException(status_code=404, detail="not found")
+        ok, msg = db.set_status(item_id, req.status, req.publish_at)
+        if not ok:
+            raise HTTPException(status_code=409, detail=msg)
+        return {"ok": True, "item": db.get_item(item_id)}
+
+    @app.post("/api/publish/sweep")
+    def api_publish_sweep():
+        """把到期的定时发布项落为 published（C-12 调度侧）。"""
+        n = db.publish_due_items()
+        return {"ok": True, "published": n}
 
     @app.patch("/api/item/{item_id}")
     def api_update_item(item_id: str, req: UpdateItemReq):
@@ -805,32 +889,79 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
         raise HTTPException(status_code=400, detail="不支持的批量操作")
 
     @app.post("/api/items/download-zip")
-    def api_download_zip(req: ZipReq):
+    def api_download_zip(req: ZipReq, request: Request):
+        """批量导出（REQ-V2-20 C-13）。
+
+        改造点：
+          1. 不再全内存打包——写临时文件后流式返回，内存峰值与原图体积无关
+          2. 支持多规格导出（preset/format/quality），复用 export_seo 的渲染路径
+          3. 包内强制附带 credits.txt 与 metadata.json
+        """
         if not req.ids:
             raise HTTPException(status_code=400, detail="未选择任何文件")
-        buf = io.BytesIO()
-        used_names: Dict[str, int] = {}
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            for iid in req.ids[:100]:
-                it = db.get_item(iid)
-                if not it:
-                    continue
-                fpath = os.path.join(FILES, it["file"])
-                if not os.path.isfile(fpath):
-                    continue
-                arcname = it["name"] or it["file"]
-                if arcname in used_names:
-                    used_names[arcname] += 1
-                    stem, ext = os.path.splitext(arcname)
-                    arcname = f"{stem}_{used_names[arcname]}{ext}"
-                else:
-                    used_names[arcname] = 0
-                zf.write(fpath, arcname=arcname)
-        buf.seek(0)
+
+        items: List[Dict[str, Any]] = []
+        total_bytes = 0
+        for iid in req.ids[:200]:
+            it = db.get_item(iid)
+            if not it or it.get("deleted_at"):
+                continue
+            items.append(it)
+            total_bytes += int(it.get("size") or 0)
+        if not items:
+            raise HTTPException(status_code=404, detail="没有可导出的文件")
+
+        base_url = str(request.base_url).rstrip("/")
+        # 超过阈值转异步任务，避免长请求（C-13 验收 2）
+        if export_seo.needs_async(items, total_bytes):
+            payload = {
+                "ids": [i["id"] for i in items],
+                "preset": req.preset,
+                "format": req.format,
+                "quality": req.quality,
+                "base_url": base_url,
+            }
+            job_id = tasks.enqueue("export_zip", payload)
+            return JSONResponse(
+                status_code=202,
+                content={
+                    "async": True,
+                    "job_id": job_id,
+                    "count": len(items),
+                    "message": "导出任务已提交，完成后在任务中心下载",
+                },
+            )
+
+        data = export_seo.build_zip_memory(
+            FILES,
+            items,
+            preset=req.preset,
+            fmt=req.format,
+            quality=req.quality,
+            base_url=base_url,
+        )
         return StreamingResponse(
-            buf,
+            io.BytesIO(data),
             media_type="application/zip",
-            headers={"Content-Disposition": "attachment; filename=medialib-pack.zip"},
+            headers={
+                "Content-Disposition": "attachment; filename=medialib-pack.zip",
+                "Content-Length": str(len(data)),
+            },
+        )
+
+    @app.get("/api/exports/{name}")
+    def api_download_export(name: str):
+        """下载异步导出产物（REQ-V2-20 C-13）。"""
+        if not re.match(r"^medialib-\d+\.zip$", name):
+            raise HTTPException(status_code=404, detail="not found")
+        path = os.path.join(DATA, "exports", name)
+        if not os.path.isfile(path):
+            raise HTTPException(status_code=404, detail="导出文件不存在或已过期")
+        return FileResponse(
+            path,
+            media_type="application/zip",
+            filename=name,
+            headers={"Cache-Control": "private, max-age=0, must-revalidate"},
         )
 
     # ---------- 画板（Collections） ----------

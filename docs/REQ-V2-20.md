@@ -672,7 +672,11 @@
 | **D-16 管线异步化** | ✅ 完成 | 上传只落盘建记录即刻返回（实测 19ms），元数据/缩略图/近重复检测下沉 `media_process` 队列；`synchronous=1` 保留 CLI 兼容路径；近重复检测改前缀分桶 | 实测任务状态流转、元数据回填 |
 | **A-04 灯箱 2.0** | ✅ 完成 | 对比模式（2–4 图，transform 同步）、连播（Space + 3/5/8s）、色板（复制 HEX / 按色筛选联动 B-10）、快捷键表（←→ / ± / 0 / I / D / C / Space / ?）、信息面板（规格 / EXIF / 来源 / 标签 / 授权） | 新增 11 项灯箱单测；真实浏览器实测双图 scale 差 0、信息面板 3 色、帮助 9 条快捷键；axe 违规 0；`color=` 筛选前后端一致（6→5 项） |
 | S2 剩余 | ✅ 无 | S0–S2 全部 P0 完成 | — |
-| S3–S4 | ⬜ 未开始 | — | — |
+| **C-13 下载中心** | ✅ 完成 | 多规格导出（preset 2560/1920/1280/640/原图 × jpeg/webp/avif/png × 质量档）、ZIP 改写磁盘临时文件（不再全内存）、>20 项或 >200MB 自动转异步任务 + `/api/exports/{name}` 下载、包内强制附 `credits.txt` 与 `metadata.json`、导出副本剥离 GPS/机身序列号 | 13 项单测；实测同步导出含署名文件、24 项转任务 `export_zip` 完成后下载 26 条目、原图字节未变 |
+| **C-12 策展状态** | ✅ 完成 | `draft/published/archived` + `publish_at` 定时发布；非法流转 409 并给出允许路径；`POST /api/publish/sweep` 调度侧 + 查询侧惰性兜底双重保障；draft 不进默认列表与 sitemap | 7 项专项测试；实测 draft 后列表 5→4、archived→published 返回 409 |
+| **E-19 语义 URL 与 SEO** | ✅ 完成 | `/a/{slug}-{shortId}` 资产页、`/sitemap.xml`（仅 published）、`/robots.txt`、分享页 `canonical` + JSON-LD（Image/VideoObject + BreadcrumbList）、slug 冲突自动追加后缀 | 单测覆盖 slug/JSON-LD/sitemap；实测 sitemap 条目数与资产一致、`/a/` 307 到规范地址 |
+| S3 剩余 | 🟡 部分 | B-09 标签治理、C-14 客户选片待做 | — |
+| S4 前沿溢价 | ⬜ 未开始 | B-07 AI 打标、B-08 语义搜图、C-15 工作区、D-17 虚拟滚动、D-18 度量 | — |
 
 ### 已落地的技术细节
 

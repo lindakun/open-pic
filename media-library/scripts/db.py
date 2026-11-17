@@ -195,6 +195,7 @@ class MediaDB:
             "license_expires_at": "INTEGER DEFAULT NULL",
             "status": "TEXT NOT NULL DEFAULT 'published'",
             "slug": "TEXT NOT NULL DEFAULT ''",
+            "publish_at": "INTEGER DEFAULT NULL",
         }
         existing = {r[1] for r in conn.execute("PRAGMA table_info(items)").fetchall()}
         for col, decl in wanted.items():
@@ -548,6 +549,55 @@ class MediaDB:
             conn.commit()
         return self.get_item(item_id)
 
+    # 允许的状态流转（C-12 验收 1）：archived 不能直接回 published
+    STATUS_TRANSITIONS = {
+        "draft": {"published", "archived"},
+        "published": {"draft", "archived"},
+        "archived": {"draft"},
+    }
+
+    def set_status(self, item_id: str, status: str,
+                   publish_at: Optional[int] = None) -> Tuple[bool, str]:
+        """设置发布状态与定时发布时间（REQ-V2-20 C-12）。
+
+        返回 (ok, message)；非法流转返回 False 与允许路径，由路由转 409。
+        """
+        if status not in ("draft", "published", "archived"):
+            return False, "状态必须是 draft / published / archived"
+        with self._write_lock, self.connect() as conn:
+            row = conn.execute("SELECT status FROM items WHERE id=?", (item_id,)).fetchone()
+            if not row:
+                return False, "资源不存在"
+            current = row["status"] or "published"
+            if status != current:
+                allowed = self.STATUS_TRANSITIONS.get(current, set())
+                if status not in allowed:
+                    return False, (
+                        f"不允许从 {current} 直接流转到 {status}；"
+                        f"允许的目标：{sorted(allowed) or '无'}"
+                    )
+            conn.execute(
+                "UPDATE items SET status=?, publish_at=?, updated_at=? WHERE id=?",
+                (status, publish_at, int(time.time()), item_id),
+            )
+            conn.commit()
+            return True, "ok"
+
+    def publish_due_items(self) -> int:
+        """把到期的定时发布项落为 published（C-12：调度侧保障）。
+
+        查询侧另有惰性兜底，两者互为补充，任一漏跑都不影响可见性。
+        """
+        now = int(time.time())
+        with self._write_lock, self.connect() as conn:
+            cur = conn.execute(
+                "UPDATE items SET status='published', updated_at=?"
+                " WHERE status='draft' AND publish_at IS NOT NULL AND publish_at <= ?",
+                (now, now),
+            )
+            conn.commit()
+            return cur.rowcount or 0
+
     def increment_counter(self, item_id: str, col: str):
         if col not in ("views", "downloads"):
             return
@@ -570,9 +620,24 @@ class MediaDB:
         color: str = "",
         sort: str = "newest",
         deleted: bool = False,
+        status: str = "",
+        include_unpublished: bool = False,
     ) -> Tuple[int, List[Dict[str, Any]]]:
         where = ["i.deleted_at IS NOT NULL" if deleted else "i.deleted_at IS NULL"]
         params: List[Any] = []
+
+        # 发布状态（REQ-V2-20 C-12）：
+        #   - 默认只出 published，且定时到期的 draft 视为已发布（惰性查询兜底）
+        #   - 管理端可用 status= 显式查某一状态，或 include_unpublished 查全部
+        if status:
+            where.append("i.status = ?")
+            params.append(status)
+        elif not include_unpublished:
+            where.append(
+                "(i.status = 'published' OR (i.status = 'draft'"
+                " AND i.publish_at IS NOT NULL AND i.publish_at <= ?))"
+            )
+            params.append(int(time.time()))
 
         if kind in ("image", "video"):
             where.append("i.kind = ?")
@@ -665,6 +730,51 @@ class MediaDB:
                 (*params, limit, offset),
             ).fetchall()
             return total, self._hydrate_rows(conn, rows)
+
+    def find_by_id_prefix(self, prefix: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """按 id 前缀查资产（REQ-V2-20 E-19 的 /a/ 语义路由）。
+
+        id 是主键左前缀，可直接走索引范围扫描，不做全表 LIKE。
+        """
+        prefix = (prefix or "").strip().lower()
+        if not prefix:
+            return []
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM items WHERE id >= ? AND id < ? AND deleted_at IS NULL"
+                " ORDER BY ts DESC LIMIT ?",
+                (prefix, prefix + "\uffff", limit),
+            ).fetchall()
+            return self._hydrate_rows(conn, rows)
+
+    def list_published_items(self) -> List[Dict[str, Any]]:
+        """sitemap 用：只列 published 且未删除的资产（E-19）。"""
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT id, title, name, slug, ts, updated_at, kind, width, height,"
+                " author, license, license_url, copyright_holder, commercial_ok,"
+                " duration, dominant_color, file"
+                " FROM items WHERE deleted_at IS NULL AND status = 'published'"
+                " ORDER BY ts DESC"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def ensure_slug(self, item_id: str) -> str:
+        """为资产补齐 slug（幂等）。空标题时返回空串，路径靠 shortId 保证唯一。"""
+        with self._write_lock, self.connect() as conn:
+            row = conn.execute("SELECT slug, title, name FROM items WHERE id=?", (item_id,)).fetchone()
+            if not row:
+                return ""
+            if row["slug"]:
+                return row["slug"]
+            existing = {r[0] for r in conn.execute(
+                "SELECT slug FROM items WHERE slug != ''").fetchall()}
+            import export_seo
+            slug = export_seo.build_slug(row["title"] or row["name"] or "", item_id, existing)
+            conn.execute("UPDATE items SET slug=?, updated_at=? WHERE id=?",
+                         (slug, int(time.time()), item_id))
+            conn.commit()
+            return slug
 
     def find_similar(self, item_id: str, limit: int = 12, max_dist: int = 14) -> List[Dict[str, Any]]:
         """基于 pHash 与主色调检索视觉相似资产"""
