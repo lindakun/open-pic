@@ -1,384 +1,209 @@
 <script setup lang="ts">
 /**
- * 编辑化首页（REQ-V2-20 A-02）
+ * 首页：整屏图片墙（REQ-V2-20 A-02 改版）
  *
- * 版式遵循浅色编辑纸感：
- *   - Hero 用大留白 + 高字重标题承担叙事，不用插画与色块
- *   - 精选带与合辑带横排，制造杂志式翻阅感
- *   - 最近上新用 Editorial Grid 混排，打破单一流水线观感
+ * 不再是"Hero + 精选带 + 上新"的分段结构，而是：
+ *   - 一进来就是瀑布流，图片是唯一主角
+ *   - 艺术墙模式：列宽浮动、垂直错位、部分大图，错落而不凌乱
+ *   - 仅保留一条极轻的悬浮工具条（搜索入口 / 计数 / 主题），
+ *     滚动时淡出，把画面完全让给图片
  */
-import { computed, onMounted } from 'vue'
-import { RouterLink } from 'vue-router'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useMediaStore } from '@/stores/media'
-import SmartImage from '@/components/SmartImage.vue'
 import { useI18n } from '@/composables/useI18n'
+import MasonryGrid from '@/components/MasonryGrid.vue'
+import LightboxViewer from '@/components/LightboxViewer.vue'
+import MLButton from '@/components/MLButton.vue'
 
 const store = useMediaStore()
+const router = useRouter()
 const { t } = useI18n()
+
+/** 滚动后工具条淡出，让图片墙占满注意力 */
+const toolbarDim = ref(false)
+
+function onScroll() {
+  toolbarDim.value = window.scrollY > 120
+}
+
+/** 触底自动加载，首页做成无限滚动的图墙 */
+let observer: IntersectionObserver | null = null
+const sentinel = ref<HTMLElement | null>(null)
 
 onMounted(() => {
   if (store.items.length === 0) store.refresh()
-})
+  window.addEventListener('scroll', onScroll, { passive: true })
 
-/** Hero 主图：取库里分辨率最高的一张，作为门面 */
-const heroItem = computed(() => {
-  const withDims = store.items.filter((i) => i.width * i.height > 0)
-  if (!withDims.length) return store.items[0] ?? null
-  return withDims.reduce((best, cur) =>
-    cur.width * cur.height > best.width * best.height ? cur : best,
+  observer = new IntersectionObserver(
+    (entries) => {
+      if (entries[0]?.isIntersecting && store.hasMore && !store.loading) {
+        store.load()
+      }
+    },
+    // 提前两屏开始加载，滚动时几乎无等待
+    { rootMargin: '200% 0px' },
   )
+  if (sentinel.value) observer.observe(sentinel.value)
 })
 
-/** 除 Hero 外的候选池 */
-const pool = computed(() =>
-  store.items.filter((i) => i.id !== heroItem.value?.id),
-)
-
-/**
- * 精选带上限 6 项，但必须给「最近上新」留够空间：
- * 数据不足时优先保证上新有内容，精选相应少取。
- */
-const featured = computed(() => {
-  const total = pool.value.length
-  // 上新至少要 4 项（不足则有多少给多少）
-  const forRecent = Math.min(8, Math.max(total - 6, Math.min(total, 4)))
-  const forFeatured = Math.max(total - forRecent, 0)
-  return pool.value.slice(0, Math.min(forFeatured, 6))
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', onScroll)
+  observer?.disconnect()
 })
 
-/** 最近上新：取精选之后的剩余项，最多 8 项 */
-const recent = computed(() => pool.value.slice(featured.value.length, featured.value.length + 8))
+function openLightbox(index: number) {
+  store.openLightbox(index)
+}
+
+function goSearch() {
+  void router.push('/browse')
+}
 </script>
 
 <template>
-  <div class="home">
-    <!-- Hero：杂志式开场 -->
-    <section class="hero">
-      <div class="hero__text">
-        <p class="eyebrow">{{ t('home.eyebrow') }}</p>
-        <h1 class="hero__title">{{ t('home.title') }}</h1>
-        <p class="hero__lede">{{ t('home.lede') }}</p>
-        <div class="hero__actions">
-          <RouterLink to="/browse" class="link-arrow">{{ t('home.enterAll') }} →</RouterLink>
-        </div>
-      </div>
+  <div class="wall">
+    <!-- 悬浮工具条：极轻、半透明，不构成"头部区块" -->
+    <div :class="['wall__bar', { 'wall__bar--dim': toolbarDim }]">
+      <span class="wall__count mono" aria-live="polite">
+        {{ store.loading && !store.items.length ? t('site.loading') : t('site.total', { count: store.total }) }}
+      </span>
 
-      <RouterLink
-        v-if="heroItem"
-        :to="`/browse?q=`"
-        class="hero__figure"
-      >
-        <SmartImage
-          :id="heroItem.id"
-          :file="heroItem.file"
-          :kind="heroItem.kind"
-          :color="heroItem.dominant_color"
-          :ratio="1.25"
-          :display-width="760"
-          priority
-          alt=""
-        />
-        <span class="hero__caption">
-          <span class="hero__caption-title">{{ heroItem.title || heroItem.name }}</span>
-          <span v-if="heroItem.width" class="hero__caption-spec mono">
-            {{ heroItem.width }}×{{ heroItem.height }}
-          </span>
-        </span>
-      </RouterLink>
-    </section>
+      <button type="button" class="wall__search" :aria-label="t('browse.searchLabel')" @click="goSearch">
+        <span aria-hidden="true">⌕</span>
+        <span class="wall__search-text">{{ t('browse.searchPlaceholder') }}</span>
+      </button>
+    </div>
 
-    <!-- 编辑精选带 -->
-    <section v-if="featured.length" class="strip">
-      <header class="strip__head">
-        <h2 class="strip__title">{{ t('home.featured') }}</h2>
-        <RouterLink to="/browse" class="strip__more">{{ t('home.viewAll') }}</RouterLink>
-      </header>
-      <div :class="['strip__rail', { 'strip__rail--few': featured.length < 4 }]">
-        <RouterLink
-          v-for="item in featured"
-          :key="item.id"
-          to="/browse"
-          class="strip__cell"
-        >
-          <SmartImage
-            :id="item.id"
-            :file="item.file"
-            :kind="item.kind"
-            :color="item.dominant_color"
-            :ratio="1.33"
-            :display-width="280"
-            alt=""
-          />
-          <span class="strip__label">{{ item.title || item.name }}</span>
-        </RouterLink>
-      </div>
-    </section>
+    <!-- 空状态 -->
+    <div v-if="store.isEmpty" class="wall__empty">
+      <h1 class="wall__empty-title">{{ t('browse.emptyTitle') }}</h1>
+      <p class="muted">{{ t('home.empty') }}</p>
+      <MLButton variant="ghost" @click="goSearch">{{ t('site.browse') }}</MLButton>
+    </div>
 
-    <!-- 最近上新：Editorial Grid 混排 -->
-    <section class="recent">
-      <header class="strip__head">
-        <h2 class="strip__title">{{ t('home.recent') }}</h2>
-        <RouterLink to="/browse" class="strip__more">{{ t('home.viewAll') }}</RouterLink>
-      </header>
+    <!-- 图片墙本体 -->
+    <!-- 小红书式卡片流：等宽列 + 规整圆角卡 + 两行标题，
+         不做尺寸抖动，靠图片本身的色彩与密度形成节奏 -->
+    <MasonryGrid
+      v-else
+      :items="store.items"
+      :base-column-width="268"
+      @open="openLightbox"
+    />
 
-      <div
-        v-if="recent.length"
-        :class="['recent__grid', { 'recent__grid--sparse': recent.length < 3 }]"
-      >
-        <RouterLink
-          v-for="item in recent"
-          :key="item.id"
-          to="/browse"
-          class="recent__cell"
-        >
-          <span class="sr-only">{{ item.title || item.name }}</span>
-          <SmartImage
-            :id="item.id"
-            :file="item.file"
-            :kind="item.kind"
-            :color="item.dominant_color"
-            :ratio="1"
-            :display-width="520"
-            alt=""
-          />
-        </RouterLink>
-      </div>
+    <!-- 无限滚动哨兵 -->
+    <div ref="sentinel" class="wall__sentinel" aria-hidden="true" />
 
-      <p v-else-if="store.isEmpty" class="empty-note">{{ t('home.empty') }}</p>
-      <p v-else-if="!store.items.length" class="empty-note">{{ t('site.loading') }}</p>
-      <p v-else class="empty-note">{{ t('home.notEnough') }}</p>
-    </section>
+    <div v-if="store.hasMore" class="wall__more">
+      <MLButton variant="quiet" :disabled="store.loading" @click="store.load()">
+        {{ store.loading ? t('site.loading') : t('browse.loadMore') }}
+      </MLButton>
+    </div>
 
-    <footer class="home__foot">
-      <RouterLink to="/browse" class="link-arrow">{{ t('home.browseAll') }} →</RouterLink>
-    </footer>
+    <LightboxViewer
+      v-if="store.currentItem"
+      :item="store.currentItem"
+      :has-prev="store.lightboxIndex > 0"
+      :has-next="store.lightboxIndex < store.items.length - 1"
+      @close="store.closeLightbox"
+      @prev="store.stepLightbox(-1)"
+      @next="store.stepLightbox(1)"
+    />
   </div>
 </template>
 
 <style scoped>
-.home {
-  max-width: 1600px;
-  margin: 0 auto;
-  padding: 0 var(--p-space-5);
+.wall {
+  /* 卡片流：左右留出与列间距一致的内边距，视觉上等距 */
+  padding: var(--p-space-3) var(--p-space-4) var(--p-space-8);
+  min-height: 100vh;
 }
 
-/* ---------- Hero ---------- */
-.hero {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--p-space-8);
+/* ---------- 悬浮工具条 ---------- */
+.wall__bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
   align-items: center;
-  padding: var(--p-space-9) 0 var(--p-space-8);
-}
-
-.hero__title {
-  margin: var(--p-space-4) 0 var(--p-space-5);
-  /* 收窄上限并略降字距，让两行排布稳定，避免末行孤字 */
-  font-size: clamp(2.25rem, 4.6vw, 4.25rem);
-  line-height: 1.08;
-  letter-spacing: -0.03em;
-  text-wrap: balance;
-}
-
-.hero__lede {
-  font-size: var(--p-step-1);
-  color: var(--ink-muted);
-  max-width: 36ch;
-  line-height: 1.6;
-}
-
-.hero__actions {
-  margin-top: var(--p-space-6);
-}
-
-.hero__figure {
-  position: relative;
-  display: block;
-}
-
-.hero__figure:hover {
-  text-decoration: none;
-}
-
-.hero__caption {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
   gap: var(--p-space-3);
-  padding-top: var(--p-space-3);
+  padding: var(--p-space-2) var(--p-space-2) var(--p-space-3);
+  /* 半透明纸色，滚动时图片从下面透出 */
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
+  backdrop-filter: blur(10px);
+  transition: opacity var(--p-dur-base) var(--p-ease-out);
 }
 
-.hero__caption-title {
+.wall__bar--dim {
+  opacity: 0.32;
+}
+
+.wall__bar:hover {
+  opacity: 1;
+}
+
+.wall__count {
   font-size: var(--p-step--1);
   color: var(--ink-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.hero__caption-spec {
-  font-size: 0.6875rem;
-  color: var(--ink-faint);
   flex-shrink: 0;
+  padding-left: var(--p-space-2);
 }
 
-/* ---------- 区块标题 ---------- */
-.strip {
-  padding-bottom: var(--p-space-8);
-}
-
-.strip__head {
+.wall__search {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--p-space-4);
-  padding-bottom: var(--p-space-4);
-  margin-bottom: var(--p-space-5);
-  border-bottom: 1px solid var(--rule);
-}
-
-.strip__title {
-  font-size: var(--p-step-2);
-  font-family: var(--p-font-display);
-  font-weight: 500;
-}
-
-.strip__more {
+  align-items: center;
+  gap: var(--p-space-2);
+  flex: 1;
+  max-width: 320px;
+  margin-left: auto;
+  padding: var(--p-space-1) var(--p-space-3);
+  min-height: 30px;
   font-size: var(--p-step--1);
+  color: var(--ink-faint);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--p-radius-full);
+  transition: border-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.wall__search:hover {
+  border-color: var(--rule-strong);
   color: var(--ink-muted);
 }
 
-.strip__more:hover {
-  color: var(--ink);
-}
-
-/* ---------- 横向滚动带 ---------- */
-/* 横向带用固定列宽 + 溢出滚动，而不是 1fr 均分：
-   1fr 会让少量条目被拉得过大，失去"翻阅提案"的节奏感。 */
-.strip__rail {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 220px;
-  gap: var(--p-space-4);
-  overflow-x: auto;
-  padding-bottom: var(--p-space-2);
-  scroll-snap-type: x proximity;
-  scrollbar-width: thin;
-  overscroll-behavior-x: contain;
-}
-
-/* 条目不足 4 个时，拉开列间距让留白成为版面的一部分，
-   而不是右侧出现一整块突兀的空洞 */
-.strip__rail--few {
-  grid-auto-columns: minmax(220px, 280px);
-  gap: var(--p-space-6);
-}
-
-.strip__cell {
-  scroll-snap-align: start;
-}
-
-.strip__cell:hover {
-  text-decoration: none;
-}
-
-.strip__label {
-  display: block;
-  padding-top: var(--p-space-2);
-  font-size: var(--p-step--1);
-  color: var(--ink-muted);
+.wall__search-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* ---------- Editorial Grid 混排 ---------- */
-.recent {
-  padding-bottom: var(--p-space-8);
+.wall__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--p-space-3);
+  padding: var(--p-space-9) var(--p-space-5);
+  text-align: center;
 }
 
-.recent__grid {
-  display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  gap: var(--p-space-4);
+.wall__empty-title {
+  font-size: var(--p-step-2);
 }
 
-.recent__cell {
-  grid-column: span 3;
+.wall__sentinel {
+  height: 1px;
 }
 
-/* 第 1、6 项跨双倍宽，制造版式节奏 */
-.recent__cell:nth-child(1),
-.recent__cell:nth-child(6) {
-  grid-column: span 6;
+.wall__more {
+  display: flex;
+  justify-content: center;
+  padding: var(--p-space-6) 0;
 }
 
-/* 条目过少时不启用跨列，避免单图占满版面 */
-.recent__grid--sparse .recent__cell,
-.recent__grid--sparse .recent__cell:nth-child(1),
-.recent__grid--sparse .recent__cell:nth-child(6) {
-  grid-column: span 4;
-}
-
-/* 卡片统一限制高度，防止宽列时图片过高 */
-.recent__cell :deep(.smart-image) {
-  max-height: 420px;
-}
-
-.recent__cell:hover {
-  text-decoration: none;
-}
-
-.empty-note {
-  color: var(--ink-muted);
-  padding: var(--p-space-7) 0;
-  font-size: var(--p-step-0);
-}
-
-/* ---------- 页脚 ---------- */
-.home__foot {
-  padding: var(--p-space-8) 0 var(--p-space-9);
-  border-top: 1px solid var(--rule);
-}
-
-/* 通用箭头链接：纸感强调——只有下划线，不加色块 */
-.link-arrow {
-  font-size: var(--p-step-0);
-  font-weight: 500;
-  color: var(--accent-hover);
-  padding-bottom: 2px;
-  border-bottom: 1px solid var(--accent);
-  transition: opacity var(--p-dur-fast) var(--p-ease-out);
-}
-
-.link-arrow:hover {
-  text-decoration: none;
-  opacity: 0.72;
-}
-
-@media (max-width: 900px) {
-  .strip__rail {
-    grid-auto-columns: 160px;
-  }
-
-  .hero {
-    grid-template-columns: 1fr;
-    gap: var(--p-space-6);
-    padding-top: var(--p-space-7);
-  }
-
-  .recent__cell,
-  .recent__cell:nth-child(1),
-  .recent__cell:nth-child(6) {
-    grid-column: span 6;
-  }
-}
-
-@media (max-width: 560px) {
-  .recent__cell,
-  .recent__cell:nth-child(1),
-  .recent__cell:nth-child(6) {
-    grid-column: span 12;
+@media (prefers-reduced-motion: reduce) {
+  .wall__bar {
+    transition: none;
   }
 }
 </style>
