@@ -268,10 +268,16 @@ function onKeydown(e: KeyboardEvent) {
       close()
       break
     case 'ArrowLeft':
-      if (props.hasPrev) emit('prev')
+      if (props.hasPrev) {
+        emit('prev')
+        if (slideshow.value.on) startSlideshow() // 手动切图后重置计时，避免紧接着又自动跳
+      }
       break
     case 'ArrowRight':
-      if (props.hasNext) emit('next')
+      if (props.hasNext) {
+        emit('next')
+        if (slideshow.value.on) startSlideshow()
+      }
       break
     case '+':
     case '=':
@@ -298,6 +304,8 @@ function onKeydown(e: KeyboardEvent) {
       void copyLink()
       break
     case '?':
+    case '/':
+      e.preventDefault()
       openHelp()
       break
     case ' ':
@@ -348,6 +356,8 @@ watch(
   () => {
     resetZoom()
     compareIds.value = []
+    // 切图时若帮助浮层还开着，关掉避免说明与当前内容脱节
+    if (helpOpen.value) closeHelp()
   },
 )
 

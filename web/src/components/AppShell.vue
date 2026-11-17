@@ -77,7 +77,7 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
         <button
           type="button"
           class="icon-btn icon-btn--text mono"
-          :aria-label="locale === 'zh-CN' ? 'EN — Switch to English' : '中 — 切换到中文'"
+          :aria-label="locale === 'zh-CN' ? t('site.switchToEn') : t('site.switchToZh')"
           :title="locale === 'zh-CN' ? 'Switch to English' : '切换到中文'"
           @click="toggleLocale"
         >
@@ -89,7 +89,8 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
     </div>
   </header>
 
-  <main id="main">
+  <!-- tabindex=-1：让 skip link 的锚点跳转真正把焦点交给主内容区 -->
+  <main id="main" tabindex="-1">
     <RouterView />
   </main>
 </template>

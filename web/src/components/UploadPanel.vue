@@ -219,6 +219,7 @@ onBeforeUnmount(() => window.removeEventListener('paste', onPaste))
           type="file"
           accept="image/*,video/*"
           multiple
+          tabindex="-1"
           class="sr-only"
           @change="addFiles(($event.target as HTMLInputElement).files); ($event.target as HTMLInputElement).value = ''"
         />
@@ -243,7 +244,7 @@ onBeforeUnmount(() => window.removeEventListener('paste', onPaste))
           <MLField v-model="tags" :label="t('upload.fieldTags')" :placeholder="t('upload.tagsPlaceholder')" />
         </div>
 
-        <div v-if="uploading" class="up__progress" role="status" aria-live="polite">
+        <div v-if="uploading" class="up__progress" aria-hidden="true">
           <span class="up__progress-text mono">
             {{ progress.done }} / {{ progress.total }}
           </span>

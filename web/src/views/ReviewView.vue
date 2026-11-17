@@ -307,7 +307,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         </button>
       </nav>
 
-      <footer class="review__counts mono">
+      <footer class="review__counts mono" aria-live="polite">
         <span>{{ t('review.selected') }} {{ counts.selected }}</span>
         <span>{{ t('review.pending') }} {{ counts.pending }}</span>
         <span>{{ t('review.rejected') }} {{ counts.rejected }}</span>

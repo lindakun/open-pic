@@ -142,7 +142,7 @@ async function exportZip() {
 
 <template>
   <div v-if="count" class="batch" role="region" :aria-label="t('batch.bar')">
-    <span class="batch__count mono">{{ t('batch.selected', { count }) }}</span>
+    <span class="batch__count mono" aria-live="polite">{{ t('batch.selected', { count }) }}</span>
 
     <div class="batch__actions">
       <MLButton variant="quiet" :disabled="busy" @click="tagOpen = true">
