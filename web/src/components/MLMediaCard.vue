@@ -44,7 +44,7 @@ function onClick() {
   else emit('open', props.item)
 }
 
-const { t } = useI18n()
+const { t, formatNumber } = useI18n()
 
 /** 后端返回的宽高比，缺失时按 1:1 兜底 */
 const ratio = computed(() => {
@@ -105,7 +105,7 @@ const altText = computed(() =>
         :aria-label="`${t('facet.kindVideo')} ${item.duration ? Math.round(item.duration) + 's' : ''}`"
       >
         <span class="ml-card__play" aria-hidden="true">▶</span>
-        {{ item.duration ? `${Math.round(item.duration)}s` : 'VIDEO' }}
+        {{ item.duration ? `${formatNumber(Math.round(item.duration))}s` : 'VIDEO' }}
       </span>
       <!-- 选择圈：选择模式下常驻，避免 hover 才可见导致移动端不可用 -->
       <span v-if="selectable" :class="['ml-card__check', { 'ml-card__check--on': selected }]" aria-hidden="true">

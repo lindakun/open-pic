@@ -192,6 +192,12 @@ function isDisabled(option: FacetOption): boolean {
   cursor: not-allowed;
 }
 
+.facets__loading {
+  margin: 0 0 var(--p-space-2);
+  font-size: var(--p-step--1);
+  color: var(--ink-muted);
+}
+
 .facet__summary {
   display: flex;
   align-items: center;

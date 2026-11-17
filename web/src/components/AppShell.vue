@@ -11,7 +11,7 @@ import { RouterLink, RouterView } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import { useI18n } from '@/composables/useI18n'
 
-const { mode, cycle } = useTheme()
+const { mode, resolved, cycle } = useTheme()
 const { t, locale, toggleLocale } = useI18n()
 
 const headerHidden = ref(false)
@@ -43,7 +43,9 @@ onUnmounted(() => {
 const themeLabel = () => {
   if (mode.value === 'light') return t('site.themeLight')
   if (mode.value === 'dark') return t('site.themeDark')
-  return t('site.themeAuto')
+  // auto 模式下说明当前实际生效的主题，避免重复带「点击切换」后缀
+  const active = resolved.value === 'dark' ? t('site.themeDark') : t('site.themeLight')
+  return `${t('site.themeAuto')}：${active.replace('（点击切换）', '')}`
 }
 
 /** 按钮上的语言显示：切换目标而非当前语言，减少歧义 */

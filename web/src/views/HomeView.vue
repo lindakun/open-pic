@@ -80,6 +80,11 @@ function openLightbox(index: number) {
 function goSearch() {
   void router.push('/browse')
 }
+
+/** 空库时引导到浏览页并直接打开上传面板 */
+function goBrowseAndUpload() {
+  void router.push({ name: 'browse', query: { upload: '1' } })
+}
 </script>
 
 <template>
@@ -100,7 +105,7 @@ function goSearch() {
     <div v-if="store.isEmpty" class="wall__empty">
       <h1 class="wall__empty-title">{{ t('browse.emptyTitle') }}</h1>
       <p class="muted">{{ t('home.empty') }}</p>
-      <MLButton variant="ghost" @click="goSearch">{{ t('site.browse') }}</MLButton>
+      <MLButton variant="ghost" @click="goBrowseAndUpload">{{ t('home.addFirst') }}</MLButton>
     </div>
 
     <!-- 图片墙本体 -->

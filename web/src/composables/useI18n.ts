@@ -44,6 +44,7 @@ const messages: Record<Locale, Dict> = {
     'home.featured': '编辑精选',
     'home.recent': '最近上新',
     'home.empty': '库还是空的。上传第一张图片，或通过链接抓取。',
+    'home.addFirst': '添加第一张素材',
     'home.notEnough': '内容还不够铺满这一栏，继续添加吧。',
     'home.browseAll': '浏览全部',
 
@@ -240,6 +241,7 @@ const messages: Record<Locale, Dict> = {
     'home.featured': "Editor's Picks",
     'home.recent': 'Recently Added',
     'home.empty': 'The library is empty. Upload your first image or fetch from a link.',
+    'home.addFirst': 'Add your first asset',
     'home.notEnough': 'Not enough content to fill this row yet — keep adding.',
     'home.browseAll': 'Browse all',
 
@@ -468,14 +470,19 @@ const dict = computed(() => messages[locale.value])
 function t(key: string, params?: Record<string, string | number>): string {
   let text = dict.value[key] ?? messages['zh-CN'][key] ?? key
 
-  // 复数：{count} 存在时先选形
+  // 复数：{count} 存在时先选形（必须是数字，调用方不应预先格式化）
   if (params && typeof params.count === 'number') {
     text = pickPlural(text, params.count)
   }
 
   if (params) {
     for (const [k, v] of Object.entries(params)) {
-      text = text.replaceAll(`{${k}}`, String(v))
+      // 数值型 count 统一按 locale 加千分位，避免万级数字连写难读；
+      // 复数选形已在上面用原始数字完成，这里只负责展示。
+      const shown = k === 'count' && typeof v === 'number'
+        ? formatNumber(v)
+        : String(v)
+      text = text.replaceAll(`{${k}}`, shown)
     }
   }
   return text

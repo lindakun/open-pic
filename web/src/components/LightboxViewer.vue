@@ -40,7 +40,7 @@ const emit = defineEmits<{
 const dialogRef = ref<HTMLDialogElement | null>(null)
 const stageRef = ref<HTMLElement | null>(null)
 const helpRef = ref<HTMLDialogElement | null>(null)
-const { t, formatBytes, formatDate } = useI18n()
+const { t, formatBytes, formatDate, formatNumber } = useI18n()
 
 const {
   scale,
@@ -78,7 +78,7 @@ const spec = computed(() => {
   }
   if (props.item.ext) parts.push(props.item.ext.toUpperCase())
   if (props.item.size) parts.push(formatBytes(props.item.size))
-  if (props.item.duration) parts.push(`${props.item.duration.toFixed(1)}s`)
+  if (props.item.duration) parts.push(`${formatNumber(props.item.duration)}s`)
   return parts.join(' · ')
 })
 
@@ -294,6 +294,7 @@ function onKeydown(e: KeyboardEvent) {
     case 'i':
     case 'I':
       infoOpen.value = !infoOpen.value
+      if (infoOpen.value) focusPanel()
       break
     case 'd':
     case 'D':
@@ -319,6 +320,13 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 let helpTrigger: HTMLElement | null = null
+
+/** 信息面板打开后把焦点交给其关闭按钮，避免 Tab 跑到背景卡片 */
+function focusPanel() {
+  nextTick(() => {
+    document.querySelector<HTMLButtonElement>('.panel__close')?.focus({ preventScroll: true })
+  })
+}
 
 function openHelp() {
   helpTrigger = document.activeElement as HTMLElement | null
@@ -431,9 +439,11 @@ onUnmounted(() => {
         v-else
         :src="mediaUrl"
         :poster="`/t/${item.id}.jpg`"
+        :style="{ backgroundColor: item.dominant_color || '#12100d' }"
         controls
         autoplay
         playsinline
+        preload="metadata"
         class="lightbox__video"
       />
 
@@ -577,7 +587,7 @@ onUnmounted(() => {
           :class="{ 'lb-btn--on': infoOpen }"
           :aria-pressed="infoOpen"
           :aria-label="t('lightbox.info')"
-          @click="infoOpen = !infoOpen"
+          @click="infoOpen = !infoOpen; if (infoOpen) focusPanel()"
         >
           i
         </button>

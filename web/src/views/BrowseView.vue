@@ -36,7 +36,7 @@ const store = useMediaStore()
 const filters = useFilterStore()
 const toast = useToast()
 const route = useRoute()
-const { t, formatNumber } = useI18n()
+const { t } = useI18n()
 
 const searchInput = ref(filters.q)
 /** AI 检索能力（B-08）：未启用时隐藏以图搜图入口 */
@@ -260,6 +260,8 @@ function onFilterColor(color: string) {
 // 从 URL 还原筛选，然后加载
 onMounted(async () => {
   filters.fromUrlQuery(route.query as Record<string, string>)
+  // 首页空库引导：带 upload=1 时直接打开上传面板
+  if (route.query.upload === '1') uploadOpen.value = true
   searchInput.value = filters.q
   await store.refresh()
   // 首次渲染后还原上次锚点（D-17 验收 3）
@@ -478,7 +480,7 @@ watch(
             variant="ghost"
             @click="filters.reset(); applyAndRefresh()"
           >
-            {{ t('browse.clearFilter') }}
+            {{ t('browse.clearAll') }}
           </MLButton>
         </div>
 
