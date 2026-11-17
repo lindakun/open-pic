@@ -9,8 +9,10 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
+import { useI18n } from '@/composables/useI18n'
 
 const { mode, cycle } = useTheme()
+const { t, locale, toggleLocale } = useI18n()
 
 const headerHidden = ref(false)
 let ticking = false
@@ -39,35 +41,47 @@ onUnmounted(() => {
 })
 
 const themeLabel = () => {
-  if (mode.value === 'light') return '浅色主题（点击切换）'
-  if (mode.value === 'dark') return '深色主题（点击切换）'
-  return '跟随系统主题（点击切换）'
+  if (mode.value === 'light') return t('site.themeLight')
+  if (mode.value === 'dark') return t('site.themeDark')
+  return t('site.themeAuto')
 }
+
+/** 按钮上的语言显示：切换目标而非当前语言，减少歧义 */
+const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
 </script>
 
 <template>
-  <a class="skip-link" href="#main">跳到主要内容</a>
+  <a class="skip-link" href="#main">{{ t('site.skipToMain') }}</a>
 
   <header :class="['site-header', { 'site-header--hidden': headerHidden }]">
     <div class="site-header__inner">
-      <RouterLink to="/" class="brand" aria-label="MediaLib 首页">
+      <RouterLink to="/" class="brand" :aria-label="`${t('site.name')} ${t('site.home')}`">
         <span class="brand__mark" aria-hidden="true">◐</span>
-        <span class="brand__name">MediaLib</span>
+        <span class="brand__name">{{ t('site.name') }}</span>
       </RouterLink>
 
-      <nav class="site-nav" aria-label="主导航">
-        <RouterLink to="/browse" class="site-nav__link">浏览</RouterLink>
+      <nav class="site-nav" aria-label="Main">
+        <RouterLink to="/browse" class="site-nav__link">{{ t('site.browse') }}</RouterLink>
       </nav>
 
       <div class="site-header__actions">
         <button
           type="button"
-          class="icon-btn"
-          :aria-label="themeLabel()"
+          class="icon-btn icon-btn--text mono"
+          :aria-label="`${t('site.toggleTheme')} (${themeLabel()})`"
           :title="themeLabel()"
           @click="cycle"
         >
           <span aria-hidden="true">{{ mode === 'light' ? '☀' : mode === 'dark' ? '☾' : '◐' }}</span>
+        </button>
+        <button
+          type="button"
+          class="icon-btn icon-btn--text mono"
+          :aria-label="locale === 'zh-CN' ? 'EN — Switch to English' : '中 — 切换到中文'"
+          :title="locale === 'zh-CN' ? 'Switch to English' : '切换到中文'"
+          @click="toggleLocale"
+        >
+          <span aria-hidden="true">{{ localeShort() }}</span>
         </button>
       </div>
     </div>
@@ -168,6 +182,13 @@ const themeLabel = () => {
 .icon-btn:hover {
   background: var(--surface-hover);
   color: var(--ink);
+}
+
+/* 文字型图标按钮（语言切换）：字号略小以保持视觉重量一致 */
+.icon-btn--text {
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 /* 减弱动效：顶栏不滑动，仅淡出（A-03） */

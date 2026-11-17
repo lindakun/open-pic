@@ -8,6 +8,7 @@
 import { computed } from 'vue'
 import MLChip from './MLChip.vue'
 import { useFilterStore } from '@/stores/filters'
+import { useI18n } from '@/composables/useI18n'
 import type { Facets, FacetOption } from '@/stores/filters'
 
 const props = defineProps<{
@@ -16,33 +17,29 @@ const props = defineProps<{
 }>()
 
 const filters = useFilterStore()
+const { t } = useI18n()
 
 /** 方向的中文标签 */
-const ORIENTATION_LABEL: Record<string, string> = {
-  landscape: '横图',
-  portrait: '竖图',
-  square: '方图',
-}
-
-/** 类型的标签 */
-const KIND_LABEL: Record<string, string> = {
-  image: '图片',
-  video: '视频',
-}
-
-/** 尺寸档位标签 */
-const SIZE_LABEL: Record<string, string> = {
-  '4k': '4K+',
-  hd: '高清 1080',
-  sd: '标清 720',
-  small: '小图',
+/** 分面值到 i18n key 的映射 */
+const LABEL_KEY: Record<string, Record<string, string>> = {
+  orientation: {
+    landscape: 'facet.landscape',
+    portrait: 'facet.portrait',
+    square: 'facet.square',
+  },
+  kind: { image: 'facet.kindImage', video: 'facet.kindVideo' },
+  size_class: {
+    '4k': 'facet.size4k',
+    hd: 'facet.sizeHd',
+    sd: 'facet.sizeSd',
+    small: 'facet.sizeSmall',
+  },
+  platform: { local: 'facet.platformLocal' },
 }
 
 function displayName(dimension: string, value: string): string {
-  if (dimension === 'orientation') return ORIENTATION_LABEL[value] ?? value
-  if (dimension === 'kind') return KIND_LABEL[value] ?? value
-  if (dimension === 'size_class') return SIZE_LABEL[value] ?? value
-  if (dimension === 'platform') return value === 'local' ? '本地上传' : value
+  const key = LABEL_KEY[dimension]?.[value]
+  if (key) return t(key)
   if (dimension === 'ext') return value.replace(/^\./, '').toUpperCase()
   return value
 }
@@ -85,12 +82,12 @@ const groups = computed(() => {
   const f = props.facets
   if (!f) return []
   return [
-    { key: 'kind', title: '类型', options: f.kind },
-    { key: 'orientation', title: '方向', options: f.orientation },
-    { key: 'size_class', title: '分辨率', options: f.size_class },
-    { key: 'ext', title: '格式', options: f.ext },
-    { key: 'platform', title: '来源', options: f.platform },
-    { key: 'tag', title: '标签', options: f.tag },
+    { key: 'kind', title: t('facet.kind'), options: f.kind },
+    { key: 'orientation', title: t('facet.orientation'), options: f.orientation },
+    { key: 'size_class', title: t('facet.sizeClass'), options: f.size_class },
+    { key: 'ext', title: t('facet.ext'), options: f.ext },
+    { key: 'platform', title: t('facet.platform'), options: f.platform },
+    { key: 'tag', title: t('facet.tag'), options: f.tag },
   ].filter((g) => g.options && g.options.length > 0)
 })
 
@@ -100,20 +97,20 @@ function isDisabled(option: FacetOption): boolean {
 </script>
 
 <template>
-  <aside class="facets" aria-label="筛选">
+  <aside class="facets" :aria-label="t('facet.title')">
     <div class="facets__head">
-      <h2 class="facets__title">筛选</h2>
+      <h2 class="facets__title">{{ t('facet.title') }}</h2>
       <button
         v-if="filters.hasFilters"
         type="button"
         class="facets__reset"
         @click="filters.reset()"
       >
-        清空
+        {{ t('facet.clear') }}
       </button>
     </div>
 
-    <p v-if="loading" class="facets__loading muted">统计中…</p>
+    <p v-if="loading" class="facets__loading muted">{{ t('facet.counting') }}</p>
 
     <details
       v-for="group in groups"

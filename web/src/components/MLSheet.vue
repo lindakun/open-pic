@@ -6,6 +6,7 @@
  * 顶层渲染与惰性焦点的正确语义，无需手写 div 遮罩。
  */
 import { onBeforeUnmount, ref, watch } from 'vue'
+import { useI18n } from '@/composables/useI18n'
 
 const props = withDefaults(
   defineProps<{
@@ -26,6 +27,7 @@ const emit = defineEmits<{
 }>()
 
 const dialogRef = ref<HTMLDialogElement | null>(null)
+const { t } = useI18n()
 
 function close() {
   emit('update:open', false)
@@ -74,7 +76,7 @@ onBeforeUnmount(() => {
         <slot name="header">
           <h2 class="ml-sheet__title">{{ title }}</h2>
         </slot>
-        <button type="button" class="ml-sheet__close" aria-label="关闭" @click="close">
+        <button type="button" class="ml-sheet__close" :aria-label="t('common.close')" @click="close">
           ×
         </button>
       </header>

@@ -11,8 +11,10 @@ import { computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useMediaStore } from '@/stores/media'
 import SmartImage from '@/components/SmartImage.vue'
+import { useI18n } from '@/composables/useI18n'
 
 const store = useMediaStore()
+const { t } = useI18n()
 
 onMounted(() => {
   if (store.items.length === 0) store.refresh()
@@ -53,13 +55,11 @@ const recent = computed(() => pool.value.slice(featured.value.length, featured.v
     <!-- Hero：杂志式开场 -->
     <section class="hero">
       <div class="hero__text">
-        <p class="eyebrow">Visual Asset Library</p>
-        <h1 class="hero__title">把每一次看见<br />都收进库里。</h1>
-        <p class="hero__lede">
-          一个为商业使用而建的视觉资产库——可检索、可策展、可交付。
-        </p>
+        <p class="eyebrow">{{ t('home.eyebrow') }}</p>
+        <h1 class="hero__title">{{ t('home.title') }}</h1>
+        <p class="hero__lede">{{ t('home.lede') }}</p>
         <div class="hero__actions">
-          <RouterLink to="/browse" class="link-arrow">进入全部资产 →</RouterLink>
+          <RouterLink to="/browse" class="link-arrow">{{ t('home.enterAll') }} →</RouterLink>
         </div>
       </div>
 
@@ -67,7 +67,6 @@ const recent = computed(() => pool.value.slice(featured.value.length, featured.v
         v-if="heroItem"
         :to="`/browse?q=`"
         class="hero__figure"
-        :aria-label="`精选：${heroItem.title || heroItem.name}`"
       >
         <SmartImage
           :id="heroItem.id"
@@ -91,8 +90,8 @@ const recent = computed(() => pool.value.slice(featured.value.length, featured.v
     <!-- 编辑精选带 -->
     <section v-if="featured.length" class="strip">
       <header class="strip__head">
-        <h2 class="strip__title">编辑精选</h2>
-        <RouterLink to="/browse" class="strip__more">查看全部</RouterLink>
+        <h2 class="strip__title">{{ t('home.featured') }}</h2>
+        <RouterLink to="/browse" class="strip__more">{{ t('home.viewAll') }}</RouterLink>
       </header>
       <div :class="['strip__rail', { 'strip__rail--few': featured.length < 4 }]">
         <RouterLink
@@ -118,8 +117,8 @@ const recent = computed(() => pool.value.slice(featured.value.length, featured.v
     <!-- 最近上新：Editorial Grid 混排 -->
     <section class="recent">
       <header class="strip__head">
-        <h2 class="strip__title">最近上新</h2>
-        <RouterLink to="/browse" class="strip__more">查看全部</RouterLink>
+        <h2 class="strip__title">{{ t('home.recent') }}</h2>
+        <RouterLink to="/browse" class="strip__more">{{ t('home.viewAll') }}</RouterLink>
       </header>
 
       <div
@@ -132,6 +131,7 @@ const recent = computed(() => pool.value.slice(featured.value.length, featured.v
           to="/browse"
           class="recent__cell"
         >
+          <span class="sr-only">{{ item.title || item.name }}</span>
           <SmartImage
             :id="item.id"
             :file="item.file"
@@ -144,15 +144,13 @@ const recent = computed(() => pool.value.slice(featured.value.length, featured.v
         </RouterLink>
       </div>
 
-      <p v-else-if="store.isEmpty" class="empty-note">
-        库还是空的。上传第一张图片，或通过链接抓取。
-      </p>
-      <p v-else-if="!store.items.length" class="empty-note">载入中…</p>
-      <p v-else class="empty-note">内容还不够铺满这一栏，继续添加吧。</p>
+      <p v-else-if="store.isEmpty" class="empty-note">{{ t('home.empty') }}</p>
+      <p v-else-if="!store.items.length" class="empty-note">{{ t('site.loading') }}</p>
+      <p v-else class="empty-note">{{ t('home.notEnough') }}</p>
     </section>
 
     <footer class="home__foot">
-      <RouterLink to="/browse" class="link-arrow">浏览全部 →</RouterLink>
+      <RouterLink to="/browse" class="link-arrow">{{ t('home.browseAll') }} →</RouterLink>
     </footer>
   </div>
 </template>

@@ -6,6 +6,7 @@
  * 由 useToast 组合式函数统一驱动，挂载点唯一。
  */
 import type { ToastItem } from '@/composables/useToast'
+import { useI18n } from '@/composables/useI18n'
 
 defineProps<{
   toasts: readonly ToastItem[]
@@ -14,6 +15,8 @@ defineProps<{
 defineEmits<{
   (e: 'dismiss', id: number): void
 }>()
+
+const { t } = useI18n()
 </script>
 
 <template>
@@ -28,7 +31,7 @@ defineEmits<{
       <button
         type="button"
         class="ml-toast__close"
-        aria-label="关闭提示"
+        :aria-label="t('toast.close')"
         @click="$emit('dismiss', toast.id)"
       >
         ×

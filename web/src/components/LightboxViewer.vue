@@ -7,6 +7,7 @@
  */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { MediaItem } from '@/api/types'
+import { useI18n } from '@/composables/useI18n'
 
 const props = defineProps<{
   item: MediaItem
@@ -22,6 +23,7 @@ const emit = defineEmits<{
 
 const dialogRef = ref<HTMLDialogElement | null>(null)
 const zoom = ref(1)
+const { t, formatBytes } = useI18n()
 
 const mediaUrl = computed(() => `/f/${props.item.file}`)
 const previewUrl = computed(() =>
@@ -35,7 +37,8 @@ const spec = computed(() => {
   }
   if (props.item.ext) parts.push(props.item.ext.toUpperCase())
   if (props.item.size) {
-    parts.push(`${(props.item.size / 1024 / 1024).toFixed(2)} MB`)
+    // 体积按 locale 格式化，避免英文界面出现中文单位或反之
+    parts.push(formatBytes(props.item.size))
   }
   return parts.join(' · ')
 })
@@ -101,7 +104,7 @@ onUnmounted(() => {
   <dialog
     ref="dialogRef"
     class="lightbox"
-    aria-label="媒体预览"
+    :aria-label="t('lightbox.preview')"
     @close="close"
     @click="($event.target as HTMLElement).tagName === 'DIALOG' && close()"
   >
@@ -132,15 +135,27 @@ onUnmounted(() => {
       </div>
 
       <div class="lightbox__controls">
-        <button type="button" class="lb-btn" :disabled="!hasPrev" aria-label="上一张" @click="$emit('prev')">
+        <button
+          type="button"
+          class="lb-btn"
+          :disabled="!hasPrev"
+          :aria-label="t('lightbox.prev')"
+          @click="$emit('prev')"
+        >
           ←
         </button>
         <span class="lightbox__zoom mono">{{ Math.round(zoom * 100) }}%</span>
-        <button type="button" class="lb-btn" :disabled="!hasNext" aria-label="下一张" @click="$emit('next')">
+        <button
+          type="button"
+          class="lb-btn"
+          :disabled="!hasNext"
+          :aria-label="t('lightbox.next')"
+          @click="$emit('next')"
+        >
           →
         </button>
-        <a :href="mediaUrl" download class="lb-btn" aria-label="下载原图">↓</a>
-        <button type="button" class="lb-btn" aria-label="关闭" @click="close">✕</button>
+        <a :href="mediaUrl" download class="lb-btn" :aria-label="t('lightbox.download')">↓</a>
+        <button type="button" class="lb-btn" :aria-label="t('lightbox.close')" @click="close">✕</button>
       </div>
     </div>
   </dialog>

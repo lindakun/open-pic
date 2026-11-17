@@ -10,6 +10,7 @@ import { useRoute } from 'vue-router'
 import { useMediaStore } from '@/stores/media'
 import { useFilterStore } from '@/stores/filters'
 import { useToast } from '@/composables/useToast'
+import { useI18n } from '@/composables/useI18n'
 import { withViewTransition } from '@/composables/useViewTransition'
 import MasonryGrid from '@/components/MasonryGrid.vue'
 import LightboxViewer from '@/components/LightboxViewer.vue'
@@ -22,6 +23,7 @@ const store = useMediaStore()
 const filters = useFilterStore()
 const toast = useToast()
 const route = useRoute()
+const { t, formatNumber } = useI18n()
 
 const searchInput = ref(filters.q)
 /** 移动端分面面板折叠 */
@@ -38,13 +40,15 @@ function onSearchInput(value: string) {
   }, 300)
 }
 
-const SORTS: { key: SortKey; label: string }[] = [
-  { key: 'newest', label: '最新' },
-  { key: 'oldest', label: '最早' },
-  { key: 'pixels', label: '分辨率' },
-  { key: 'size', label: '体积' },
-  { key: 'views', label: '热度' },
-]
+/** 排序项：label 由 i18n 提供，故用 key 而非直接存文案 */
+const SORT_KEYS: SortKey[] = ['newest', 'oldest', 'pixels', 'size', 'views']
+
+/** 方向 chip 的 i18n key */
+const ORIENTATION_KEY: Record<string, string> = {
+  landscape: 'facet.landscape',
+  portrait: 'facet.portrait',
+  square: 'facet.square',
+}
 
 function changeSort(value: SortKey) {
   filters.setSort(value)
@@ -93,6 +97,9 @@ watch(
 
 <template>
   <div class="browse">
+    <!-- 页面主标题：屏幕阅读器用于定位，视觉上以工具条承担同样语义 -->
+    <h1 class="sr-only">{{ t('site.browse') }}</h1>
+
     <!-- 工具条 -->
     <div class="browse__toolbar">
       <button
@@ -102,7 +109,7 @@ watch(
         aria-controls="facet-panel"
         @click="facetsOpen = !facetsOpen"
       >
-        筛选
+        {{ t('browse.filter') }}
         <span v-if="filters.activeCount" class="browse__badge mono">
           {{ filters.activeCount }}
         </span>
@@ -114,35 +121,39 @@ watch(
           :value="searchInput"
           type="search"
           class="browse__search-input"
-          placeholder="搜索标题、标签、来源…"
-          aria-label="搜索媒体库"
+          :placeholder="t('browse.searchPlaceholder')"
+          :aria-label="t('browse.searchLabel')"
           @input="onSearchInput(($event.target as HTMLInputElement).value)"
         />
       </div>
 
-      <div class="browse__sorts" role="group" aria-label="排序方式">
+      <div class="browse__sorts" role="group" :aria-label="t('sort.label')">
         <button
-          v-for="s in SORTS"
-          :key="s.key"
+          v-for="key in SORT_KEYS"
+          :key="key"
           type="button"
-          :class="['sort-btn', { 'sort-btn--on': filters.sort === s.key }]"
-          :aria-pressed="filters.sort === s.key"
-          @click="changeSort(s.key)"
+          :class="['sort-btn', { 'sort-btn--on': filters.sort === key }]"
+          :aria-pressed="filters.sort === key"
+          @click="changeSort(key)"
         >
-          {{ s.label }}
+          {{ t(`sort.${key}`) }}
         </button>
       </div>
 
       <span class="browse__count mono" aria-live="polite">
-        {{ store.loading && !store.items.length ? '载入中…' : `${store.total} 项` }}
+        {{
+          store.loading && !store.items.length
+            ? t('site.loading')
+            : t('site.total', { count: store.total })
+        }}
       </span>
     </div>
 
     <!-- 已选条件 chips 条 -->
-    <div v-if="filters.hasFilters" class="browse__active" aria-label="已选筛选条件">
+    <div v-if="filters.hasFilters" class="browse__active" :aria-label="t('browse.activeFilters')">
       <MLChip
         v-if="filters.q"
-        :label="`关键词：${filters.q}`"
+        :label="t('browse.keyword', { value: filters.q })"
         removable
         @remove="filters.setQ(''); searchInput = ''; applyAndRefresh()"
       />
@@ -164,20 +175,20 @@ watch(
       />
       <MLChip
         v-if="filters.kind"
-        :label="filters.kind === 'image' ? '图片' : '视频'"
+        :label="filters.kind === 'image' ? t('facet.kindImage') : t('facet.kindVideo')"
         removable
         active
         @remove="filters.setKind(''); applyAndRefresh()"
       />
       <MLChip
         v-if="filters.orientation"
-        :label="{ landscape: '横图', portrait: '竖图', square: '方图' }[filters.orientation]"
+        :label="t(ORIENTATION_KEY[filters.orientation])"
         removable
         active
         @remove="filters.setOrientation(''); applyAndRefresh()"
       />
       <button type="button" class="browse__clear" @click="filters.reset(); applyAndRefresh()">
-        清空全部
+        {{ t('browse.clearAll') }}
       </button>
     </div>
 
@@ -192,16 +203,16 @@ watch(
 
       <div class="browse__main">
         <div v-if="store.isEmpty" class="browse__empty">
-          <h2>没有匹配的内容</h2>
+          <h2>{{ t('browse.emptyTitle') }}</h2>
           <p class="muted">
-            {{ filters.hasFilters ? '试试放宽筛选条件，或清空全部筛选。' : '上传图片或通过链接抓取，开始构建你的视觉资产库。' }}
+            {{ filters.hasFilters ? t('browse.emptyHint') : t('browse.emptyHintNoFilter') }}
           </p>
           <MLButton
             v-if="filters.hasFilters"
             variant="ghost"
             @click="filters.reset(); applyAndRefresh()"
           >
-            清空筛选
+            {{ t('browse.clearFilter') }}
           </MLButton>
         </div>
 
@@ -209,7 +220,7 @@ watch(
 
         <div v-if="store.hasMore" class="browse__more">
           <MLButton variant="ghost" :disabled="store.loading" @click="store.load()">
-            {{ store.loading ? '载入中…' : '加载更多' }}
+            {{ store.loading ? t('site.loading') : t('browse.loadMore') }}
           </MLButton>
         </div>
       </div>

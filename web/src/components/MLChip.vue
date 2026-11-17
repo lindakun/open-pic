@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useI18n } from '@/composables/useI18n'
+
 /**
  * MLChip —— 筛选条件片
  *
@@ -24,6 +26,8 @@ defineEmits<{
   (e: 'remove'): void
   (e: 'click'): void
 }>()
+
+const { t } = useI18n()
 </script>
 
 <template>
@@ -36,7 +40,7 @@ defineEmits<{
     <span class="ml-chip__label">{{ label }}</span>
     <span v-if="count !== undefined" class="ml-chip__count mono">{{ count }}</span>
     <span v-if="removable" class="ml-chip__x" aria-hidden="true">×</span>
-    <span v-if="removable" class="sr-only">移除筛选</span>
+    <span v-if="removable" class="sr-only">{{ t('browse.removeFilter') }}</span>
   </component>
 </template>
 

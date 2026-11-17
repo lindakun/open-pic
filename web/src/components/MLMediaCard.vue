@@ -12,6 +12,7 @@
 import { computed } from 'vue'
 import type { MediaItem } from '@/api/types'
 import SmartImage from './SmartImage.vue'
+import { useI18n } from '@/composables/useI18n'
 
 const props = withDefaults(
   defineProps<{
@@ -29,6 +30,8 @@ const props = withDefaults(
 defineEmits<{
   (e: 'open', item: MediaItem): void
 }>()
+
+const { t } = useI18n()
 
 /** 后端返回的宽高比，缺失时按 1:1 兜底 */
 const ratio = computed(() => {
@@ -81,7 +84,7 @@ const altText = computed(() =>
         :ratio="ratio"
         :display-width="width"
       />
-      <span v-if="item.kind === 'video'" class="ml-card__badge mono" aria-label="视频">
+      <span v-if="item.kind === 'video'" class="ml-card__badge mono" :aria-label="t('facet.kindVideo')">
         {{ item.duration ? `${Math.round(item.duration)}s` : 'VIDEO' }}
       </span>
     </div>
@@ -148,8 +151,8 @@ const altText = computed(() =>
   display: flex;
   flex-direction: column;
   gap: 1px;
-  /* 默认半隐，hover 时提亮：让版面默认干净 */
-  opacity: 0.62;
+  /* 不用整体透明度弱化：那会把合规的对比度压到 1.9（axe 实测），
+     改为直接使用已满足 AA 的 --ink-muted / --ink-faint。 */
   transition: opacity var(--p-dur-fast) var(--p-ease-out);
 }
 

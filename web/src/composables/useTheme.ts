@@ -10,8 +10,12 @@ import type { ThemeMode } from '@/api/types'
 const STORAGE_KEY = 'medialib.theme'
 
 function readStored(): ThemeMode {
-  const v = localStorage.getItem(STORAGE_KEY)
-  return v === 'light' || v === 'dark' || v === 'auto' ? v : 'auto'
+  try {
+    const v = localStorage.getItem(STORAGE_KEY)
+    return v === 'light' || v === 'dark' || v === 'auto' ? v : 'auto'
+  } catch {
+    return 'auto'
+  }
 }
 
 const mode = ref<ThemeMode>(readStored())
@@ -39,7 +43,11 @@ function apply() {
 watch(resolved, apply, { immediate: true })
 
 watch(mode, (v) => {
-  localStorage.setItem(STORAGE_KEY, v)
+  try {
+    localStorage.setItem(STORAGE_KEY, v)
+  } catch {
+    // 存储不可用时忽略
+  }
 })
 
 export function useTheme() {
