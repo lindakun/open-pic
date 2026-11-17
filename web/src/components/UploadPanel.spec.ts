@@ -131,6 +131,21 @@ describe('UploadPanel 上传', () => {
     wrapper.unmount()
   })
 
+  it('超过 1GB 的文件被提前拦截并提示', async () => {
+    const wrapper = mountPanel()
+    const input = wrapper.find('input[type="file"]')
+    const huge = makeFile('huge.mp4', 'video/mp4')
+    Object.defineProperty(huge, 'size', { value: 2 * 1024 * 1024 * 1024 })
+    Object.defineProperty(input.element, 'files', { value: [huge], configurable: true })
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(wrapper.find('.up__errors').exists()).toBe(true)
+    expect(wrapper.text()).toContain('超过 1GB')
+    expect(wrapper.findAll('.up__item').length).toBe(0)
+    wrapper.unmount()
+  })
+
   it('浏览器给不出 MIME 的容器格式按扩展名放行（如 .mkv）', async () => {
     const wrapper = mountPanel()
     const input = wrapper.find('input[type="file"]')

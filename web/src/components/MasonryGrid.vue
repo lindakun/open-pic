@@ -165,8 +165,12 @@ const scrollY = ref(0)
 const viewportH = ref(0)
 
 function measure() {
-  if (containerRef.value) {
-    containerWidth.value = containerRef.value.clientWidth
+  const el = containerRef.value
+  if (el) {
+    containerWidth.value = el.clientWidth
+    // 重排会改变容器高度与列数，旧的 scrollY 立即失效；
+    // 只更新宽度而不重算可见区间，缩放窗口后会出现大片未渲染的空白
+    scrollY.value = -el.getBoundingClientRect().top
   }
   viewportH.value = window.innerHeight
 }

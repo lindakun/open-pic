@@ -170,7 +170,8 @@ def test_jsonld_videoobject_has_duration():
 def test_sitemap_counts_match_items():
     items = [make_item(), make_item(id="bbb")]
     xml = export_seo.sitemap_xml(items, base_url="http://nas:18100")
-    assert xml.count("<loc>") == 2 + len(items)  # 两个固定页 + 每个资产一页
+    # 三个固定页（/、/app/、/app/browse）+ 每个资产一页
+    assert xml.count("<loc>") == 3 + len(items)
     assert "/a/sunset-coast-abcdef12" in xml
 
 

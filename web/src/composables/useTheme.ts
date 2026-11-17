@@ -36,8 +36,18 @@ const resolved = computed<'light' | 'dark'>(() =>
   mode.value === 'auto' ? (systemDark.value ? 'dark' : 'light') : mode.value,
 )
 
+/** 与 tokens.css 的 --paper 保持一致（浅/深） */
+const THEME_COLORS: Record<'light' | 'dark', string> = {
+  light: '#faf8f5',
+  dark: '#14120f',
+}
+
 function apply() {
   document.documentElement.dataset.theme = resolved.value
+  // 移动浏览器地址栏跟随主题，避免深色页面配浅色状态栏
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute('content', THEME_COLORS[resolved.value])
 }
 
 watch(resolved, apply, { immediate: true })

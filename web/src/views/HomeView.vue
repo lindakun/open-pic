@@ -79,11 +79,44 @@ onMounted(async () => {
     { rootMargin: '200% 0px' },
   )
   if (sentinel.value) observer.observe(sentinel.value)
+
+  // 与浏览页一致订阅任务事件：视频转码/缩略图补齐后单卡更新，
+  // 新入库则节流刷新，避免停留在首页时看不到新内容
+  if (typeof EventSource !== 'undefined') {
+    es = new EventSource('/api/jobs/stream')
+    es.addEventListener('media_ready', onMediaReady as EventListener)
+    es.addEventListener('library_updated', scheduleLibraryRefresh)
+  }
 })
+
+// ---------- 任务事件流（SSE） ----------
+let es: EventSource | null = null
+let sseRefreshTimer: number | undefined
+
+function onMediaReady(e: MessageEvent) {
+  try {
+    const data = JSON.parse(e.data) as { item_id?: string }
+    if (data.item_id) void store.updateItem(data.item_id)
+  } catch {
+    // 事件数据异常时忽略
+  }
+}
+
+function scheduleLibraryRefresh() {
+  if (sseRefreshTimer !== undefined) return
+  sseRefreshTimer = window.setTimeout(() => {
+    sseRefreshTimer = undefined
+    // 灯箱打开时不重排列表，避免当前资产错位
+    if (store.currentItem) return
+    void store.refresh().then(() => store.promoteFeatured())
+  }, 1500)
+}
 
 onBeforeUnmount(() => {
   window.removeEventListener('scroll', onScroll)
   observer?.disconnect()
+  es?.close()
+  if (sseRefreshTimer !== undefined) window.clearTimeout(sseRefreshTimer)
 })
 
 function openLightbox(index: number) {
@@ -120,8 +153,15 @@ function goBrowseAndUpload() {
       </button>
     </div>
 
+    <!-- 请求失败：与空库区分，给重试入口 -->
+    <div v-if="store.error && !store.items.length" class="wall__empty">
+      <h1 class="wall__empty-title">{{ t('browse.errorTitle') }}</h1>
+      <p class="muted">{{ store.error }}</p>
+      <MLButton variant="ghost" @click="store.refresh()">{{ t('common.retry') }}</MLButton>
+    </div>
+
     <!-- 空状态 -->
-    <div v-if="store.isEmpty" class="wall__empty">
+    <div v-else-if="store.isEmpty" class="wall__empty">
       <h1 class="wall__empty-title">{{ t('browse.emptyTitle') }}</h1>
       <p class="muted">{{ t('home.empty') }}</p>
       <MLButton variant="ghost" @click="goBrowseAndUpload">{{ t('home.addFirst') }}</MLButton>

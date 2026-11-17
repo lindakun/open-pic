@@ -355,8 +355,17 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
         if rng and rng.startswith("bytes="):
             s, _, e = rng[6:].partition("-")
             try:
-                start = int(s) if s else 0
-                end = int(e) if e else size - 1
+                if not s:
+                    # 后缀区间 bytes=-N：取文件最后 N 字节（部分播放器
+                    # 会用这种方式探测文件尾部的 moov）
+                    n = int(e)
+                    if n <= 0:
+                        raise ValueError
+                    start = max(0, size - n)
+                    end = size - 1
+                else:
+                    start = int(s)
+                    end = int(e) if e else size - 1
                 end = min(end, size - 1)
                 if start > end or start < 0:
                     raise ValueError

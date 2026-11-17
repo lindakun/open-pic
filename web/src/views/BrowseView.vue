@@ -722,7 +722,17 @@ watch(
           <span>{{ t('site.loading') }}</span>
         </div>
 
-        <div v-if="store.isEmpty" class="browse__empty">
+        <!-- 请求失败与「真的没有内容」是两件事：前者要给重试入口，
+             否则用户会以为库里没东西 -->
+        <div v-if="store.error && !store.items.length" class="browse__empty">
+          <h2>{{ t('browse.errorTitle') }}</h2>
+          <p class="muted">{{ store.error }}</p>
+          <MLButton variant="ghost" @click="store.refresh()">
+            {{ t('common.retry') }}
+          </MLButton>
+        </div>
+
+        <div v-else-if="store.isEmpty" class="browse__empty">
           <h2>{{ t('browse.emptyTitle') }}</h2>
           <p class="muted">
             {{ emptyHint }}

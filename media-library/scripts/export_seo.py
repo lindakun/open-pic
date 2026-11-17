@@ -367,7 +367,8 @@ def sitemap_xml(items: List[Dict[str, Any]], base_url: str = "") -> str:
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
     ]
-    for path in ("/", "/app/browse"):
+    # 收录新前端的规范入口；"/" 是 302 跳转，仍保留以兼容旧收录
+    for path in ("/", "/app/", "/app/browse"):
         parts.append(f"  <url><loc>{base}{path}</loc></url>")
     for it in items:
         loc = f"{base}{asset_path(it.get('slug', ''), it['id'])}"

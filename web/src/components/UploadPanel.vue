@@ -46,6 +46,8 @@ const canSubmit = computed(() => queue.value.length > 0 && !uploading.value)
 
 /** 部分容器格式（如 .mkv）浏览器给不出 MIME，需按扩展名兜底 */
 const MEDIA_EXT = /\.(jpe?g|png|gif|webp|bmp|avif|heic|mp4|webm|mov|m4v|mkv|avi)$/i
+/** 与后端 MAX_UPLOAD 一致：提前拦截，避免传到一半才 413 */
+const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024
 
 function isMediaFile(file: File): boolean {
   return (
@@ -57,15 +59,25 @@ function isMediaFile(file: File): boolean {
 
 function addFiles(files: FileList | File[] | null | undefined) {
   if (!files) return
-  const list = Array.from(files).filter(isMediaFile)
-  if (!list.length) {
-    errors.value = [t('upload.onlyMedia')]
+  const all = Array.from(files)
+  const accepted: File[] = []
+  const oversized: string[] = []
+  for (const f of all) {
+    if (!isMediaFile(f)) continue
+    if (f.size > MAX_UPLOAD_BYTES) oversized.push(f.name)
+    else accepted.push(f)
+  }
+
+  errors.value = oversized.length
+    ? [t('upload.tooLarge', { names: oversized.join('、') })]
+    : []
+  if (!accepted.length) {
+    if (!oversized.length) errors.value = [t('upload.onlyMedia')]
     return
   }
-  errors.value = []
   // 去重：同名同大小视为同一文件，避免重复上传
   const seen = new Set(queue.value.map((f) => `${f.name}:${f.size}`))
-  for (const f of list) {
+  for (const f of accepted) {
     const key = `${f.name}:${f.size}`
     if (!seen.has(key)) {
       seen.add(key)
@@ -97,6 +109,9 @@ function onPaste(e: ClipboardEvent) {
   const files = Array.from(e.clipboardData?.files ?? [])
   if (!files.length) return
   e.preventDefault()
+  // 在「链接采集」页粘贴图片时自动切回文件页，
+  // 否则文件已入队但用户看不到任何反馈
+  tab.value = 'file'
   addFiles(files)
 }
 

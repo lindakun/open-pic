@@ -551,6 +551,13 @@ onUnmounted(() => {
           <dt>{{ t('lightbox.added') }}</dt>
           <dd class="mono">{{ formatDate(item.ts) }}</dd>
         </div>
+        <div v-if="item.views || item.downloads" class="panel__row">
+          <dt>{{ t('lightbox.heat') }}</dt>
+          <dd class="mono">
+            {{ t('lightbox.views', { count: formatNumber(item.views || 0) }) }} ·
+            {{ t('lightbox.downloads', { count: formatNumber(item.downloads || 0) }) }}
+          </dd>
+        </div>
         <div v-if="item.source" class="panel__row">
           <dt>{{ t('lightbox.source') }}</dt>
           <dd class="panel__source">
