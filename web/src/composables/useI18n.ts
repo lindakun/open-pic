@@ -155,6 +155,11 @@ const messages: Record<Locale, Dict> = {
     'review.invalid': '选片链接无效或已失效',
     'review.loadFailed': '加载失败，请稍后重试',
     'review.saveFailed': '保存失败，已回滚',
+    'ai.disabled': 'AI 检索未启用',
+    'ai.byImage': '以图搜图',
+    'ai.byImageHint': '把图片拖进来，或直接粘贴（Ctrl/⌘+V）',
+    'ai.dropHint': '松手搜索相似图片',
+    'ai.searchFailed': '搜图失败，请稍后重试',
     'common.confirm': '确定',
   },
 
@@ -291,6 +296,11 @@ const messages: Record<Locale, Dict> = {
     'review.invalid': 'This review link is invalid or expired',
     'review.loadFailed': 'Failed to load, please retry',
     'review.saveFailed': 'Save failed, changes reverted',
+    'ai.disabled': 'AI search off',
+    'ai.byImage': 'Search by image',
+    'ai.byImageHint': 'Drag an image here, or paste it (Ctrl/⌘+V)',
+    'ai.dropHint': 'Drop to search similar images',
+    'ai.searchFailed': 'Image search failed, please retry',
     'common.confirm': 'Confirm',
   },
 }

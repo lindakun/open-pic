@@ -34,6 +34,8 @@ class TaskManager:
         self._sub_lock = threading.Lock()
         self._stop_event = threading.Event()
         self._workers: List[threading.Thread] = []
+        # provider 工厂：默认读环境变量，可由 app 注入以保持一致
+        self.provider_factory = None
 
     def start(self, num_workers: int = 2):
         if self._workers:
@@ -120,8 +122,64 @@ class TaskManager:
             self._handle_backfill(job_id)
         elif jtype == "export_zip":
             self._handle_export_zip(job_id, payload)
+        elif jtype == "embedding_backfill":
+            self._handle_embedding_backfill(job_id, payload)
         else:
             self._update(job_id, "failed", 100, f"未知任务类型: {jtype}")
+
+    def _handle_embedding_backfill(self, job_id: int, payload: Dict[str, Any]):
+        """批量生成向量（REQ-V2-20 B-08 验收 5）。
+
+        单条失败不影响整体：跳过并累计失败数。
+        provider 未配置时任务标记 skipped 而非 failed（B-07 验收 4 的同款口径）。
+        """
+        import ai_provider
+
+        ids = payload.get("ids") or []
+        model_version = payload.get("model_version") or ""
+        if not ids:
+            self._update(job_id, "done", 100, "没有待回填的资产")
+            return
+
+        # 走与 HTTP 层相同的工厂，避免测试或扩展替换 provider 后
+        # 任务线程仍读环境变量而导致不一致（实测踩到）
+        factory = getattr(self, "provider_factory", None) or ai_provider.get_provider
+        prov = factory()
+        if not prov.available():
+            self._update(job_id, "skipped", 100, "AI provider 未配置，跳过向量回填")
+            return
+
+        ok = 0
+        failed = 0
+        total = len(ids)
+        for idx, iid in enumerate(ids, start=1):
+            item = self.db.get_item(iid)
+            if not item:
+                failed += 1
+                continue
+            path = os.path.join(self.files_dir, item["file"])
+            try:
+                with open(path, "rb") as fh:
+                    data = fh.read()
+                vec = prov.embed_image(data)
+                self.db.upsert_embedding(
+                    iid, ai_provider.pack_vector(vec), model_version,
+                    dim=len(vec), source_text=item.get("title") or "",
+                )
+                ok += 1
+            except Exception:
+                failed += 1
+            if idx % 5 == 0 or idx == total:
+                self._update(
+                    job_id, "running", int(idx * 100 / total),
+                    f"已处理 {idx}/{total}（成功 {ok}，失败 {failed}）",
+                )
+
+        self._update(
+            job_id, "done", 100, f"向量回填完成：成功 {ok}，失败 {failed}",
+            {"ok": ok, "failed": failed, "model_version": model_version},
+        )
+        self.broadcast("library_updated", {"reason": "embedding_backfill"})
 
     def _handle_export_zip(self, job_id: int, payload: Dict[str, Any]):
         """异步批量导出（REQ-V2-20 C-13）。

@@ -5,11 +5,12 @@
  * 结构：左侧分面面板 + 右侧瀑布流。
  * URL 即状态：刷新或分享链接都能还原完整筛选视图。
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMediaStore } from '@/stores/media'
 import { useFilterStore } from '@/stores/filters'
 import { useToast } from '@/composables/useToast'
+import { useAiStatus } from '@/composables/useAiStatus'
 import { useI18n } from '@/composables/useI18n'
 import MasonryGrid from '@/components/MasonryGrid.vue'
 import LightboxViewer from '@/components/LightboxViewer.vue'
@@ -32,6 +33,10 @@ const route = useRoute()
 const { t, formatNumber } = useI18n()
 
 const searchInput = ref(filters.q)
+/** AI 检索能力（B-08）：未启用时隐藏以图搜图入口 */
+const { status: aiStatus, load: loadAiStatus } = useAiStatus()
+const dragActive = ref(false)
+const aiBusy = ref(false)
 /** 移动端分面面板折叠 */
 const facetsOpen = ref(false)
 
@@ -59,6 +64,38 @@ const ORIENTATION_KEY: Record<string, string> = {
 function changeSort(value: SortKey) {
   filters.setSort(value)
   store.refresh()
+}
+
+/** 以图搜图（B-08）：拖入或粘贴图片即检索相似资产 */
+async function searchByImage(file: File) {
+  if (!aiStatus.value?.available || aiBusy.value) return
+  aiBusy.value = true
+  try {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch('/api/search/by-image', { method: 'POST', body: fd })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      toast.error(body.detail || t('ai.searchFailed'))
+      return
+    }
+    const data = await res.json()
+    store.replaceItems(data.items ?? [], data.total ?? 0)
+  } finally {
+    aiBusy.value = false
+  }
+}
+
+function onDrop(e: DragEvent) {
+  dragActive.value = false
+  const file = e.dataTransfer?.files?.[0]
+  if (file && file.type.startsWith('image/')) void searchByImage(file)
+}
+
+function onPaste(e: ClipboardEvent) {
+  if (!aiStatus.value?.available) return
+  const file = Array.from(e.clipboardData?.files ?? [])[0]
+  if (file && file.type.startsWith('image/')) void searchByImage(file)
 }
 
 /** 应用筛选后统一刷新（标签切换等由面板触发） */
@@ -109,6 +146,13 @@ onMounted(async () => {
   await store.refresh()
   // 首次渲染后还原上次锚点（D-17 验收 3）
   restoreScrollAnchor(readScrollAnchor(), store.items)
+  // 探测 AI 能力（B-08）：失败静默，入口隐藏即可
+  void loadAiStatus()
+  window.addEventListener('paste', onPaste)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('paste', onPaste)
 })
 
 // 筛选变化时刷新（面板内直接改 store 的路径）
@@ -154,16 +198,28 @@ watch(
         </span>
       </button>
 
-      <div class="browse__search">
+      <div
+        :class="['browse__search', { 'browse__search--drag': dragActive, 'browse__search--busy': aiBusy }]"
+        @dragover.prevent="aiStatus?.available && (dragActive = true)"
+        @dragleave.prevent="dragActive = false"
+        @drop.prevent="onDrop"
+      >
         <span class="browse__search-icon" aria-hidden="true">⌕</span>
         <input
           :value="searchInput"
           type="search"
           class="browse__search-input"
-          :placeholder="t('browse.searchPlaceholder')"
+          :placeholder="dragActive ? t('ai.dropHint') : t('browse.searchPlaceholder')"
           :aria-label="t('browse.searchLabel')"
           @input="onSearchInput(($event.target as HTMLInputElement).value)"
         />
+        <!-- AI 检索未启用时只给说明，不显示入口（B-08 验收 4） -->
+        <span v-if="aiStatus && !aiStatus.available" class="browse__ai-off" :title="aiStatus.hint">
+          {{ t('ai.disabled') }}
+        </span>
+        <span v-else-if="aiStatus?.available" class="browse__ai-on" :title="t('ai.byImageHint')">
+          {{ t('ai.byImage') }}
+        </span>
       </div>
 
       <div class="browse__sorts" role="group" :aria-label="t('sort.label')">
@@ -320,6 +376,38 @@ watch(
   position: relative;
   flex: 1;
   min-width: 200px;
+}
+
+/* 拖入图片时的全框高亮：明确告诉用户这里可以接图片（B-08） */
+.browse__search--drag {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--p-radius-md);
+}
+
+.browse__search--busy {
+  opacity: 0.7;
+}
+
+/* 右侧能力标识：不可用时只作说明，不构成可点击入口 */
+.browse__ai-off,
+.browse__ai-on {
+  position: absolute;
+  right: var(--p-space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: var(--p-step--1);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.browse__ai-off {
+  color: var(--ink-faint);
+}
+
+.browse__ai-on {
+  color: var(--accent);
+  font-weight: 500;
 }
 
 .browse__search-icon {

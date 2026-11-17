@@ -143,6 +143,27 @@ CREATE TABLE IF NOT EXISTS review_marks (
 
 CREATE INDEX IF NOT EXISTS idx_review_marks_state ON review_marks(token, state);
 
+-- 向量检索（REQ-V2-20 B-07 / B-08）：vec 为 float32 紧凑存储
+CREATE TABLE IF NOT EXISTS item_embeddings (
+    item_id TEXT PRIMARY KEY,
+    model_version TEXT NOT NULL,
+    dim INTEGER NOT NULL DEFAULT 512,
+    vec BLOB NOT NULL,
+    source_text TEXT NOT NULL DEFAULT '',
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_embeddings_model ON item_embeddings(model_version);
+
+-- AI 标签否决黑名单（B-07 验收 3：否决过的组合不再出现）
+CREATE TABLE IF NOT EXISTS tag_rejections (
+    item_id TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (item_id, tag)
+);
+
 -- 标签治理：别名与层级（REQ-V2-20 B-09）
 CREATE TABLE IF NOT EXISTS tag_aliases (
     alias TEXT PRIMARY KEY,
@@ -1413,6 +1434,113 @@ class MediaDB:
                 " WHERE a.alias=?", (name,),
             ).fetchone()
             return row["name"] if row else name
+
+    # ---------- 向量与 AI 标签（B-07 / B-08） ----------
+
+    def upsert_embedding(self, item_id: str, vec_bytes: bytes, model_version: str,
+                         dim: int = 512, source_text: str = "") -> None:
+        with self._write_lock, self.connect() as conn:
+            conn.execute(
+                "INSERT INTO item_embeddings(item_id, model_version, dim, vec, source_text, updated_at)"
+                " VALUES (?,?,?,?,?,?)"
+                " ON CONFLICT(item_id) DO UPDATE SET model_version=excluded.model_version,"
+                " dim=excluded.dim, vec=excluded.vec, source_text=excluded.source_text,"
+                " updated_at=excluded.updated_at",
+                (item_id, model_version, dim, vec_bytes, source_text, int(time.time())),
+            )
+            conn.commit()
+
+    def get_embedding(self, item_id: str) -> Optional[Dict[str, Any]]:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM item_embeddings WHERE item_id=?", (item_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def iter_embeddings(self, model_version: str = "") -> List[Dict[str, Any]]:
+        """取出全部向量用于相似度比对。
+
+        规模说明：512 维 float32 每条约 2KB，万级资产约 20MB，
+        全量载入内存做点积是可接受的（比逐条 SQL 往返快得多）。
+        超过此规模应换 ANN 索引，已在文档中标注为后续条件。
+        """
+        sql = (
+            "SELECT e.item_id, e.vec, e.model_version FROM item_embeddings e"
+            " JOIN items i ON i.id=e.item_id WHERE i.deleted_at IS NULL"
+        )
+        params: List[Any] = []
+        if model_version:
+            sql += " AND e.model_version=?"
+            params.append(model_version)
+        with self.connect() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    def missing_embedding_ids(self, model_version: str = "", limit: int = 200) -> List[str]:
+        """待补向量的资产（B-08 验收 5：配 Key 后一次性回填）。"""
+        sql = (
+            "SELECT i.id FROM items i LEFT JOIN item_embeddings e"
+            " ON e.item_id=i.id AND e.model_version=?"
+            " WHERE i.deleted_at IS NULL AND e.item_id IS NULL"
+        )
+        with self.connect() as conn:
+            return [r[0] for r in conn.execute(
+                sql + " LIMIT ?", (model_version, limit)
+            ).fetchall()]
+
+    def count_embeddings(self, model_version: str = "") -> int:
+        sql = "SELECT COUNT(*) FROM item_embeddings"
+        params: List[Any] = []
+        if model_version:
+            sql += " WHERE model_version=?"
+            params.append(model_version)
+        with self.connect() as conn:
+            return conn.execute(sql, params).fetchone()[0]
+
+    def add_rejected_tags(self, item_id: str, tags: List[str]) -> int:
+        """记录被否决的 AI 标签（B-07 验收 3）。"""
+        if not tags:
+            return 0
+        now = int(time.time())
+        with self._write_lock, self.connect() as conn:
+            for t in tags:
+                t = (t or "").strip()
+                if not t:
+                    continue
+                conn.execute(
+                    "INSERT OR IGNORE INTO tag_rejections(item_id, tag, created_at)"
+                    " VALUES (?,?,?)",
+                    (item_id, t, now),
+                )
+            conn.commit()
+        return len(tags)
+
+    def rejected_tags(self, item_id: str) -> List[str]:
+        with self.connect() as conn:
+            return [r[0] for r in conn.execute(
+                "SELECT tag FROM tag_rejections WHERE item_id=?", (item_id,)
+            ).fetchall()]
+
+    def set_tags_with_source(self, item_id: str, tags: List[str], source: str = "ai") -> int:
+        """按来源写入标签（AI 标签用 source='ai'，UI 上以虚线区分）。"""
+        tags = [t.strip() for t in tags if t and t.strip()]
+        if not tags:
+            return 0
+        with self._write_lock, self.connect() as conn:
+            for t in tags:
+                conn.execute("INSERT OR IGNORE INTO tags(name) VALUES (?)", (t,))
+                tid = conn.execute("SELECT id FROM tags WHERE name=?", (t,)).fetchone()["id"]
+                conn.execute(
+                    "INSERT OR IGNORE INTO item_tags(item_id, tag_id, source) VALUES (?,?,?)",
+                    (item_id, tid, source),
+                )
+            self._sync_fts(conn, item_id)
+            conn.commit()
+        return len(tags)
+
+    def keyword_search_ids(self, q: str, limit: int = 50) -> List[str]:
+        """供 RRF 融合的关键词召回（复用 B-06 的检索路径）。"""
+        total, items = self.query_items(limit=limit, q=q)
+        return [i["id"] for i in items]
 
     # ---------- 个人工作区（C-15） ----------
 

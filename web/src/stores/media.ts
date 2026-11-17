@@ -92,6 +92,13 @@ export const useMediaStore = defineStore('media', () => {
     }
   }
 
+  /** 用一次性检索结果替换列表（以图搜图等非分页场景） */
+  function replaceItems(next: MediaItem[], nextTotal: number) {
+    items.value = next
+    total.value = nextTotal
+    lightboxIndex.value = -1
+  }
+
   function openLightbox(index: number) {
     lightboxIndex.value = index
   }
@@ -119,6 +126,7 @@ export const useMediaStore = defineStore('media', () => {
     hasMore,
     isEmpty,
     load,
+    replaceItems,
     refresh,
     loadFacets,
     openLightbox,

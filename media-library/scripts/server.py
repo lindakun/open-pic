@@ -48,6 +48,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import ai_provider
 import export_seo
 import media_proc
 import img_transform
@@ -150,6 +151,11 @@ class ZipReq(BaseModel):
 
 # ---------- 核心服务工厂 ----------
 
+# AI provider 工厂：默认读环境变量。测试或扩展可替换此函数，
+# 无需改动业务代码（对应 B-08「provider 可替换」要求）。
+AI_PROVIDER_FACTORY = ai_provider.get_provider
+
+
 def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers: bool = True) -> FastAPI:
     global DATA, FILES, THUMBS, PREVIEWS, PLAY_DIR, INDEX_JSON, DB_PATH, PIDFILE
     if data_dir:
@@ -169,6 +175,8 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
         print(f"[migrate] 已从 index.json 无损迁移 {migrated} 条记录至 SQLite", file=sys.stderr)
 
     tasks = TaskManager(db=db, data_dir=DATA, scripts_dir=BASE, port=port)
+    # 让后台任务与 HTTP 层共用同一个 provider 工厂（B-08 验收 5 的切换一致性）
+    tasks.provider_factory = AI_PROVIDER_FACTORY
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -963,6 +971,148 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
             filename=name,
             headers={"Cache-Control": "private, max-age=0, must-revalidate"},
         )
+
+    # ---------- AI 能力（B-07 / B-08） ----------
+
+    def _ai_provider():
+        # 每次取用都重新读环境变量：配好 Key 后无需重启即可切换（B-08 验收 5）
+        return AI_PROVIDER_FACTORY()
+
+    @app.get("/api/ai/status")
+    def api_ai_status():
+        """AI 能力状态（B-08 验收 4/5）：前端据此决定是否显示入口。
+
+        未配置时返回 available=false，而不是报错——入口隐藏但站点正常。
+        """
+        prov = _ai_provider()
+        model_version = prov.embed_model if hasattr(prov, "embed_model") else "none"
+        return {
+            "provider": prov.name,
+            "available": prov.available(),
+            "model_version": model_version,
+            "embedded": db.count_embeddings(model_version),
+            "pending": len(db.missing_embedding_ids(model_version, limit=1000)),
+            "hint": "" if prov.available() else "AI 检索未启用：配置 MEDIA_LIB_AI_PROVIDER 与 API Key 后可用",
+        }
+
+    @app.get("/api/search/semantic")
+    def api_search_semantic(
+        q: str = "",
+        limit: int = Query(24, ge=1, le=100),
+        fuse: bool = True,
+    ):
+        """以文搜图（B-08）：向量召回 + 与关键词结果 RRF 融合。"""
+        prov = _ai_provider()
+        if not prov.available():
+            # 501：功能不可用（验收 4 明确要求，不能用 500）
+            raise HTTPException(
+                status_code=501,
+                detail="AI 检索未启用：配置 MEDIA_LIB_AI_PROVIDER 与 API Key 后可用",
+            )
+        q = (q or "").strip()
+        if not q:
+            raise HTTPException(status_code=400, detail="查询不能为空")
+
+        try:
+            qvec = prov.embed_text(q)
+        except ai_provider.AIUnavailable as e:
+            raise HTTPException(status_code=503, detail=str(e))
+
+        model_version = getattr(prov, "embed_model", "")
+        rows = db.iter_embeddings(model_version)
+        scored = []
+        for row in rows:
+            vec = ai_provider.unpack_vector(row["vec"])
+            scored.append((ai_provider.cosine(qvec, vec), row["item_id"]))
+        scored.sort(reverse=True)
+        vec_ids = [iid for s, iid in scored if s > 0][: max(limit * 2, 40)]
+
+        if fuse:
+            kw_ids = db.keyword_search_ids(q, limit=max(limit * 2, 40))
+            ids = ai_provider.rrf_fuse(kw_ids, vec_ids, limit=limit)
+        else:
+            ids = vec_ids[:limit]
+
+        items = []
+        for iid in ids:
+            it = db.get_item(iid)
+            if it and not it.get("deleted_at"):
+                items.append(it)
+        return {"q": q, "total": len(items), "items": items, "fused": fuse}
+
+    @app.post("/api/search/by-image")
+    async def api_search_by_image(request: Request):
+        """以图搜图（B-08）：拖入/粘贴图片即返回相似资产。
+
+        未配置 provider 时同样返回 501，前端据此隐藏入口。
+        """
+        prov = _ai_provider()
+        if not prov.available():
+            raise HTTPException(
+                status_code=501,
+                detail="AI 检索未启用：配置 MEDIA_LIB_AI_PROVIDER 与 API Key 后可用",
+            )
+        ctype = request.headers.get("content-type", "")
+        if "multipart/form-data" not in ctype:
+            raise HTTPException(status_code=400, detail="need multipart/form-data")
+        form = await request.form()
+        up = form.get("file")
+        if up is None or not hasattr(up, "read"):
+            raise HTTPException(status_code=400, detail="缺少 file 字段")
+        data = await up.read()
+        if not data:
+            raise HTTPException(status_code=400, detail="文件为空")
+
+        try:
+            qvec = prov.embed_image(data)
+        except ai_provider.AIUnavailable as e:
+            raise HTTPException(status_code=503, detail=str(e))
+
+        model_version = getattr(prov, "embed_model", "")
+        scored = []
+        for row in db.iter_embeddings(model_version):
+            scored.append((ai_provider.cosine(qvec, ai_provider.unpack_vector(row["vec"])), row["item_id"]))
+        scored.sort(reverse=True)
+
+        items = []
+        for score, iid in scored[:24]:
+            if score <= 0:
+                continue
+            it = db.get_item(iid)
+            if it and not it.get("deleted_at"):
+                items.append(it)
+        return {"total": len(items), "items": items}
+
+    @app.post("/api/jobs/embedding-backfill")
+    def api_embedding_backfill(limit: int = Query(200, ge=1, le=2000)):
+        """向量回填任务（B-08 验收 5：配 Key 后跑一次即可启用）。"""
+        prov = _ai_provider()
+        if not prov.available():
+            raise HTTPException(
+                status_code=501,
+                detail="AI 检索未启用：配置 MEDIA_LIB_AI_PROVIDER 与 API Key 后可用",
+            )
+        model_version = getattr(prov, "embed_model", "")
+        ids = db.missing_embedding_ids(model_version, limit=limit)
+        if not ids:
+            return {"ok": True, "queued": 0, "message": "没有待回填的资产"}
+        job_id = tasks.enqueue("embedding_backfill", {
+            "ids": ids, "model_version": model_version,
+        })
+        return {"ok": True, "job_id": job_id, "queued": len(ids)}
+
+    class RejectTagsReq(BaseModel):
+        item_id: str
+        tags: List[str]
+
+    @app.post("/api/ai/reject-tags")
+    def api_reject_tags(req: RejectTagsReq):
+        """否决 AI 标签（B-07 验收 3）：记入黑名单并移除该标签。"""
+        if not db.get_item(req.item_id):
+            raise HTTPException(status_code=404, detail="not found")
+        db.add_rejected_tags(req.item_id, req.tags)
+        db.batch_tags([req.item_id], remove_tags=req.tags)
+        return {"ok": True, "rejected": req.tags}
 
     # ---------- 客户选片与批注（C-14） ----------
 
