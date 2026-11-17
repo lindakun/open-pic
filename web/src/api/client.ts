@@ -12,6 +12,7 @@ import type {
   MediaItem,
   StatsResponse,
 } from './types'
+import type { Facets } from '@/stores/filters'
 
 /** 后端返回的错误结构 */
 interface ApiError {
@@ -108,5 +109,10 @@ export const api = {
 
   collections(): Promise<Collection[]> {
     return request<Collection[]>('/api/collections')
+  },
+
+  /** 分面统计（B-10）：返回各筛选维度的可选值与计数 */
+  facets(params: Partial<ItemQuery> = {}): Promise<Facets> {
+    return request<Facets>(`/api/facets${toQuery(params as Record<string, unknown>)}`)
   },
 }

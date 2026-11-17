@@ -11,6 +11,7 @@
  */
 import { computed } from 'vue'
 import type { MediaItem } from '@/api/types'
+import SmartImage from './SmartImage.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -58,10 +59,6 @@ const altText = computed(() =>
   props.item.title ? '' : `媒体资源：${props.item.name}`,
 )
 
-/** 缩略图地址：优先多规格 WebP，回退原图 */
-const thumbSrc = computed(() =>
-  props.item.thumb ? `/t/${props.item.id}_md.webp` : `/f/${props.item.file}`,
-)
 </script>
 
 <template>
@@ -70,17 +67,16 @@ const thumbSrc = computed(() =>
     class="ml-card"
     @click="$emit('open', item)"
   >
-    <div
-      class="ml-card__media"
-      :style="{ aspectRatio: `1 / ${ratio}`, backgroundColor: item.dominant_color || undefined }"
-    >
-      <img
-        :src="thumbSrc"
+    <div class="ml-card__media">
+      <SmartImage
+        :id="item.id"
+        :file="item.file"
+        :kind="item.kind"
+        :priority="priority"
+        :color="item.dominant_color"
         :alt="altText"
-        :loading="priority ? 'eager' : 'lazy'"
-        :fetchpriority="priority ? 'high' : 'auto'"
-        decoding="async"
-        class="ml-card__img"
+        :ratio="ratio"
+        :display-width="width"
       />
       <span v-if="item.kind === 'video'" class="ml-card__badge mono" aria-label="视频">
         {{ item.duration ? `${Math.round(item.duration)}s` : 'VIDEO' }}

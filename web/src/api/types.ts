@@ -69,13 +69,13 @@ export interface Collection {
   count?: number
 }
 
-/** 列表查询参数 */
+/** 列表查询参数；tag 类参数可传数组，由 client 序列化为逗号分隔 */
 export interface ItemQuery {
   limit?: number
   offset?: number
   q?: string
-  tag?: string
-  exclude_tag?: string
+  tag?: string | string[]
+  exclude_tag?: string | string[]
   kind?: string
   ext?: string
   orientation?: string

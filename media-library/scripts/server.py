@@ -49,6 +49,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import media_proc
+import img_transform
 from db import MediaDB
 from tasks import TaskManager
 
@@ -58,6 +59,8 @@ FILES = os.path.join(DATA, "files")
 THUMBS = os.path.join(DATA, "thumbs")
 PREVIEWS = os.path.join(DATA, "previews")
 PLAY_DIR = os.path.join(DATA, "play")
+# 按需变换缓存目录（A-05）
+IMG_CACHE_DIR = os.path.join(DATA, "imgcache")
 INDEX_JSON = os.path.join(DATA, "index.json")
 DB_PATH = os.path.join(DATA, "media.db")
 PIDFILE = os.path.join(DATA, "server.pid")
@@ -452,6 +455,69 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
         ctype = "image/webp" if thumb_name.endswith(".webp") else "image/jpeg"
         return _serve_range_file(request, tp, ctype=ctype)
 
+    @app.get("/img/{item_id}")
+    def serve_transformed(
+        item_id: str,
+        request: Request,
+        w: Optional[int] = None,
+        h: Optional[int] = None,
+        fit: str = "cover",
+        fm: str = "webp",
+        q: Optional[int] = None,
+    ):
+        """按需图像变换（REQ-V2-20 A-05）。
+
+        统一入口，替代前端自行拼接 _sm/_md/_lg 文件名。
+        产物磁盘缓存 + LRU 淘汰；AVIF 失败自动回退 WebP。
+        """
+        if not re.match(r"^[0-9a-f]{6,32}$", item_id):
+            raise HTTPException(status_code=404, detail="not found")
+
+        it = db.get_item(item_id)
+        if not it or it.get("deleted_at"):
+            raise HTTPException(status_code=404, detail="not found")
+        if it["kind"] == "video":
+            # 视频走原有 poster / file 路由，不在变换端点处理
+            raise HTTPException(status_code=400, detail="视频请使用 /t/ 或 /p/")
+
+        src_path = os.path.join(FILES, it["file"])
+        if not os.path.isfile(src_path):
+            raise HTTPException(status_code=404, detail="源文件不存在")
+
+        fmt = img_transform.normalize_format(fm)
+        w = img_transform.clamp_dimension(w)
+        h = img_transform.clamp_dimension(h)
+        # 未指定尺寸时按原图返回，但不出缓存（避免把原图复制一份）
+        quality = img_transform.normalize_quality(fmt, q)
+        src_mtime = int(os.stat(src_path).st_mtime)
+
+        key = img_transform.cache_key(item_id, w, h, fit, fmt, quality, src_mtime)
+        cached = img_transform.cache_path(IMG_CACHE_DIR, key, fmt)
+
+        if os.path.isfile(cached):
+            img_transform.touch(cached)
+            return _serve_range_file(request, cached, ctype=img_transform.content_type(fmt))
+
+        # 未命中：生成并落缓存
+        ok = img_transform.transform(src_path, cached, w, h, fit, fmt, quality)
+        if not ok and fmt == "avif":
+            # AVIF 编码器缺失或失败：回退 WebP，保证请求不失败
+            fmt = "webp"
+            quality = img_transform.normalize_quality(fmt, q)
+            key = img_transform.cache_key(item_id, w, h, fit, fmt, quality, src_mtime)
+            cached = img_transform.cache_path(IMG_CACHE_DIR, key, fmt)
+            if os.path.isfile(cached):
+                img_transform.touch(cached)
+            else:
+                ok = img_transform.transform(src_path, cached, w, h, fit, fmt, quality)
+
+        if not ok or not os.path.isfile(cached):
+            # 变换彻底失败：回退原文件，绝不返回错误页
+            return _serve_range_file(request, src_path)
+
+        img_transform.maybe_cleanup(IMG_CACHE_DIR)
+        return _serve_range_file(request, cached, ctype=img_transform.content_type(fmt))
+
     @app.get("/p/{preview_name}")
     def serve_preview(preview_name: str, request: Request):
         if not re.match(r"^[0-9a-f]{6,32}\.webp$", preview_name):
@@ -468,6 +534,14 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
     @app.get("/api/analytics")
     def api_analytics():
         return db.get_analytics()
+
+    @app.get("/api/facets")
+    def api_facets(kind: str = "", ext: str = "", orientation: str = "", platform: str = ""):
+        """分面统计（REQ-V2-20 B-10）。
+
+        返回各筛选维度的可选值与计数，前端据此渲染分面面板并对零结果项置灰。
+        """
+        return db.get_facets(kind=kind, ext=ext, orientation=orientation, platform=platform)
 
     @app.get("/api/items")
     def api_items(

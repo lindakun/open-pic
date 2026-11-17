@@ -2,26 +2,26 @@
  * 媒体库状态仓库
  *
  * 替代旧前端 app.js 里 400 行的 state 对象。
- * 分页加载、筛选条件、当前浏览项统一在此管理，
- * 组件只读取派生状态并派发动作。
+ * 分页加载、灯箱、竞态控制统一在此管理；
+ * 筛选条件由 useFilterStore 独立维护（B-10），两者通过 queryParams 协作。
  */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/api/client'
-import type { MediaItem, SortKey, ViewMode } from '@/api/types'
+import type { MediaItem } from '@/api/types'
+import { useFilterStore } from './filters'
+import type { Facets } from './filters'
 
 export const useMediaStore = defineStore('media', () => {
+  const filters = useFilterStore()
+
   // ---------- 数据 ----------
   const items = ref<MediaItem[]>([])
   const total = ref(0)
   const loading = ref(false)
   const error = ref<string | null>(null)
-
-  // ---------- 筛选 ----------
-  const query = ref('')
-  const sort = ref<SortKey>('newest')
-  const view = ref<ViewMode>('masonry')
-  const kind = ref<'' | 'image' | 'video'>('')
+  const facets = ref<Facets | null>(null)
+  const facetsLoading = ref(false)
 
   // ---------- 灯箱 ----------
   const lightboxIndex = ref(-1)
@@ -32,36 +32,62 @@ export const useMediaStore = defineStore('media', () => {
   const hasMore = computed(() => items.value.length < total.value)
   const isEmpty = computed(() => !loading.value && items.value.length === 0)
 
-  /** 每页条数：与后端默认一致 */
   const PAGE_SIZE = 48
 
-  /** 拉取一页数据；reset 为 true 时从第一页重来 */
+  /**
+   * 请求序号：用于丢弃过期响应，防止快速切换筛选时
+   * 先发的慢请求覆盖后发的快请求（B-10 验收要求）。
+   */
+  let requestSeq = 0
+
   async function load(reset = false) {
-    if (loading.value) return
+    if (!reset && loading.value) return
     if (!reset && !hasMore.value && items.value.length > 0) return
 
+    const seq = ++requestSeq
     loading.value = true
     error.value = null
+
     try {
       const offset = reset ? 0 : items.value.length
       const res = await api.items({
+        ...filters.queryParams,
         limit: PAGE_SIZE,
         offset,
-        q: query.value,
-        kind: kind.value,
-        sort: sort.value,
       })
+      // 过期响应直接丢弃
+      if (seq !== requestSeq) return
       items.value = reset ? res.items : [...items.value, ...res.items]
       total.value = res.total
     } catch (e) {
+      if (seq !== requestSeq) return
       error.value = (e as Error).message
     } finally {
-      loading.value = false
+      if (seq === requestSeq) loading.value = false
     }
   }
 
-  function refresh() {
-    return load(true)
+  /** 重新加载列表与分面计数 */
+  async function refresh() {
+    await Promise.all([load(true), loadFacets()])
+  }
+
+  /** 拉取分面统计 */
+  async function loadFacets() {
+    facetsLoading.value = true
+    try {
+      facets.value = await api.facets({
+        kind: filters.kind,
+        ext: filters.ext,
+        orientation: filters.orientation,
+        platform: filters.platform,
+      })
+    } catch {
+      // 分面统计失败不影响主列表展示
+      facets.value = null
+    } finally {
+      facetsLoading.value = false
+    }
   }
 
   function openLightbox(index: number) {
@@ -79,41 +105,22 @@ export const useMediaStore = defineStore('media', () => {
     }
   }
 
-  function setQuery(value: string) {
-    query.value = value
-  }
-
-  function setSort(value: SortKey) {
-    sort.value = value
-  }
-
-  function setKind(value: '' | 'image' | 'video') {
-    kind.value = value
-  }
-
   return {
-    // 状态
     items,
     total,
     loading,
     error,
-    query,
-    sort,
-    view,
-    kind,
+    facets,
+    facetsLoading,
     lightboxIndex,
-    // 派生
     currentItem,
     hasMore,
     isEmpty,
-    // 动作
     load,
     refresh,
+    loadFacets,
     openLightbox,
     closeLightbox,
     stepLightbox,
-    setQuery,
-    setSort,
-    setKind,
   }
 })

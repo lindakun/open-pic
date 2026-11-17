@@ -1,6 +1,19 @@
 #!/usr/bin/env python3
-"""流式 multipart 解析器离线测试（不起服务）"""
+"""流式 multipart 解析器离线测试（不起服务）
+
+已停用：`server.parse_multipart_to_disk` 在 v1 迁移到 FastAPI + SQLite 时
+随自研 multipart 解析器一并移除（改由 Starlette 处理），此脚本失去依赖对象。
+当前 multipart 行为由 test_s1_assets.py 的上传用例覆盖。
+保留本文件仅为记录历史调试思路，pytest 收集时跳过。
+"""
 import os, sys, hashlib, tempfile
+import pytest
+
+pytest.skip(
+    "依赖已移除的 server.parse_multipart_to_disk（v1 迁移 FastAPI 时删除）",
+    allow_module_level=True,
+)
+
 sys.path.insert(0, "/vol1/picoclaw/.picoclaw/workspace/skills/media-library/scripts")
 import server as S
 

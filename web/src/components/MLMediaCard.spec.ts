@@ -96,8 +96,16 @@ describe('MLMediaCard', () => {
     const wrapper = mount(MLMediaCard, {
       props: { item: makeItem({ width: 0, height: 0 }) },
     })
-    const style = wrapper.find('.ml-card__media').attributes('style') ?? ''
+    // 宽高比由 SmartImage 的容器承载
+    const style = wrapper.find('.smart-image').attributes('style') ?? ''
     expect(style).toContain('aspect-ratio')
     expect(style).not.toContain('NaN')
+  })
+
+  it('图片走 /img 变换端点而非硬编码缩略图名', () => {
+    const wrapper = mount(MLMediaCard, { props: { item: makeItem() } })
+    const source = wrapper.find('source[type="image/webp"]')
+    expect(source.attributes('srcset')).toContain('/img/abc123?w=')
+    expect(wrapper.html()).not.toContain('_md.webp')
   })
 })

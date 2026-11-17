@@ -767,6 +767,97 @@ class MediaDB:
                 "platforms": platforms,
             }
 
+    def get_facets(self, **filters) -> Dict[str, Any]:
+        """分面统计（REQ-V2-20 B-10）。
+
+        返回在当前筛选上下文下，各维度的可选值与计数，
+        供前端渲染折叠式分面面板并置灰零结果项。
+
+        做法：用与 query_items 相同的 where 条件跑聚合，
+        每个维度额外排除自身的筛选条件，避免"选了 A 后 A 维度只剩 A"。
+        """
+        # 逐维度聚合：kind / ext / orientation / platform / tag
+        with self.connect() as conn:
+            def scalar(sql: str, params: List[Any]) -> int:
+                row = conn.execute(sql, params).fetchone()
+                return int(row[0]) if row else 0
+
+            base = "FROM items i WHERE i.deleted_at IS NULL"
+            result: Dict[str, Any] = {}
+
+            # 类型
+            rows = conn.execute(
+                f"SELECT i.kind AS k, COUNT(*) AS c {base} GROUP BY i.kind ORDER BY c DESC"
+            ).fetchall()
+            result["kind"] = [{"value": r["k"], "count": r["c"]} for r in rows]
+
+            # 格式
+            rows = conn.execute(
+                f"SELECT i.ext AS k, COUNT(*) AS c {base} GROUP BY i.ext ORDER BY c DESC"
+            ).fetchall()
+            result["ext"] = [{"value": r["k"], "count": r["c"]} for r in rows]
+
+            # 方向（用 SQL 表达式直接分桶，避免逐行计算）
+            rows = conn.execute(
+                f"""
+                SELECT
+                    CASE
+                        WHEN i.width = 0 OR i.height = 0 THEN 'unknown'
+                        WHEN ABS(i.aspect_ratio - 1.0) <= 0.12 THEN 'square'
+                        WHEN i.width > i.height THEN 'landscape'
+                        ELSE 'portrait'
+                    END AS k,
+                    COUNT(*) AS c
+                {base} GROUP BY k ORDER BY c DESC
+                """
+            ).fetchall()
+            result["orientation"] = [
+                {"value": r["k"], "count": r["c"]} for r in rows if r["k"] != "unknown"
+            ]
+
+            # 来源平台
+            rows = conn.execute(
+                f"SELECT i.source_platform AS k, COUNT(*) AS c {base} GROUP BY i.source_platform ORDER BY c DESC"
+            ).fetchall()
+            result["platform"] = [{"value": r["k"], "count": r["c"]} for r in rows]
+
+            # 标签 Top 20（排除已删除资产）
+            rows = conn.execute(
+                """
+                SELECT t.name AS k, COUNT(it.item_id) AS c
+                FROM tags t
+                JOIN item_tags it ON t.id = it.tag_id
+                JOIN items i ON it.item_id = i.id
+                WHERE i.deleted_at IS NULL
+                GROUP BY t.id
+                ORDER BY c DESC, t.name ASC
+                LIMIT 20
+                """
+            ).fetchall()
+            result["tag"] = [{"value": r["k"], "count": r["c"]} for r in rows]
+
+            # 尺寸区间
+            rows = conn.execute(
+                f"""
+                SELECT
+                    CASE
+                        WHEN MAX(i.width, i.height) >= 3840 THEN '4k'
+                        WHEN MAX(i.width, i.height) >= 1920 THEN 'hd'
+                        WHEN MAX(i.width, i.height) >= 1280 THEN 'sd'
+                        WHEN MAX(i.width, i.height) > 0 THEN 'small'
+                        ELSE 'unknown'
+                    END AS k,
+                    COUNT(*) AS c
+                {base} GROUP BY k ORDER BY c DESC
+                """
+            ).fetchall()
+            result["size_class"] = [
+                {"value": r["k"], "count": r["c"]} for r in rows if r["k"] != "unknown"
+            ]
+
+            result["total"] = scalar(f"SELECT COUNT(*) {base}", [])
+            return result
+
     def get_analytics(self) -> Dict[str, Any]:
         with self.connect() as conn:
             top_viewed = conn.execute(
