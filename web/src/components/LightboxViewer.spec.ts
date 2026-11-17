@@ -220,4 +220,42 @@ describe('LightboxViewer 色板与信息', () => {
     expect(wrapper.findAll('.swatch').length).toBe(1)
     wrapper.unmount()
   })
+
+  it('打开信息面板后舞台收缩让位，避免遮挡图片', async () => {
+    const wrapper = mountLightbox()
+    expect(wrapper.find('.lightbox__stage').classes()).not.toContain('lightbox__stage--with-panel')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.lightbox__stage').classes()).toContain('lightbox__stage--with-panel')
+    wrapper.unmount()
+  })
+
+  it('L 键与喜欢按钮发出 toggle-like 事件', async () => {
+    const wrapper = mountLightbox({ liked: false })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' }))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('toggle-like')?.[0]).toEqual(['aaaaaa11'])
+    wrapper.unmount()
+  })
+
+  it('舞台左右悬浮箭头可切换上一张/下一张', async () => {
+    const wrapper = mountLightbox()
+    await wrapper.find('.stage-nav--prev').trigger('click')
+    await wrapper.find('.stage-nav--next').trigger('click')
+    expect(wrapper.emitted('prev')).toHaveLength(1)
+    expect(wrapper.emitted('next')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('1 键或 1:1 按钮可切换原图缩放倍率', async () => {
+    const wrapper = mountLightbox()
+    expect(wrapper.find('.lightbox__zoom').text()).toBe('1:1')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '1' }))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.lightbox__zoom').text()).toBe('200%')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '1' }))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.lightbox__zoom').text()).toBe('1:1')
+    wrapper.unmount()
+  })
 })

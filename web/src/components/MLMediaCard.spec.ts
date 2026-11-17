@@ -52,14 +52,14 @@ describe('MLMediaCard 显示逻辑', () => {
     const wrapper = mount(MLMediaCard, {
       props: { item: makeItem(), selectable: true, selected: false },
     })
-    await wrapper.trigger('click')
+    await wrapper.find('.ml-card__trigger').trigger('click')
     expect(wrapper.emitted('toggle')?.[0]).toEqual(['a1'])
     expect(wrapper.emitted('open')).toBeUndefined()
   })
 
   it('非选择模式点击发出 open', async () => {
     const wrapper = mount(MLMediaCard, { props: { item: makeItem() } })
-    await wrapper.trigger('click')
+    await wrapper.find('.ml-card__trigger').trigger('click')
     expect(wrapper.emitted('open')).toHaveLength(1)
   })
 
@@ -67,7 +67,14 @@ describe('MLMediaCard 显示逻辑', () => {
     const wrapper = mount(MLMediaCard, {
       props: { item: makeItem(), selectable: true, selected: true },
     })
-    expect(wrapper.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('.ml-card__trigger').attributes('aria-pressed')).toBe('true')
     expect(wrapper.find('.ml-card__check--on').exists()).toBe(true)
+  })
+
+  it('点击喜欢按钮发出 toggle-like 且不触发 open', async () => {
+    const wrapper = mount(MLMediaCard, { props: { item: makeItem(), liked: false } })
+    await wrapper.find('.ml-card__like').trigger('click')
+    expect(wrapper.emitted('toggle-like')?.[0]).toEqual(['a1'])
+    expect(wrapper.emitted('open')).toBeUndefined()
   })
 })

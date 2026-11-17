@@ -115,7 +115,7 @@ watch(
 
 <template>
   <div
-    class="smart-image"
+    :class="['smart-image', { 'is-loading': !loaded && !failed }]"
     :style="{
       aspectRatio: `1 / ${ratio}`,
       backgroundColor: color || 'var(--surface-sunken)',
@@ -148,7 +148,13 @@ watch(
       @error="onError"
     />
     <!-- 失败态：给明确视觉反馈，而不是一块永远的主色底 -->
-    <span v-if="failed" class="smart-image__failed" aria-hidden="true">⚠</span>
+    <div v-if="failed" class="smart-image__failed" aria-hidden="true">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="5" width="18" height="14" rx="2" />
+        <circle cx="8.5" cy="10" r="1.5" />
+        <path d="m21 16-5-5-4 4-2-2-7 6" />
+      </svg>
+    </div>
   </div>
 </template>
 
@@ -158,6 +164,31 @@ watch(
   width: 100%;
   overflow: hidden;
   border-radius: var(--p-radius-sm);
+}
+
+/* 加载中微光骨架：克制的纸感对角光泽，图片淡入后自动撤除 */
+.smart-image.is-loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.22) 45%,
+    transparent 70%
+  );
+  background-size: 220% 100%;
+  animation: smart-shimmer 1.6s var(--p-ease-in-out) infinite;
+  pointer-events: none;
+}
+
+@keyframes smart-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
 }
 
 /* <picture> 默认是 inline 元素、无高度，
@@ -174,8 +205,9 @@ watch(
   inset: 0;
   display: grid;
   place-items: center;
-  font-size: 1.25rem;
   color: var(--ink-muted);
+  background: color-mix(in srgb, var(--surface-sunken) 88%, transparent);
+  opacity: 0.8;
   pointer-events: none;
 }
 
@@ -192,8 +224,12 @@ watch(
   opacity: 1;
 }
 
-/* 减弱动效：直接显示，不做淡入 */
+/* 减弱动效：直接显示，不做淡入与微光 */
 @media (prefers-reduced-motion: reduce) {
+  .smart-image.is-loading::after {
+    animation: none;
+    display: none;
+  }
   .smart-image__img {
     transition: none;
   }

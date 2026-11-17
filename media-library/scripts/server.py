@@ -497,29 +497,72 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
             # 图片展示走按需变换（1920 长边 WebP）：分享页直接塞原图
             # 会让 20MB 的素材拖慢首屏，而下载按钮仍指向原文件
             media_url = f"{base_url}/img/{it['id']}?w=1920&fm=webp"
-        tags_esc = html.escape(" ".join(f"#{t}" for t in it.get("tags", [])))
+        tags_list = [str(t) for t in (it.get("tags") or []) if t]
+        tags_esc = html.escape(" ".join(f"#{t}" for t in tags_list))
         dim_info = f"{it['width']}×{it['height']}" if it.get("width") else ""
+        ext_info = (it.get("ext") or "").lstrip(".").upper()
+        size_bytes = int(it.get("size") or 0)
+        if size_bytes >= 1024 * 1024:
+            size_info = f"{size_bytes / (1024 * 1024):.2f} MB"
+        elif size_bytes >= 1024:
+            size_info = f"{size_bytes / 1024:.1f} KB"
+        elif size_bytes > 0:
+            size_info = f"{size_bytes} B"
+        else:
+            size_info = ""
+        spec_parts = [p for p in (dim_info, ext_info, size_info) if p]
+        spec_esc = html.escape(" · ".join(spec_parts))
         desc_esc = html.escape(f"{it['kind'].upper()} · {dim_info} · {tags_esc}".strip(" ·"))
         og_type = "video.other" if it["kind"] == "video" else "website"
-        media_tag = (
-            f'<video src="{media_url}" controls autoplay playsinline style="max-width:92vw;max-height:76vh;border-radius:10px"></video>'
-            if it["kind"] == "video"
-            else f'<img src="{media_url}" alt="{title_esc}" style="max-width:92vw;max-height:76vh;border-radius:10px;object-fit:contain">'
-        )
         # 语义 URL 与结构化数据（E-19）：slug 缺失时先补齐，保证 canonical 稳定
         if not it.get("slug"):
             it["slug"] = db.ensure_slug(it["id"])
-        canonical_url = f"{base_url}{export_seo.asset_path(it.get('slug') or '', it['id'])}"
+        asset_rel = export_seo.asset_path(it.get("slug") or "", it["id"])
+        canonical_url = f"{base_url}{asset_rel}"
+        app_url = f"/app{asset_rel}"
         jsonld = json.dumps(
             export_seo.jsonld_for_item(it, base_url=base_url), ensure_ascii=False
         ).replace("</", "<\\/")
+
+        # 主色板解析
+        palette_list: List[str] = []
+        try:
+            raw_pal = json.loads(it.get("palette_json") or "[]")
+            if isinstance(raw_pal, list):
+                palette_list = [str(c) for c in raw_pal if re.match(r"^#[0-9a-fA-F]{6}$", str(c))][:4]
+        except Exception:
+            palette_list = []
+        if not palette_list and re.match(r"^#[0-9a-fA-F]{6}$", str(it.get("dominant_color") or "")):
+            palette_list = [str(it["dominant_color"])]
+
+        swatches_html = "".join(
+            f'<button type="button" class="swatch" data-hex="{html.escape(c.upper())}" '
+            f'style="background:{html.escape(c)}" title="复制色值 {html.escape(c.upper())}">'
+            f'<span>{html.escape(c.upper())}</span></button>'
+            for c in palette_list
+        )
+        tags_html = "".join(
+            f'<a class="tag" href="/app/browse?tag={html.escape(t)}">#{html.escape(t)}</a>'
+            for t in tags_list[:12]
+        )
+        author_esc = html.escape(str(it.get("author") or it.get("credit") or ""))
+        license_esc = html.escape(str(it.get("license") or ""))
+        bg_color = html.escape(str(it.get("dominant_color") or "#ede8e1"))
+
+        media_tag = (
+            f'<video src="{media_url}" poster="{thumb_url}" controls autoplay playsinline '
+            f'class="stage__media"></video>'
+            if it["kind"] == "video"
+            else f'<img id="stageImg" src="{media_url}" data-full="{original_url}" alt="{title_esc}" '
+            f'class="stage__media stage__img" title="点击放大查看原图">'
+        )
 
         return HTMLResponse(f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{title_esc} - MediaLib 分享</title>
+<title>{title_esc} - MediaLib</title>
 <link rel="canonical" href="{canonical_url}">
 <script type="application/ld+json">{jsonld}</script>
 <meta name="description" content="{desc_esc}">
@@ -533,23 +576,86 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
 <meta name="twitter:title" content="{title_esc}">
 <meta name="twitter:image" content="{thumb_url}">
 <style>
-body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;box-sizing:border-box}}
-.card{{background:#141720;border:1px solid #242938;border-radius:14px;padding:20px;max-width:96vw;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.55)}}
-.meta{{margin-top:14px;display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;color:#9aa2b6;font-size:13px}}
-.btn{{background:#3b66f5;color:#fff;text-decoration:none;padding:7px 14px;border-radius:8px;font-weight:500}}
-.btn.ghost{{background:#1f2433;color:#cfd5e6}}
+:root{{--paper:#faf8f5;--surface:#fff;--sunken:#f4f0ea;--ink:#1a1815;--muted:#6f6a63;--rule:#e0d9cf;--accent:#8c6a4a;--accent-hover:#6f5238;--on-accent:#fdfcfa;--shadow:0 20px 56px rgba(26,24,21,.10)}}
+@media (prefers-color-scheme:dark){{:root{{--paper:#14120f;--surface:#1c1a16;--sunken:#0f0d0b;--ink:#ede8e1;--muted:#9c958c;--rule:#2b2721;--accent:#a8825e;--accent-hover:#8c6a4a;--on-accent:#14120f;--shadow:0 20px 56px rgba(0,0,0,.55)}}}}
+*{{box-sizing:border-box}}
+body{{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans SC","Segoe UI",sans-serif;min-height:100dvh;display:flex;flex-direction:column}}
+.topbar{{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px;border-bottom:1px solid var(--rule);background:var(--paper)}}
+.brand{{display:inline-flex;align-items:center;gap:8px;font-weight:600;color:var(--ink);text-decoration:none;letter-spacing:-.02em}}
+.brand__mark{{color:var(--accent)}}
+.topbar__actions{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}
+.main{{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:24px;max-width:1440px;width:100%;margin:0 auto;padding:24px 20px 32px;align-items:start}}
+.stage{{background:var(--sunken);border:1px solid var(--rule);border-radius:12px;min-height:min(72dvh,760px);display:grid;place-items:center;padding:16px;overflow:hidden;position:relative}}
+.stage__media{{max-width:100%;max-height:calc(100dvh - 180px);width:auto;height:auto;object-fit:contain;border-radius:6px;box-shadow:var(--shadow);background:{bg_color}}}
+.stage__img{{cursor:zoom-in;transition:transform .2s ease}}
+.stage.is-zoomed{{position:fixed;inset:0;z-index:99;border-radius:0;border:none;background:rgba(18,16,13,.95);padding:20px;overflow:auto}}
+.stage.is-zoomed .stage__media{{max-width:none;max-height:none;cursor:zoom-out;box-shadow:none}}
+.aside{{background:var(--surface);border:1px solid var(--rule);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:16px}}
+.title{{margin:0;font-size:1.25rem;line-height:1.35;word-break:break-word}}
+.spec{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8125rem;color:var(--muted)}}
+.meta-list{{margin:0;display:grid;gap:8px;font-size:.875rem;border-top:1px solid var(--rule);padding-top:14px}}
+.meta-row{{display:flex;justify-content:space-between;gap:12px}}
+.meta-row dt{{color:var(--muted)}}
+.meta-row dd{{margin:0;text-align:right;word-break:break-word}}
+.tags{{display:flex;flex-wrap:wrap;gap:6px}}
+.tag{{font-size:.75rem;padding:2px 10px;border-radius:999px;background:var(--sunken);color:var(--muted);text-decoration:none}}
+.tag:hover{{color:var(--ink)}}
+.swatches{{display:flex;gap:8px;flex-wrap:wrap}}
+.swatch{{position:relative;width:54px;height:36px;border-radius:4px;border:1px solid var(--rule);cursor:pointer;padding:0;overflow:hidden}}
+.swatch span{{position:absolute;inset:auto 0 0 0;font-size:10px;font-family:ui-monospace,monospace;background:rgba(18,16,13,.72);color:#faf8f5;padding:1px 2px}}
+.actions{{display:flex;flex-direction:column;gap:8px;margin-top:4px}}
+.btn{{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:0 16px;border-radius:8px;font-size:.875rem;font-weight:500;text-decoration:none;cursor:pointer;border:1px solid var(--rule);background:var(--surface);color:var(--ink)}}
+.btn:hover{{background:var(--sunken)}}
+.btn--primary{{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}}
+.btn--primary:hover{{background:var(--accent-hover)}}
+@media (max-width:900px){{.main{{grid-template-columns:1fr;padding:16px}}.stage{{min-height:48dvh}}.stage__media{{max-height:66dvh}}}}
 </style>
 </head>
 <body>
-<div class="card">
-  {media_tag}
-  <div class="meta">
-    <strong style="color:#fff;font-size:15px">{title_esc}</strong>
-    <span>{desc_esc}</span>
-    <a class="btn" href="/f/{it['file']}?dl=1" download>下载原文件</a>
-    <a class="btn ghost" href="/">进入图片库</a>
+<header class="topbar">
+  <a class="brand" href="/app/"><span class="brand__mark">◐</span><span>MediaLib</span></a>
+  <div class="topbar__actions">
+    <a class="btn" href="{app_url}">在库中打开</a>
+    <a class="btn btn--primary" href="/f/{it['file']}?dl=1" download>下载原文件</a>
   </div>
-</div>
+</header>
+<main class="main">
+  <div id="stage" class="stage">{media_tag}</div>
+  <aside class="aside">
+    <h1 class="title">{title_esc}</h1>
+    {f'<div class="spec">{spec_esc}</div>' if spec_esc else ''}
+    <dl class="meta-list">
+      {f'<div class="meta-row"><dt>作者</dt><dd>{author_esc}</dd></div>' if author_esc else ''}
+      {f'<div class="meta-row"><dt>授权</dt><dd>{license_esc}</dd></div>' if license_esc else ''}
+      <div class="meta-row"><dt>浏览 / 下载</dt><dd>{int(it.get("views") or 0)} / {int(it.get("downloads") or 0)}</dd></div>
+    </dl>
+    {f'<div class="tags">{tags_html}</div>' if tags_html else ''}
+    {f'<div class="swatches">{swatches_html}</div>' if swatches_html else ''}
+    <div class="actions">
+      <button type="button" id="copyBtn" class="btn" data-url="{canonical_url}">复制分享链接</button>
+      <a class="btn" href="/app/browse">浏览全部资产</a>
+    </div>
+  </aside>
+</main>
+<script>
+(function(){{
+  var stage=document.getElementById('stage'),img=document.getElementById('stageImg');
+  if(img){{img.addEventListener('click',function(){{
+    if(!stage.classList.contains('is-zoomed')&&img.dataset.full){{img.src=img.dataset.full;}}
+    stage.classList.toggle('is-zoomed');
+  }});
+  document.addEventListener('keydown',function(e){{if(e.key==='Escape')stage.classList.remove('is-zoomed');}});}}
+  var cb=document.getElementById('copyBtn');
+  if(cb){{cb.addEventListener('click',function(){{
+    if(navigator.clipboard)navigator.clipboard.writeText(cb.dataset.url||'');
+    cb.textContent='已复制链接';setTimeout(function(){{cb.textContent='复制分享链接';}},1600);
+  }});}}
+  document.querySelectorAll('.swatch').forEach(function(b){{b.addEventListener('click',function(){{
+    var h=b.dataset.hex||'';if(navigator.clipboard)navigator.clipboard.writeText(h);
+    var s=b.querySelector('span');if(s){{var o=s.textContent;s.textContent='已复制';setTimeout(function(){{s.textContent=o;}},1200);}}
+  }});}});
+}})();
+</script>
 </body>
 </html>""")
 

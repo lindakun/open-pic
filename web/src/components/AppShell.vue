@@ -6,7 +6,7 @@
  *   - 顶栏一级动作 ≤5 个
  *   - 滚动 200px 后自动隐藏，回到顶部 40px 内复现
  */
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import { useI18n } from '@/composables/useI18n'
@@ -14,10 +14,19 @@ import { useI18n } from '@/composables/useI18n'
 const { mode, resolved, cycle } = useTheme()
 const { t, locale, toggleLocale } = useI18n()
 
+const headerRef = ref<HTMLElement | null>(null)
 const headerHidden = ref(false)
 let ticking = false
 /** 上一次滚动位置：用于判断方向，向上滚动时必须立刻复现顶栏 */
 let lastY = 0
+
+/** 同步顶栏当前占位高度到 CSS 变量，供首页粘性工具条避让（消除叠层遮挡） */
+function syncHeaderOffset() {
+  const h = headerHidden.value ? 0 : (headerRef.value?.offsetHeight ?? 57)
+  document.documentElement.style.setProperty('--header-offset', `${h}px`)
+}
+
+watch(headerHidden, syncHeaderOffset)
 
 function onScroll() {
   if (ticking) return
@@ -39,11 +48,15 @@ function onScroll() {
 }
 
 onMounted(() => {
+  syncHeaderOffset()
   window.addEventListener('scroll', onScroll, { passive: true })
+  window.addEventListener('resize', syncHeaderOffset, { passive: true })
 })
 
 onUnmounted(() => {
   window.removeEventListener('scroll', onScroll)
+  window.removeEventListener('resize', syncHeaderOffset)
+  document.documentElement.style.removeProperty('--header-offset')
 })
 
 const themeLabel = () => {
@@ -64,7 +77,7 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
 <template>
   <a class="skip-link" href="#main">{{ t('site.skipToMain') }}</a>
 
-  <header :class="['site-header', { 'site-header--hidden': headerHidden }]">
+  <header ref="headerRef" :class="['site-header', { 'site-header--hidden': headerHidden }]">
     <div class="site-header__inner">
       <RouterLink to="/" class="brand" :aria-label="`${t('site.name')} ${t('site.home')}`">
         <span class="brand__mark" aria-hidden="true">◐</span>

@@ -14,7 +14,7 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 
 const MIN_SCALE = 0.5
-const MAX_SCALE = 4
+const MAX_SCALE = 6
 
 export function useZoomPan(containerRef: { value: HTMLElement | null }) {
   const scale = ref(1)
@@ -31,18 +31,42 @@ export function useZoomPan(containerRef: { value: HTMLElement | null }) {
     return Math.min(MAX_SCALE, Math.max(MIN_SCALE, next))
   }
 
+  /** 根据容器尺寸与当前缩放比例夹取偏移，避免把图片彻底拖出视口 */
+  function clampPan(nx: number, ny: number, targetScale: number) {
+    if (targetScale <= 1) return { x: 0, y: 0 }
+    const el = containerRef.value
+    if (!el) return { x: nx, y: ny }
+    const rect = el.getBoundingClientRect()
+    // 允许边缘拖到容器中心附近即可，始终留出一半可视参考
+    const maxX = Math.max(120, (rect.width * (targetScale - 1)) / 2 + rect.width * 0.25)
+    const maxY = Math.max(120, (rect.height * (targetScale - 1)) / 2 + rect.height * 0.25)
+    return {
+      x: Math.min(maxX, Math.max(-maxX, nx)),
+      y: Math.min(maxY, Math.max(-maxY, ny)),
+    }
+  }
+
   /** 以容器内某点为锚点缩放，视觉上该点保持不动 */
   function zoomAt(nextScale: number, anchorX: number, anchorY: number) {
     const target = clampScale(nextScale)
     const ratio = target / scale.value
     // 锚点相对于容器中心
-    x.value = anchorX - (anchorX - x.value) * ratio
-    y.value = anchorY - (anchorY - y.value) * ratio
+    const rawX = anchorX - (anchorX - x.value) * ratio
+    const rawY = anchorY - (anchorY - y.value) * ratio
     scale.value = target
-    if (target === 1) {
+    if (target <= 1) {
       x.value = 0
       y.value = 0
+    } else {
+      const clamped = clampPan(rawX, rawY, target)
+      x.value = clamped.x
+      y.value = clamped.y
     }
+  }
+
+  /** 设定明确倍率（用于 1:1 原图或双击 2x 切换） */
+  function setScale(targetScale: number, anchorX = 0, anchorY = 0) {
+    zoomAt(targetScale, anchorX, anchorY)
   }
 
   /** 相对容器中心的坐标 */
@@ -103,8 +127,9 @@ export function useZoomPan(containerRef: { value: HTMLElement | null }) {
       if (scale.value <= 1) return
       event.preventDefault()
       const t = event.touches[0]
-      x.value = t.clientX - startTouch.x
-      y.value = t.clientY - startTouch.y
+      const clamped = clampPan(t.clientX - startTouch.x, t.clientY - startTouch.y, scale.value)
+      x.value = clamped.x
+      y.value = clamped.y
     }
   }
 
@@ -124,8 +149,13 @@ export function useZoomPan(containerRef: { value: HTMLElement | null }) {
 
   function onMouseMove(event: MouseEvent) {
     if (!dragging.value) return
-    x.value = mouseStart.ox + (event.clientX - mouseStart.x)
-    y.value = mouseStart.oy + (event.clientY - mouseStart.y)
+    const clamped = clampPan(
+      mouseStart.ox + (event.clientX - mouseStart.x),
+      mouseStart.oy + (event.clientY - mouseStart.y),
+      scale.value,
+    )
+    x.value = clamped.x
+    y.value = clamped.y
   }
 
   function onMouseUp() {
@@ -176,6 +206,7 @@ export function useZoomPan(containerRef: { value: HTMLElement | null }) {
     style,
     reset,
     zoomBy,
+    setScale,
     zoomAt: clampScale,
     bind,
     unbind,

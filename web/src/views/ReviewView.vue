@@ -29,6 +29,8 @@ const error = ref('')
 const index = ref(0)
 const saving = ref(false)
 const savedAt = ref(0)
+/** 点击图片放大检视细节 */
+const zoomed = ref(false)
 
 /** 本地标记缓存：以 item_id 为键，避免每次切换都回查 */
 type MarkState = 'selected' | 'pending' | 'rejected'
@@ -193,6 +195,7 @@ function step(delta: number) {
     noteDraft.value = marks.value[items.value[next].id]?.note ?? ''
     // 「已保存」是上一张的状态，切图后必须清掉
     savedAt.value = 0
+    zoomed.value = false
     void scrollFilmToCurrent()
   }
 }
@@ -201,6 +204,7 @@ function jump(i: number) {
   index.value = i
   noteDraft.value = marks.value[items.value[i].id]?.note ?? ''
   savedAt.value = 0
+  zoomed.value = false
   void scrollFilmToCurrent()
 }
 
@@ -298,13 +302,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
     <template v-else>
       <main class="review__stage">
-        <figure v-if="current" class="review__figure">
+        <figure v-if="current" :class="['review__figure', { 'review__figure--zoomed': zoomed }]">
           <!-- 快速上传路径下缩略图可能尚未生成：失败时回退原图，不留破图 -->
           <img
             v-if="current.kind === 'image'"
-            :src="`/t/${current.id}_lg.webp`"
+            :src="zoomed ? `/f/${current.file}` : `/t/${current.id}_lg.webp`"
             :alt="current.title || current.name"
-            class="review__img"
+            :title="zoomed ? t('review.zoomOut') : t('review.zoomIn')"
+            class="review__img review__img--clickable"
+            @click="zoomed = !zoomed"
             @error="($event.target as HTMLImageElement).src = `/f/${current.file}`"
           />
           <video
@@ -453,7 +459,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .review__state--error {
-  color: #b04a3f;
+  color: var(--danger);
 }
 
 .review__stage {
@@ -476,11 +482,38 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .review__img {
-  max-width: min(1100px, 100%);
-  max-height: 58vh;
+  max-width: min(1280px, 100%);
+  max-height: clamp(320px, 64dvh, 820px);
+  width: auto;
+  height: auto;
   object-fit: contain;
   background: var(--surface);
   border-radius: var(--p-radius-sm);
+}
+
+.review__img--clickable {
+  cursor: zoom-in;
+}
+
+.review__figure--zoomed {
+  position: fixed;
+  inset: 0;
+  z-index: var(--p-z-lightbox);
+  background: rgba(18, 16, 13, 0.94);
+  padding: var(--p-space-5);
+  justify-content: center;
+  overflow: auto;
+}
+
+.review__figure--zoomed .review__img {
+  max-width: 96vw;
+  max-height: 88dvh;
+  cursor: zoom-out;
+  background: transparent;
+}
+
+.review__figure--zoomed .review__cap {
+  color: #faf8f5;
 }
 
 .review__cap {
@@ -579,15 +612,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .film__dot--selected {
-  background: #4a8c5f;
+  background: var(--success);
 }
 
 .film__dot--pending {
-  background: #b08a3f;
+  background: var(--accent);
 }
 
 .film__dot--rejected {
-  background: #b04a3f;
+  background: var(--danger);
 }
 
 .review__counts {

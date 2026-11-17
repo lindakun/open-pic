@@ -24,12 +24,17 @@ const props = withDefaults(
     selectable?: boolean
     /** 当前是否被选中 */
     selected?: boolean
+    /** 是否已喜欢（C-15） */
+    liked?: boolean
+    /** 强制覆盖宽高比（等高网格视图用） */
+    ratioOverride?: number
   }>(),
   {
     width: 320,
     priority: false,
     selectable: false,
     selected: false,
+    liked: false,
   },
 )
 
@@ -37,6 +42,8 @@ const emit = defineEmits<{
   (e: 'open', item: MediaItem): void
   /** 选择模式下点击卡片是勾选而非打开 */
   (e: 'toggle', id: string): void
+  /** 喜欢/取消喜欢 */
+  (e: 'toggle-like', id: string): void
 }>()
 
 /** 视频悬停动态预览（后端预生成的 3s WebP）：
@@ -54,8 +61,9 @@ function onClick() {
 
 const { t, formatNumber } = useI18n()
 
-/** 后端返回的宽高比，缺失时按 1:1 兜底 */
+/** 后端返回的宽高比，缺失时按 1:1 兜底；支持外部网格模式强制等高比例 */
 const ratio = computed(() => {
+  if (props.ratioOverride) return props.ratioOverride
   const { width: w, height: h } = props.item
   if (!w || !h) return 1
   // 限制极端比例，避免长图撑满视口
@@ -86,62 +94,77 @@ const altText = computed(() =>
 </script>
 
 <template>
-  <button
-    type="button"
-    :class="['ml-card', { 'ml-card--picked': selectable && selected }]"
-    :aria-pressed="selectable ? selected : undefined"
-    @click="onClick"
-    @mouseenter="item.kind === 'video' && previewSrc && (previewing = true)"
-    @mouseleave="previewing = false"
-  >
-    <div
-      class="ml-card__media"
-      :style="{ viewTransitionName: `media-${item.id}` }"
+  <article :class="['ml-card', { 'ml-card--picked': selectable && selected }]">
+    <button
+      type="button"
+      class="ml-card__trigger"
+      :aria-pressed="selectable ? selected : undefined"
+      @click="onClick"
+      @mouseenter="item.kind === 'video' && previewSrc && (previewing = true)"
+      @mouseleave="previewing = false"
     >
-      <SmartImage
-        :id="item.id"
-        :file="item.file"
-        :kind="item.kind"
-        :priority="priority"
-        :color="item.dominant_color"
-        :alt="altText"
-        :ratio="ratio"
-        :display-width="width"
-        :version="item.updated_at"
-      />
-      <!-- 视频悬停动态预览：叠加在海报帧上，移出即停。
-           桌面 hover 设备才显示（触屏长按会误触） -->
-      <img
-        v-if="previewing && previewSrc"
-        :src="previewSrc"
-        alt=""
-        aria-hidden="true"
-        class="ml-card__preview"
-      />
-      <!-- 视频徽标：带播放符号，一眼可辨；时长同时给出 -->
-      <span
-        v-if="item.kind === 'video'"
-        class="ml-card__badge mono"
-        :aria-label="`${t('facet.kindVideo')} ${item.duration ? Math.round(item.duration) + 's' : ''}`"
+      <div
+        class="ml-card__media"
+        :style="{ viewTransitionName: `media-${item.id}` }"
       >
-        <span class="ml-card__play" aria-hidden="true">▶</span>
-        {{ item.duration ? `${formatNumber(Math.round(item.duration))}s` : t('facet.kindVideo') }}
-      </span>
-      <!-- 选择圈：选择模式下常驻，避免 hover 才可见导致移动端不可用 -->
-      <span v-if="selectable" :class="['ml-card__check', { 'ml-card__check--on': selected }]" aria-hidden="true">
-        {{ selected ? '✓' : '' }}
-      </span>
-    </div>
+        <SmartImage
+          :id="item.id"
+          :file="item.file"
+          :kind="item.kind"
+          :priority="priority"
+          :color="item.dominant_color"
+          :alt="altText"
+          :ratio="ratio"
+          :display-width="width"
+          :version="item.updated_at"
+        />
+        <!-- 视频悬停动态预览：叠加在海报帧上，移出即停。
+             桌面 hover 设备才显示（触屏长按会误触） -->
+        <img
+          v-if="previewing && previewSrc"
+          :src="previewSrc"
+          alt=""
+          aria-hidden="true"
+          class="ml-card__preview"
+        />
+        <!-- 视频徽标：带播放符号，一眼可辨；时长同时给出 -->
+        <span
+          v-if="item.kind === 'video'"
+          class="ml-card__badge mono"
+          :aria-label="`${t('facet.kindVideo')} ${item.duration ? Math.round(item.duration) + 's' : ''}`"
+        >
+          <span class="ml-card__play" aria-hidden="true">▶</span>
+          {{ item.duration ? `${formatNumber(Math.round(item.duration))}s` : t('facet.kindVideo') }}
+        </span>
+        <!-- 选择圈：选择模式下常驻，避免 hover 才可见导致移动端不可用 -->
+        <span v-if="selectable" :class="['ml-card__check', { 'ml-card__check--on': selected }]" aria-hidden="true">
+          {{ selected ? '✓' : '' }}
+        </span>
+      </div>
 
-    <!-- 标题与数据：小红书式两行标题 + 底部信息行 -->
-    <div class="ml-card__meta">
-      <span class="ml-card__title">{{ displayTitle }}</span>
-      <span class="ml-card__foot">
-        <span v-if="item.tags?.length" class="ml-card__tag">{{ item.tags[0] }}</span>
-        <span v-if="meta" class="ml-card__spec mono">{{ meta }}</span>
-      </span>
-    </div>
-  </button>
+      <!-- 标题与数据：固定盒高（64px），保证瀑布流列高计算零偏差 -->
+      <div class="ml-card__meta">
+        <span class="ml-card__title">{{ displayTitle }}</span>
+        <span class="ml-card__foot">
+          <span v-if="item.tags?.length" class="ml-card__tag">{{ item.tags[0] }}</span>
+          <span v-if="meta" class="ml-card__spec mono">{{ meta }}</span>
+        </span>
+      </div>
+    </button>
+
+    <!-- 独立喜欢按钮（与主按钮为兄弟节点，避免嵌套 button 破坏可访问性） -->
+    <button
+      v-if="!selectable"
+      type="button"
+      :class="['ml-card__like', { 'ml-card__like--on': liked }]"
+      :aria-pressed="liked"
+      :aria-label="liked ? t('card.unlike') : t('card.like')"
+      :title="liked ? t('card.unlike') : t('card.like')"
+      @click.stop="emit('toggle-like', item.id)"
+    >
+      <span aria-hidden="true">{{ liked ? '♥' : '♡' }}</span>
+    </button>
+  </article>
 </template>
 
 <style scoped>
@@ -195,6 +218,17 @@ const altText = computed(() =>
 }
 
 .ml-card {
+  position: relative;
+  display: block;
+  width: 100%;
+  border-radius: var(--p-radius-lg);
+  /* 小红书式：整卡轻微上浮，图片圆角统一 */
+  transition:
+    transform var(--p-dur-base) var(--p-ease-out),
+    box-shadow var(--p-dur-base) var(--p-ease-out);
+}
+
+.ml-card__trigger {
   display: block;
   width: 100%;
   text-align: left;
@@ -202,10 +236,48 @@ const altText = computed(() =>
   border: none;
   border-radius: var(--p-radius-lg);
   padding: 0;
-  /* 小红书式：整卡轻微上浮，图片圆角统一 */
+}
+
+.ml-card__like {
+  position: absolute;
+  top: var(--p-space-2);
+  left: var(--p-space-2);
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--p-radius-full);
+  background: rgba(26, 24, 21, 0.56);
+  color: #faf8f5;
+  font-size: 0.875rem;
+  line-height: 1;
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  transform: scale(0.92);
   transition:
-    transform var(--p-dur-base) var(--p-ease-out),
-    box-shadow var(--p-dur-base) var(--p-ease-out);
+    opacity var(--p-dur-fast) var(--p-ease-out),
+    transform var(--p-dur-fast) var(--p-ease-out),
+    background-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.ml-card:hover .ml-card__like,
+.ml-card:focus-within .ml-card__like,
+.ml-card__like--on {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.ml-card__like--on {
+  background: color-mix(in srgb, var(--danger) 90%, transparent);
+  color: #fff;
+}
+
+@media (hover: none) {
+  .ml-card__like {
+    opacity: 0.88;
+    transform: scale(1);
+  }
 }
 
 /* 触屏设备没有 hover，:hover 会"粘住"导致卡片一直浮起。
@@ -217,7 +289,7 @@ const altText = computed(() =>
   }
 }
 
-.ml-card:focus-visible {
+.ml-card:has(.ml-card__trigger:focus-visible) {
   transform: translateY(-2px);
   box-shadow: var(--card-shadow-hover);
 }
@@ -264,7 +336,7 @@ const altText = computed(() =>
 }
 
 .ml-card__title {
-  /* 统一两行截断：卡片高度依赖两行标题计算，行数变动会让瀑布流底部参差 */
+  /* 统一两行固定盒高：与 MasonryGrid META_HEIGHT=64 像素级对齐，杜绝列内卡片纵向重叠 */
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;
@@ -272,7 +344,8 @@ const altText = computed(() =>
   overflow: hidden;
   font-size: var(--p-step--1);
   font-weight: 500;
-  line-height: 1.45;
+  line-height: 17px;
+  min-height: 34px;
   color: var(--ink);
 }
 
@@ -281,6 +354,7 @@ const altText = computed(() =>
   display: flex;
   align-items: center;
   gap: var(--p-space-2);
+  height: 18px;
   min-width: 0;
 }
 

@@ -13,6 +13,7 @@ import { useRouter } from 'vue-router'
 import { useMediaStore } from '@/stores/media'
 import { useFilterStore } from '@/stores/filters'
 import { useI18n } from '@/composables/useI18n'
+import { useToast } from '@/composables/useToast'
 import { track, useEventFlush } from '@/composables/useAnalytics'
 import MasonryGrid from '@/components/MasonryGrid.vue'
 import LightboxViewer from '@/components/LightboxViewer.vue'
@@ -22,6 +23,38 @@ const store = useMediaStore()
 const filters = useFilterStore()
 const router = useRouter()
 const { t } = useI18n()
+const toast = useToast()
+
+/** 喜欢 id 集合（与浏览页同步后端 /api/likes） */
+const likedIds = ref<string[]>([])
+
+async function loadLikes() {
+  try {
+    const res = await fetch('/api/likes')
+    if (!res.ok) return
+    const data = (await res.json()) as { ids: string[] }
+    likedIds.value = data.ids ?? []
+  } catch {
+    likedIds.value = []
+  }
+}
+
+async function toggleLike(id: string) {
+  const liked = !likedIds.value.includes(id)
+  const before = [...likedIds.value]
+  likedIds.value = liked ? [...before, id] : before.filter((x) => x !== id)
+  try {
+    const res = await fetch('/api/like', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_id: id, liked }),
+    })
+    if (!res.ok) throw new Error()
+  } catch {
+    likedIds.value = before
+    toast.error(t('like.failed'))
+  }
+}
 
 /** 对比候选（A-04）：取当前项附近 8 项 */
 const compareCandidates = computed(() => {
@@ -47,11 +80,18 @@ function onFilterTag(tag: string) {
 /** 是否具备自动加载能力：无 IntersectionObserver 时退回手动按钮 */
 const autoLoadAvailable = typeof IntersectionObserver !== 'undefined'
 
-/** 滚动后工具条淡出，让图片墙占满注意力 */
+/** 滚动后工具条淡出，让图片墙占满注意力；深滚时显示返回顶部按钮 */
 const toolbarDim = ref(false)
+const showBackTop = ref(false)
 
 function onScroll() {
-  toolbarDim.value = window.scrollY > 120
+  const y = window.scrollY
+  toolbarDim.value = y > 120
+  showBackTop.value = y > 600
+}
+
+function scrollToTop() {
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 /** 触底自动加载，首页做成无限滚动的图墙 */
@@ -67,6 +107,7 @@ onMounted(async () => {
   // 首页精选位会随机丢失（实测踩到）。
   await store.refresh()
   await store.promoteFeatured()
+  void loadLikes()
   window.addEventListener('scroll', onScroll, { passive: true })
 
   observer = new IntersectionObserver(
@@ -174,7 +215,9 @@ function goBrowseAndUpload() {
       v-else
       :items="store.items"
       :base-column-width="268"
+      :liked-ids="likedIds"
       @open="openLightbox"
+      @toggle-like="toggleLike"
     />
 
     <!-- 无限滚动哨兵 -->
@@ -189,18 +232,32 @@ function goBrowseAndUpload() {
     </div>
     <p v-else-if="store.loading" class="wall__more-hint muted">{{ t('site.loading') }}</p>
 
+    <!-- 回到顶部悬浮钮 -->
+    <button
+      v-if="showBackTop"
+      type="button"
+      class="wall__top"
+      :aria-label="t('wall.backToTop')"
+      :title="t('wall.backToTop')"
+      @click="scrollToTop"
+    >
+      ↑
+    </button>
+
     <LightboxViewer
       v-if="store.currentItem"
       :item="store.currentItem"
       :has-prev="store.lightboxIndex > 0"
       :has-next="store.lightboxIndex < store.items.length - 1"
       :candidates="compareCandidates"
+      :liked="likedIds.includes(store.currentItem.id)"
       @close="store.closeLightbox"
       @prev="store.stepLightbox(-1)"
       @next="store.stepLightbox(1)"
       @slideshow-end="store.stepToFirst()"
       @filter-color="onFilterColor"
       @filter-tag="onFilterTag"
+      @toggle-like="toggleLike"
     />
   </div>
 </template>
@@ -215,7 +272,8 @@ function goBrowseAndUpload() {
 /* ---------- 悬浮工具条 ---------- */
 .wall__bar {
   position: sticky;
-  top: 0;
+  /* 跟随顶栏占位偏移：顶栏可见时贴合其下沿，隐藏时回到顶部，杜绝叠层遮挡 */
+  top: var(--header-offset, 0px);
   z-index: 20;
   display: flex;
   align-items: center;
@@ -224,7 +282,9 @@ function goBrowseAndUpload() {
   /* 半透明纸色，滚动时图片从下面透出 */
   background: color-mix(in srgb, var(--paper) 82%, transparent);
   backdrop-filter: blur(10px);
-  transition: opacity var(--p-dur-base) var(--p-ease-out);
+  transition:
+    opacity var(--p-dur-base) var(--p-ease-out),
+    top var(--p-dur-base) var(--p-ease-out);
 }
 
 .wall__bar--dim {
@@ -293,8 +353,34 @@ function goBrowseAndUpload() {
   padding: var(--p-space-6) 0;
 }
 
+.wall__top {
+  position: fixed;
+  right: var(--p-space-5);
+  bottom: var(--p-space-5);
+  z-index: 30;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--p-radius-full);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--rule-strong);
+  box-shadow: var(--card-shadow-hover);
+  display: grid;
+  place-items: center;
+  font-size: 1.125rem;
+  transition:
+    transform var(--p-dur-fast) var(--p-ease-out),
+    background-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.wall__top:hover {
+  transform: translateY(-2px);
+  background: var(--surface-hover);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .wall__bar {
+  .wall__bar,
+  .wall__top {
     transition: none;
   }
 }

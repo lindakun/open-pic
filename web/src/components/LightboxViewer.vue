@@ -27,6 +27,8 @@ const props = defineProps<{
   hasNext: boolean
   /** 同屏可对比的候选（通常为当前列表），用于挑选 2–4 项 */
   candidates?: MediaItem[]
+  /** 是否已喜欢（C-15） */
+  liked?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -38,6 +40,8 @@ const emit = defineEmits<{
   (e: 'filter-color', color: string): void
   /** 按标签筛选（信息面板的标签 chips） */
   (e: 'filter-tag', tag: string): void
+  /** 喜欢/取消喜欢 */
+  (e: 'toggle-like', id: string): void
 }>()
 
 const dialogRef = ref<HTMLDialogElement | null>(null)
@@ -49,9 +53,11 @@ const {
   scale,
   x: zoomX,
   y: zoomY,
+  dragging,
   style: zoomStyle,
   reset: resetZoom,
   zoomBy,
+  setScale,
   bind: bindZoom,
   unbind: unbindZoom,
 } = useZoomPan(stageRef)
@@ -80,12 +86,86 @@ const videoUrl = computed(() =>
 /** 下载地址：带 dl=1 让后端计入下载量统计 */
 const downloadUrl = computed(() => `/f/${props.item.file}?dl=1`)
 
-/**
- * 大图加载失败时回退原图。
- *
- * 快速上传路径下缩略图由后台任务生成，用户立刻点开时
- * `_lg.webp` 可能还是 404；不回退会留下一个破图。
- */
+/** 放大到 >1.2x 时无缝升级为原图，保证细节锐利 */
+function imgSrcFor(it: MediaItem): string {
+  if (!it.thumb) return `/f/${it.file}`
+  if (!compareOn.value && it.id === props.item.id && scale.value > 1.2) {
+    return `/f/${it.file}`
+  }
+  return `/t/${it.id}_lg.webp`
+}
+
+/** 切换 1:1 原图像素尺寸 / 适应屏幕 */
+function toggleActualSize() {
+  if (props.item.kind !== 'image') return
+  if (scale.value > 1.05) {
+    resetZoom()
+    return
+  }
+  const imgEl = stageRef.value?.querySelector<HTMLImageElement>('.lightbox__img')
+  const naturalW = props.item.width || imgEl?.naturalWidth || 0
+  const displayedW = imgEl?.clientWidth || 0
+  if (naturalW > 0 && displayedW > 0 && naturalW > displayedW) {
+    setScale(naturalW / displayedW)
+  } else {
+    setScale(2)
+  }
+}
+
+/** 双击：未放大时以点击位置放大 2x，已放大时复位 */
+function onImgDblClick(e: MouseEvent) {
+  if (scale.value > 1.05) {
+    resetZoom()
+    return
+  }
+  const el = stageRef.value
+  if (!el) {
+    setScale(2)
+    return
+  }
+  const rect = el.getBoundingClientRect()
+  const cx = e.clientX - rect.left - rect.width / 2
+  const cy = e.clientY - rect.top - rect.height / 2
+  setScale(2, cx, cy)
+}
+
+/** 移动端左右滑动切图（仅在未放大时生效，避免与拖拽平移冲突） */
+let swipeStart = { x: 0, y: 0, active: false }
+
+function onStageTouchStart(e: TouchEvent) {
+  if (e.touches.length === 1 && scale.value <= 1.05) {
+    swipeStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, active: true }
+  } else {
+    swipeStart.active = false
+  }
+}
+
+function onStageTouchEnd(e: TouchEvent) {
+  if (!swipeStart.active || scale.value > 1.05) return
+  swipeStart.active = false
+  const t0 = e.changedTouches[0]
+  if (!t0) return
+  const dx = t0.clientX - swipeStart.x
+  const dy = t0.clientY - swipeStart.y
+  if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    if (dx > 0 && props.hasPrev) emit('prev')
+    else if (dx < 0 && props.hasNext) emit('next')
+  }
+}
+
+/** 静默预加载相邻图的大尺寸缩略图，切图更顺滑 */
+function preloadNeighbors() {
+  if (typeof Image === 'undefined' || !props.candidates?.length) return
+  const idx = props.candidates.findIndex((c) => c.id === props.item.id)
+  if (idx < 0) return
+  for (const offset of [-1, 1]) {
+    const nb = props.candidates[idx + offset]
+    if (nb && nb.kind === 'image') {
+      const loader = new Image()
+      loader.src = nb.thumb ? `/t/${nb.id}_lg.webp` : `/f/${nb.file}`
+    }
+  }
+}
 function onImgError(event: Event, item: MediaItem) {
   const img = event.target as HTMLImageElement
   const fallback = `/f/${item.file}`
@@ -337,6 +417,13 @@ function onKeydown(e: KeyboardEvent) {
     case '0':
       resetZoom()
       break
+    case '1':
+      toggleActualSize()
+      break
+    case 'l':
+    case 'L':
+      emit('toggle-like', props.item.id)
+      break
     case 'i':
     case 'I':
       infoOpen.value = !infoOpen.value
@@ -395,7 +482,9 @@ function closeHelp() {
 const shortcuts = computed(() => [
   { key: '← / →', desc: t('shortcut.switch') },
   { key: '+ / -', desc: t('shortcut.zoom') },
+  { key: '1', desc: t('shortcut.actualSize') },
   { key: '0', desc: t('shortcut.reset') },
+  { key: 'L', desc: t('shortcut.like') },
   { key: 'I', desc: t('shortcut.info') },
   { key: 'D', desc: t('shortcut.download') },
   { key: 'C', desc: t('shortcut.copy') },
@@ -404,7 +493,7 @@ const shortcuts = computed(() => [
   { key: '?', desc: t('shortcut.help') },
 ])
 
-// 切换条目时复位视图状态
+// 切换条目时复位视图状态并预加载相邻图片
 watch(
   () => props.item.id,
   () => {
@@ -412,7 +501,9 @@ watch(
     compareIds.value = []
     // 切图时若帮助浮层还开着，关掉避免说明与当前内容脱节
     if (helpOpen.value) closeHelp()
+    preloadNeighbors()
   },
+  { immediate: true },
 )
 
 // 窗口尺寸变化后，先前的缩放/平移锚点会失效（图片被裁切），复位更符合预期
@@ -462,22 +553,38 @@ onUnmounted(() => {
     @close="close"
     @click="($event.target as HTMLElement).tagName === 'DIALOG' && close()"
   >
-    <!-- 舞台：对比模式为网格，单图为单格 -->
+    <!-- 舞台：对比模式为网格，单图为单格；打开信息面板时右侧让出空间，避免遮挡图片 -->
     <div
       ref="stageRef"
-      :class="['lightbox__stage', { 'lightbox__stage--compare': compareOn }]"
+      :class="[
+        'lightbox__stage',
+        {
+          'lightbox__stage--compare': compareOn,
+          'lightbox__stage--compare-grid': compareOn && compareItems.length > 2,
+          'lightbox__stage--with-panel': infoOpen,
+          'lightbox__stage--has-compare': item.kind === 'image' && compareChoices.length >= 1,
+        },
+      ]"
       @click.self="close"
+      @touchstart.passive="onStageTouchStart"
+      @touchend.passive="onStageTouchEnd"
     >
       <template v-if="item.kind === 'image'">
         <figure v-for="it in compareOn ? compareItems : [item]" :key="it.id" class="lightbox__frame">
           <img
-            :src="it.thumb ? `/t/${it.id}_lg.webp` : `/f/${it.file}`"
+            :src="imgSrcFor(it)"
             :alt="it.title || it.name"
-            class="lightbox__img"
+            :class="[
+              'lightbox__img',
+              {
+                'lightbox__img--zoomed': scale > 1.02,
+                'lightbox__img--dragging': dragging,
+              },
+            ]"
             :style="compareOn
               ? { transform: `translate3d(${zoomX}px, ${zoomY}px, 0) scale(${priceScale})` }
               : { ...zoomStyle, viewTransitionName: `media-${item.id}` }"
-            @dblclick="resetZoom()"
+            @dblclick="onImgDblClick($event)"
             @error="onImgError($event, it)"
           />
           <figcaption v-if="compareOn" class="lightbox__cap mono">
@@ -499,6 +606,26 @@ onUnmounted(() => {
         preload="metadata"
         class="lightbox__video"
       />
+
+      <!-- 舞台左右悬浮切图箭头（桌面端 hover 显示，自动避让右侧信息面板） -->
+      <button
+        v-if="hasPrev && !compareOn"
+        type="button"
+        class="stage-nav stage-nav--prev"
+        :aria-label="t('lightbox.prev')"
+        @click.stop="$emit('prev')"
+      >
+        ‹
+      </button>
+      <button
+        v-if="hasNext && !compareOn"
+        type="button"
+        :class="['stage-nav', 'stage-nav--next', { 'stage-nav--shifted': infoOpen }]"
+        :aria-label="t('lightbox.next')"
+        @click.stop="$emit('next')"
+      >
+        ›
+      </button>
 
       <!-- 对比选择条：只在候选足够时出现 -->
       <div v-if="item.kind === 'image' && compareChoices.length >= 1" class="lightbox__compare">
@@ -656,6 +783,17 @@ onUnmounted(() => {
         <button
           type="button"
           class="lb-btn"
+          :class="{ 'lb-btn--liked': liked }"
+          :aria-pressed="Boolean(liked)"
+          :aria-label="liked ? t('lightbox.unlike') : t('lightbox.like')"
+          :title="liked ? t('lightbox.unlike') : t('lightbox.like')"
+          @click="$emit('toggle-like', item.id)"
+        >
+          {{ liked ? '♥' : '♡' }}
+        </button>
+        <button
+          type="button"
+          class="lb-btn"
           :class="{ 'lb-btn--on': infoOpen }"
           :aria-pressed="infoOpen"
           :aria-label="t('lightbox.info')"
@@ -679,7 +817,17 @@ onUnmounted(() => {
         >
           ←
         </button>
-        <span class="lightbox__zoom mono">{{ Math.round(scale * 100) }}%</span>
+        <button
+          v-if="item.kind === 'image'"
+          type="button"
+          class="lightbox__zoom mono"
+          :class="{ 'lightbox__zoom--active': scale > 1.05 }"
+          :title="scale > 1.05 ? t('lightbox.fit') : t('lightbox.actualSize')"
+          :aria-label="scale > 1.05 ? t('lightbox.fit') : t('lightbox.actualSize')"
+          @click="toggleActualSize"
+        >
+          {{ scale > 1.05 ? `${Math.round(scale * 100)}%` : '1:1' }}
+        </button>
         <button
           type="button"
           class="lb-btn"
@@ -745,27 +893,54 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   place-items: center;
-  padding: var(--p-space-8) var(--p-space-6) 96px;
+  padding: var(--p-space-5) var(--p-space-6) 88px;
   overflow: hidden;
+  transition: padding-right var(--p-dur-base) var(--p-ease-out);
   /* 灯箱自身的进入动画：替代无法用于 dialog 的共享元素转场 */
   animation: lightbox-in var(--p-dur-base) var(--p-ease-out);
 }
 
-/* 对比模式：2 项两列，3–4 项两列两行，铺满舞台 */
+/* 有顶部对比选择条时让出安全高度，防止长竖图顶部被遮住 */
+.lightbox__stage--has-compare {
+  padding-top: 68px;
+}
+
+/* 桌面端打开信息面板时收缩舞台右侧，图片自动重新居中适配 */
+@media (min-width: 760px) {
+  .lightbox__stage--with-panel {
+    padding-right: calc(min(360px, 88vw) + var(--p-space-5));
+  }
+}
+
+/* 对比模式：2 项两列，3–4 项两列两行，铺满舞台且不纵向溢出 */
 .lightbox__stage--compare {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr);
   align-items: center;
   gap: var(--p-space-4);
-  padding-top: var(--p-space-7);
+  padding-top: 68px;
+}
+
+.lightbox__stage--compare-grid {
+  grid-template-rows: repeat(2, minmax(0, 1fr));
 }
 
 .lightbox__frame {
+  margin: 0;
+  width: 100%;
+  height: 100%;
   display: grid;
+  grid-template-rows: minmax(0, 1fr);
   place-items: center;
   min-width: 0;
   min-height: 0;
-  height: 100%;
+}
+
+.lightbox__stage--compare .lightbox__frame {
+  grid-template-rows: minmax(0, 1fr) auto;
 }
 
 @keyframes lightbox-in {
@@ -792,14 +967,75 @@ onUnmounted(() => {
 .lightbox__video {
   max-width: 100%;
   max-height: 100%;
+  width: auto;
+  height: auto;
   object-fit: contain;
   transition: transform var(--p-dur-base) var(--p-ease-out);
-  /* 缩放锚点固定为左上，配合 useZoomPan 的中心坐标换算 */
+  /* 缩放锚点固定为居中，配合 useZoomPan 的中心坐标换算 */
   transform-origin: center center;
 }
 
 .lightbox__img {
+  cursor: zoom-in;
+  user-select: none;
+}
+
+.lightbox__img--zoomed {
   cursor: grab;
+}
+
+.lightbox__img--dragging {
+  cursor: grabbing;
+  transition: none;
+}
+
+/* 舞台左右悬浮切图箭头 */
+.stage-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--p-radius-full);
+  background: rgba(18, 16, 13, 0.45);
+  color: #faf8f5;
+  font-size: 1.5rem;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  backdrop-filter: blur(6px);
+  opacity: 0.45;
+  transition:
+    opacity var(--p-dur-fast) var(--p-ease-out),
+    background-color var(--p-dur-fast) var(--p-ease-out),
+    right var(--p-dur-base) var(--p-ease-out);
+}
+
+.stage-nav:hover,
+.stage-nav:focus-visible {
+  opacity: 1;
+  background: rgba(18, 16, 13, 0.78);
+}
+
+.stage-nav--prev {
+  left: var(--p-space-4);
+}
+
+.stage-nav--next {
+  right: var(--p-space-4);
+}
+
+@media (min-width: 760px) {
+  .stage-nav--shifted {
+    right: calc(min(360px, 88vw) + var(--p-space-4));
+  }
+}
+
+@media (max-width: 640px) {
+  .stage-nav {
+    display: none;
+  }
 }
 
 .lightbox__cap {
@@ -1097,6 +1333,11 @@ onUnmounted(() => {
   background: rgba(140, 106, 74, 0.55);
 }
 
+.lb-btn--liked {
+  color: #e87a6e;
+  background: rgba(176, 74, 63, 0.22);
+}
+
 .lb-select {
   min-height: 28px;
   padding: 0 var(--p-space-1);
@@ -1113,9 +1354,44 @@ onUnmounted(() => {
 
 .lightbox__zoom {
   font-size: var(--p-step--1);
-  opacity: 0.7;
-  min-width: 42px;
+  opacity: 0.85;
+  min-width: 44px;
+  min-height: 28px;
+  padding: 0 var(--p-space-2);
+  border-radius: var(--p-radius-md);
   text-align: center;
+  background: rgba(250, 248, 245, 0.1);
+  transition: background-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.lightbox__zoom:hover {
+  background: rgba(250, 248, 245, 0.2);
+}
+
+.lightbox__zoom--active {
+  background: rgba(140, 106, 74, 0.55);
+  opacity: 1;
+}
+
+@media (max-width: 640px) {
+  .lightbox__stage {
+    padding: var(--p-space-4) var(--p-space-2) 110px;
+  }
+  .lightbox__stage--has-compare {
+    padding-top: 62px;
+  }
+  .lightbox__bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--p-space-2);
+    padding: var(--p-space-3) var(--p-space-3);
+  }
+  .lightbox__controls {
+    justify-content: center;
+  }
+  .lightbox__divider {
+    display: none;
+  }
 }
 
 /* 快捷键帮助 */

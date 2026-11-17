@@ -6,12 +6,16 @@
  * 依赖后端返回的 aspect_ratio，缺省按 1:1（§4 A-05）。
  */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import type { MediaItem } from '@/api/types'
+import type { MediaItem, ViewMode } from '@/api/types'
+import { useI18n } from '@/composables/useI18n'
 import MLMediaCard from './MLMediaCard.vue'
+import SmartImage from './SmartImage.vue'
 
 const props = withDefaults(
   defineProps<{
     items: MediaItem[]
+    /** 视图模式：瀑布流 / 等高网格 / 紧凑列表 */
+    mode?: ViewMode
     /**
      * 艺术墙模式：列宽不再完全均等、部分图片放大、
      * 每列带轻微垂直错位，形成错落而非规整网格的观感。
@@ -23,21 +27,28 @@ const props = withDefaults(
     selectable?: boolean
     /** 已选中的 id 集合 */
     selectedIds?: string[]
+    /** 已喜欢的 id 集合 */
+    likedIds?: string[]
   }>(),
   {
+    mode: 'masonry',
     artistic: false,
     baseColumnWidth: 280,
     selectable: false,
     selectedIds: () => [],
+    likedIds: () => [],
   },
 )
 
 const emit = defineEmits<{
   (e: 'open', index: number): void
   (e: 'toggle', id: string): void
+  (e: 'toggle-like', id: string): void
 }>()
 
 const selectedSet = computed(() => new Set(props.selectedIds))
+const likedSet = computed(() => new Set(props.likedIds))
+const { t, formatBytes, formatNumber } = useI18n()
 
 /**
  * 虚拟化的目的（D-17）：DOM 随滚动无限增长会拖慢合成与内存。
@@ -67,11 +78,10 @@ const columns = computed(() => {
 const gap = computed(() => (containerWidth.value < 600 ? 8 : 16))
 
 /**
- * 卡片信息层高度（标题两行 + 信息行 + 间距）。
- * 与 MLMediaCard 的实际高度对齐，否则列高会逐张累积偏差导致底部不齐。
- * 实测：标题两行 47px；单行标题时略矮，取两者中间值以平衡。
+ * 卡片信息层高度（8px 顶部间距 + 34px 两行标题 + 4px 间距 + 18px 底部信息行 = 64px）。
+ * 与 MLMediaCard 的实际盒高像素级对齐，杜绝长标题列纵向重叠。
  */
-const META_HEIGHT = 46
+const META_HEIGHT = 64
 
 const columnWidth = computed(() => {
   const c = columns.value
@@ -249,7 +259,9 @@ defineExpose({ renderedCount, isVisible, visibleRange })
 </script>
 
 <template>
+  <!-- 瀑布流模式（默认，虚拟化） -->
   <div
+    v-if="mode === 'masonry'"
     ref="containerRef"
     class="masonry"
     :style="{ height: `${containerHeight}px` }"
@@ -270,8 +282,10 @@ defineExpose({ renderedCount, isVisible, visibleRange })
         :priority="index < 4"
         :selectable="selectable"
         :selected="selectedSet.has(item.id)"
+        :liked="likedSet.has(item.id)"
         @open="emit('open', index)"
         @toggle="emit('toggle', $event)"
+        @toggle-like="emit('toggle-like', $event)"
       />
       <!-- 回收态占位：与卡片同尺寸同位置，保证滚动条总高与已渲染卡片零位移 -->
       <div
@@ -280,6 +294,78 @@ defineExpose({ renderedCount, isVisible, visibleRange })
         :style="{ height: `${(layout[index]?.height ?? 0) + META_HEIGHT}px` }"
         aria-hidden="true"
       />
+    </div>
+  </div>
+
+  <!-- 等高网格模式：适合横向比对与规整浏览 -->
+  <div v-else-if="mode === 'grid'" class="grid-view">
+    <div
+      v-for="(item, index) in items"
+      :key="item.id"
+      :data-item-id="item.id"
+      class="grid-view__cell"
+    >
+      <MLMediaCard
+        :item="item"
+        :priority="index < 8"
+        :ratio-override="0.75"
+        :selectable="selectable"
+        :selected="selectedSet.has(item.id)"
+        :liked="likedSet.has(item.id)"
+        @open="emit('open', index)"
+        @toggle="emit('toggle', $event)"
+        @toggle-like="emit('toggle-like', $event)"
+      />
+    </div>
+  </div>
+
+  <!-- 紧凑列表模式：适合快速扫元信息与批量管理 -->
+  <div v-else class="list-view">
+    <div
+      v-for="(item, index) in items"
+      :key="item.id"
+      :data-item-id="item.id"
+      :class="['list-row', { 'list-row--picked': selectable && selectedSet.has(item.id) }]"
+    >
+      <button
+        type="button"
+        class="list-row__main"
+        :aria-pressed="selectable ? selectedSet.has(item.id) : undefined"
+        @click="selectable ? emit('toggle', item.id) : emit('open', index)"
+      >
+        <div class="list-row__thumb">
+          <SmartImage
+            :id="item.id"
+            :file="item.file"
+            :kind="item.kind"
+            :color="item.dominant_color"
+            :ratio="0.75"
+            :display-width="120"
+            :version="item.updated_at"
+          />
+        </div>
+        <div class="list-row__info">
+          <span class="list-row__title">{{ item.title || item.name }}</span>
+          <span class="list-row__tags">
+            <span v-for="tag in (item.tags ?? []).slice(0, 4)" :key="tag" class="list-row__tag">{{ tag }}</span>
+          </span>
+        </div>
+        <span class="list-row__spec mono">
+          <template v-if="item.width && item.height">{{ formatNumber(item.width) }}×{{ formatNumber(item.height) }}</template>
+          <template v-if="item.ext"> · {{ item.ext.replace(/^\./, '').toUpperCase() }}</template>
+          <template v-if="item.size"> · {{ formatBytes(item.size) }}</template>
+        </span>
+      </button>
+      <button
+        v-if="!selectable"
+        type="button"
+        :class="['list-row__like', { 'list-row__like--on': likedSet.has(item.id) }]"
+        :aria-pressed="likedSet.has(item.id)"
+        :aria-label="likedSet.has(item.id) ? t('card.unlike') : t('card.like')"
+        @click="emit('toggle-like', item.id)"
+      >
+        <span aria-hidden="true">{{ likedSet.has(item.id) ? '♥' : '♡' }}</span>
+      </button>
     </div>
   </div>
 </template>
@@ -303,5 +389,132 @@ defineExpose({ renderedCount, isVisible, visibleRange })
   will-change: transform;
   /* 只对宽度做过渡：位置由 transform 驱动，无需过渡，
      否则列数变化时会看到卡片"飞过去"的拖影（实测观感差） */
+}
+
+/* ---------- 等高网格视图 ---------- */
+.grid-view {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--p-space-4);
+}
+
+.grid-view__cell {
+  min-width: 0;
+}
+
+@media (max-width: 600px) {
+  .grid-view {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--p-space-2);
+  }
+}
+
+/* ---------- 紧凑列表视图 ---------- */
+.list-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--p-space-2);
+}
+
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--p-space-2);
+  padding: var(--p-space-2) var(--p-space-3);
+  border-radius: var(--p-radius-md);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  transition:
+    border-color var(--p-dur-fast) var(--p-ease-out),
+    background-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.list-row:hover {
+  border-color: var(--rule-strong);
+  background: var(--surface-hover);
+}
+
+.list-row--picked {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.list-row__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--p-space-3);
+  text-align: left;
+}
+
+.list-row__thumb {
+  width: 64px;
+  flex-shrink: 0;
+  border-radius: var(--p-radius-sm);
+  overflow: hidden;
+}
+
+.list-row__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.list-row__title {
+  font-size: var(--p-step-0);
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list-row__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.list-row__tag {
+  font-size: 0.6875rem;
+  color: var(--ink-muted);
+  background: var(--surface-sunken);
+  border-radius: var(--p-radius-full);
+  padding: 0 7px;
+}
+
+.list-row__spec {
+  font-size: var(--p-step--1);
+  color: var(--ink-faint);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.list-row__like {
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: var(--p-radius-full);
+  color: var(--ink-muted);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.list-row__like:hover {
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
+
+.list-row__like--on {
+  color: var(--danger);
+}
+
+@media (max-width: 640px) {
+  .list-row__spec {
+    display: none;
+  }
 }
 </style>

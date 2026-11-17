@@ -22,8 +22,7 @@ import MLButton from '@/components/MLButton.vue'
 import MLChip from '@/components/MLChip.vue'
 import UploadPanel from '@/components/UploadPanel.vue'
 import BatchBar from '@/components/BatchBar.vue'
-import type { Collection } from '@/api/types'
-import type { SortKey } from '@/api/types'
+import type { Collection, SortKey, ViewMode } from '@/api/types'
 import {
   clearScrollAnchor,
   readScrollAnchor,
@@ -94,7 +93,23 @@ function clearSearch() {
 }
 
 /** 排序项：label 由 i18n 提供，故用 key 而非直接存文案 */
-const SORT_KEYS: SortKey[] = ['newest', 'oldest', 'pixels', 'size', 'views']
+const SORT_KEYS: SortKey[] = ['newest', 'oldest', 'pixels', 'size', 'views', 'random']
+
+/** 视图模式（REQ-06）：瀑布流 / 等高网格 / 紧凑列表 */
+const VIEW_MODES: { key: ViewMode; icon: string }[] = [
+  { key: 'masonry', icon: '⊞' },
+  { key: 'grid', icon: '⊟' },
+  { key: 'list', icon: '☰' },
+]
+
+function changeView(mode: ViewMode) {
+  filters.setView(mode)
+  try {
+    localStorage.setItem('medialib.view', mode)
+  } catch {
+    // 隐私模式静默忽略
+  }
+}
 
 /** 方向 chip 的 i18n key */
 const ORIENTATION_KEY: Record<string, string> = {
@@ -368,6 +383,17 @@ function onFilterTag(tag: string) {
 // 从 URL 还原筛选，然后加载
 onMounted(async () => {
   filters.fromUrlQuery(route.query as Record<string, string>)
+  // URL 未显式指定 view 时，读取用户上次偏好的视图模式
+  if (!route.query.view) {
+    try {
+      const savedView = localStorage.getItem('medialib.view') as ViewMode | null
+      if (savedView === 'masonry' || savedView === 'grid' || savedView === 'list') {
+        filters.setView(savedView)
+      }
+    } catch {
+      // 忽略
+    }
+  }
   // 首页空库引导：带 upload=1 时直接打开上传面板
   if (route.query.upload === '1') uploadOpen.value = true
   searchInput.value = filters.q
@@ -603,6 +629,21 @@ watch(
         </button>
       </div>
 
+      <div class="browse__views" role="group" :aria-label="t('view.label')">
+        <button
+          v-for="v in VIEW_MODES"
+          :key="v.key"
+          type="button"
+          :class="['view-btn', { 'view-btn--on': filters.view === v.key }]"
+          :aria-pressed="filters.view === v.key"
+          :aria-label="t(`view.${v.key}`)"
+          :title="t(`view.${v.key}`)"
+          @click="changeView(v.key)"
+        >
+          <span aria-hidden="true">{{ v.icon }}</span>
+        </button>
+      </div>
+
       <MLButton
         variant="quiet"
         :aria-pressed="onlyLiked"
@@ -757,10 +798,13 @@ watch(
         <MasonryGrid
           v-else
           :items="visibleItems"
+          :mode="filters.view"
           :selectable="selectMode"
           :selected-ids="selectedIds"
+          :liked-ids="likedIds"
           @open="openLightbox"
           @toggle="toggleSelect"
+          @toggle-like="toggleLike"
         />
 
         <!-- 分页哨兵：进入视口即自动加载；同时保留手动按钮作为兜底 -->
@@ -779,12 +823,14 @@ watch(
       :has-prev="visibleHasPrev"
       :has-next="visibleHasNext"
       :candidates="compareCandidates"
+      :liked="likedIds.includes(store.currentItem.id)"
       @close="onCloseLightbox"
       @prev="stepVisible(-1)"
       @next="stepVisible(1)"
       @slideshow-end="stepVisibleToFirst()"
       @filter-color="onFilterColor"
       @filter-tag="onFilterTag"
+      @toggle-like="toggleLike"
     />
 
     <UploadPanel v-model:open="uploadOpen" @uploaded="onUploaded" />
@@ -948,6 +994,39 @@ watch(
   color: var(--accent-hover);
   background: var(--accent-soft);
   font-weight: 500;
+}
+
+.browse__views {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--rule);
+  border-radius: var(--p-radius-md);
+  padding: 2px;
+  gap: 2px;
+  background: var(--surface);
+}
+
+.view-btn {
+  min-width: 28px;
+  min-height: 26px;
+  border-radius: var(--p-radius-sm);
+  color: var(--ink-muted);
+  font-size: 0.875rem;
+  display: grid;
+  place-items: center;
+  transition:
+    background-color var(--p-dur-fast) var(--p-ease-out),
+    color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.view-btn:hover {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.view-btn--on {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
 }
 
 .browse__count {
