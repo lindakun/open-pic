@@ -964,6 +964,143 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
             headers={"Cache-Control": "private, max-age=0, must-revalidate"},
         )
 
+    # ---------- 客户选片与批注（C-14） ----------
+
+    class ReviewLinkReq(BaseModel):
+        collection_id: int
+        title: str = ""
+        message: str = ""
+        expires_at: Optional[int] = None
+
+    class ReviewMarkReq(BaseModel):
+        item_id: str
+        state: str = "pending"
+        note: str = ""
+        reviewer: str = ""
+
+    @app.post("/api/reviews")
+    def api_create_review(req: ReviewLinkReq):
+        """为合集生成选片链接（C-14）。token 仅作访问标识，不承担鉴权。"""
+        if not db.get_collection(req.collection_id):
+            raise HTTPException(status_code=404, detail="合集不存在")
+        link = db.create_review_link(
+            req.collection_id, req.title, req.message, req.expires_at
+        )
+        return {"ok": True, "link": link, "url": f"/review/{link['token']}"}
+
+    @app.get("/api/reviews")
+    def api_list_reviews():
+        return {"links": db.list_review_links()}
+
+    @app.delete("/api/reviews/{token}")
+    def api_revoke_review(token: str):
+        if not db.revoke_review_link(token):
+            raise HTTPException(status_code=404, detail="选片链接不存在")
+        return {"ok": True}
+
+    @app.get("/api/review/{token}")
+    def api_review_detail(token: str):
+        """选片页数据（对外可读，本版不含鉴权）。"""
+        link = db.get_review_link(token)
+        if not link:
+            raise HTTPException(status_code=404, detail="选片链接无效或已失效")
+        return {
+            "ok": True,
+            "link": link,
+            "items": db.get_review_items(token),
+        }
+
+    @app.post("/api/review/{token}/mark")
+    def api_review_mark(token: str, req: ReviewMarkReq):
+        ok, msg = db.set_review_mark(
+            token, req.item_id, req.state, req.note, req.reviewer
+        )
+        if not ok:
+            raise HTTPException(status_code=400, detail=msg)
+        return {"ok": True}
+
+    @app.get("/api/review/{token}/summary")
+    def api_review_summary(token: str):
+        """库主侧批注汇总，按状态分组（C-14）。"""
+        data = db.review_summary(token)
+        if not data.get("ok"):
+            raise HTTPException(status_code=404, detail="选片链接无效或已失效")
+        return data
+
+    class ReviewAcceptReq(BaseModel):
+        target_collection_id: Optional[int] = None
+
+    @app.post("/api/review/{token}/accept-selected")
+    def api_review_accept(token: str, req: ReviewAcceptReq):
+        """把「选中」批量加入指定合集（C-14 验收 3）。"""
+        data = db.review_summary(token)
+        if not data.get("ok"):
+            raise HTTPException(status_code=404, detail="选片链接无效或已失效")
+        ids = [x["id"] for x in data["states"].get("selected", [])]
+        if not ids:
+            return {"ok": True, "added": 0}
+        if req.target_collection_id is None:
+            added = len(ids)
+        else:
+            if not db.get_collection(req.target_collection_id):
+                raise HTTPException(status_code=404, detail="目标合集不存在")
+            added = db.add_to_collection(req.target_collection_id, ids)
+        return {"ok": True, "added": added, "ids": ids}
+
+    @app.get("/review/{token}", response_class=HTMLResponse)
+    def review_page(token: str):
+        """选片页外壳：复用新前端 SPA，由前端 /review/:token 路由接管。"""
+        shell = _read_shell(APP_DIR)
+        if shell is None:
+            raise HTTPException(status_code=404, detail="新前端未构建")
+        return HTMLResponse(shell, headers={"Cache-Control": "no-cache"})
+
+    # ---------- 标签治理（B-09） ----------
+
+    class MergeTagsReq(BaseModel):
+        source: str
+        target: str
+
+    class RenameTagReq(BaseModel):
+        old: str
+        new: str
+
+    @app.get("/api/tags")
+    def api_list_tags(limit: int = Query(200, ge=1, le=2000)):
+        """标签治理列表：频次、层级、别名（B-09）。"""
+        return {"tags": db.list_tag_admin(limit=limit)}
+
+    @app.post("/api/tags/merge")
+    def api_merge_tags(req: MergeTagsReq):
+        res = db.merge_tags(req.source, req.target)
+        if not res.get("ok"):
+            raise HTTPException(status_code=400, detail=res.get("message", "合并失败"))
+        return res
+
+    @app.post("/api/tags/rename")
+    def api_rename_tag(req: RenameTagReq):
+        res = db.rename_tag(req.old, req.new)
+        if not res.get("ok"):
+            raise HTTPException(status_code=400, detail=res.get("message", "重命名失败"))
+        return res
+
+    # ---------- 个人工作区（C-15） ----------
+
+    class LikeReq(BaseModel):
+        item_id: str
+        liked: bool = True
+
+    @app.post("/api/like")
+    def api_set_like(req: LikeReq):
+        if not db.get_item(req.item_id):
+            raise HTTPException(status_code=404, detail="not found")
+        db.set_liked(req.item_id, req.liked)
+        return {"ok": True, "liked": req.liked}
+
+    @app.get("/api/likes")
+    def api_list_likes():
+        return {"ids": db.list_liked_ids()}
+
     # ---------- 画板（Collections） ----------
 
     @app.get("/api/collections")

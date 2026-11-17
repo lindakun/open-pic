@@ -24,6 +24,13 @@ const router = createRouter({
       component: () => import('@/views/BrowseView.vue'),
     },
     {
+      // 客户选片页（C-14）：独立布局，不套顶栏
+      path: '/review/:token',
+      name: 'review',
+      component: () => import('@/views/ReviewView.vue'),
+      meta: { title: '选片' },
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
       component: () => import('@/views/NotFoundView.vue'),

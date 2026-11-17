@@ -675,7 +675,10 @@
 | **C-13 下载中心** | ✅ 完成 | 多规格导出（preset 2560/1920/1280/640/原图 × jpeg/webp/avif/png × 质量档）、ZIP 改写磁盘临时文件（不再全内存）、>20 项或 >200MB 自动转异步任务 + `/api/exports/{name}` 下载、包内强制附 `credits.txt` 与 `metadata.json`、导出副本剥离 GPS/机身序列号 | 13 项单测；实测同步导出含署名文件、24 项转任务 `export_zip` 完成后下载 26 条目、原图字节未变 |
 | **C-12 策展状态** | ✅ 完成 | `draft/published/archived` + `publish_at` 定时发布；非法流转 409 并给出允许路径；`POST /api/publish/sweep` 调度侧 + 查询侧惰性兜底双重保障；draft 不进默认列表与 sitemap | 7 项专项测试；实测 draft 后列表 5→4、archived→published 返回 409 |
 | **E-19 语义 URL 与 SEO** | ✅ 完成 | `/a/{slug}-{shortId}` 资产页、`/sitemap.xml`（仅 published）、`/robots.txt`、分享页 `canonical` + JSON-LD（Image/VideoObject + BreadcrumbList）、slug 冲突自动追加后缀 | 单测覆盖 slug/JSON-LD/sitemap；实测 sitemap 条目数与资产一致、`/a/` 307 到规范地址 |
-| S3 剩余 | 🟡 部分 | B-09 标签治理、C-14 客户选片待做 | — |
+| **C-14 客户选片** | ✅ 完成 | `/review/{token}` 免登录选片页（纯图布局 + 底部胶片条）、选中/待定/否决 + 批注写库、`/api/review/{token}/summary` 按状态分组汇总、`accept-selected` 一键加入合集、链接可撤销/可设过期 | 14 项后端测试 + 8 项前端测试；实测刷新后标记保留、汇总与一键入集数量一致、375px 无横向溢出 |
+| **B-09 标签治理** | ✅ 完成 | 标签频次列表、合并（资产改挂 + 旧名转别名 + FTS 重建）、重命名同步 FTS、别名在查询与排除条件中归一 | 单测覆盖合并/重命名/别名/重启持久化；实测合并移动 2 项、重命名后新名可检索命中 2 项 |
+| **C-15 个人工作区** | ✅ 完成（收藏部分） | 「喜欢」独立于合集（`item_flags`），可列表回看；删除资产自动排除 | 单测 2 项；实测 like/likes 接口往返一致 |
+| S3 剩余 | ✅ 完成 | S3 运营增强全部 5 项落地 | — |
 | S4 前沿溢价 | ⬜ 未开始 | B-07 AI 打标、B-08 语义搜图、C-15 工作区、D-17 虚拟滚动、D-18 度量 | — |
 
 ### 已落地的技术细节

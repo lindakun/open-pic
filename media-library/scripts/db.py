@@ -5,6 +5,7 @@
 import json
 import os
 import re
+import secrets
 import shutil
 import sqlite3
 import search_index
@@ -114,6 +115,49 @@ CREATE TABLE IF NOT EXISTS ingest_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON ingest_jobs(status, created_at DESC);
 
+-- 客户选片与批注（REQ-V2-20 C-14）
+CREATE TABLE IF NOT EXISTS review_links (
+    token TEXT PRIMARY KEY,
+    collection_id INTEGER NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    message TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER DEFAULT NULL,
+    revoked INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_links_col ON review_links(collection_id);
+
+CREATE TABLE IF NOT EXISTS review_marks (
+    token TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'pending',
+    note TEXT NOT NULL DEFAULT '',
+    reviewer TEXT NOT NULL DEFAULT '',
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (token, item_id),
+    FOREIGN KEY (token) REFERENCES review_links(token) ON DELETE CASCADE,
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_marks_state ON review_marks(token, state);
+
+-- 标签治理：别名与层级（REQ-V2-20 B-09）
+CREATE TABLE IF NOT EXISTS tag_aliases (
+    alias TEXT PRIMARY KEY,
+    tag_id INTEGER NOT NULL,
+    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+);
+
+-- 个人工作区：喜欢（REQ-V2-20 C-15）
+CREATE TABLE IF NOT EXISTS item_flags (
+    item_id TEXT PRIMARY KEY,
+    liked INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
     item_id UNINDEXED,
     title,
@@ -201,6 +245,11 @@ class MediaDB:
         for col, decl in wanted.items():
             if col not in existing:
                 conn.execute(f"ALTER TABLE items ADD COLUMN {col} {decl}")
+
+        # 标签层级（B-09）：tags 表补 parent_id，旧库一并升级
+        tag_cols = {r[1] for r in conn.execute("PRAGMA table_info(tags)").fetchall()}
+        if "parent_id" not in tag_cols:
+            conn.execute("ALTER TABLE tags ADD COLUMN parent_id INTEGER DEFAULT NULL")
 
     def _migrate_fts_seg(self, conn: sqlite3.Connection) -> None:
         """迁移旧库的 FTS 表，补齐预分词列 seg（REQ-V2-20 B-06）。
@@ -626,6 +675,15 @@ class MediaDB:
         where = ["i.deleted_at IS NOT NULL" if deleted else "i.deleted_at IS NULL"]
         params: List[Any] = []
 
+        # 标签别名映射（B-09）：一次查出，避免在循环里反复开连接
+        alias_map: Dict[str, str] = {}
+        if tags or exclude_tags:
+            with self.connect() as _c:
+                for r in _c.execute(
+                    "SELECT a.alias, t.name FROM tag_aliases a JOIN tags t ON t.id=a.tag_id"
+                ).fetchall():
+                    alias_map[r["alias"]] = r["name"]
+
         # 发布状态（REQ-V2-20 C-12）：
         #   - 默认只出 published，且定时到期的 draft 视为已发布（惰性查询兜底）
         #   - 管理端可用 status= 显式查某一状态，或 include_unpublished 查全部
@@ -664,6 +722,8 @@ class MediaDB:
             t = t.strip()
             if not t:
                 continue
+            # 别名归一到主标签（B-09 验收 1：历史深链 ?tag=旧名 仍可用）
+            t = alias_map.get(t, t)
             where.append(
                 "EXISTS (SELECT 1 FROM item_tags it JOIN tags tg ON it.tag_id=tg.id WHERE it.item_id=i.id AND tg.name=?)"
             )
@@ -673,6 +733,7 @@ class MediaDB:
             et = et.strip()
             if not et:
                 continue
+            et = alias_map.get(et, et)
             where.append(
                 "NOT EXISTS (SELECT 1 FROM item_tags it JOIN tags tg ON it.tag_id=tg.id WHERE it.item_id=i.id AND tg.name=?)"
             )
@@ -889,6 +950,12 @@ class MediaDB:
             return len(item_ids)
 
     # ---------- 画板（Collections） ----------
+
+    def get_collection(self, cid: int) -> Optional[Dict[str, Any]]:
+        """按 id 取单个合集（C-14 选片链接校验目标合集是否存在）。"""
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM collections WHERE id=?", (cid,)).fetchone()
+            return dict(row) if row else None
 
     def list_collections(self) -> List[Dict[str, Any]]:
         with self.connect() as conn:
@@ -1132,6 +1199,241 @@ class MediaDB:
             }
 
     # ---------- 异步任务表 ----------
+
+    # ---------- 客户选片与批注（C-14） ----------
+
+    REVIEW_STATES = ("selected", "pending", "rejected")
+
+    def create_review_link(self, collection_id: int, title: str = "",
+                           message: str = "", expires_at: Optional[int] = None) -> Dict[str, Any]:
+        """为合集生成选片链接（C-14）。token 仅作访问标识，不作鉴权。"""
+        token = secrets.token_urlsafe(12)
+        now = int(time.time())
+        with self._write_lock, self.connect() as conn:
+            conn.execute(
+                "INSERT INTO review_links(token, collection_id, title, message, created_at, expires_at)"
+                " VALUES (?,?,?,?,?,?)",
+                (token, collection_id, title, message, now, expires_at),
+            )
+            conn.commit()
+        return {
+            "token": token, "collection_id": collection_id, "title": title,
+            "message": message, "created_at": now, "expires_at": expires_at,
+            "revoked": 0,
+        }
+
+    def get_review_link(self, token: str) -> Optional[Dict[str, Any]]:
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM review_links WHERE token=?", (token,)).fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            if d["revoked"]:
+                return None
+            if d["expires_at"] and d["expires_at"] < int(time.time()):
+                return None
+            return d
+
+    def list_review_links(self) -> List[Dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT r.*, c.name AS collection_name FROM review_links r"
+                " LEFT JOIN collections c ON c.id=r.collection_id"
+                " ORDER BY r.created_at DESC"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def revoke_review_link(self, token: str) -> bool:
+        with self._write_lock, self.connect() as conn:
+            cur = conn.execute("UPDATE review_links SET revoked=1 WHERE token=?", (token,))
+            conn.commit()
+            return cur.rowcount > 0
+
+    def get_review_items(self, token: str) -> List[Dict[str, Any]]:
+        """选片页数据：合集内资产 + 已有标记。"""
+        link = self.get_review_link(token)
+        if not link:
+            return []
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT i.*, m.state AS review_state, m.note AS review_note,"
+                " m.reviewer AS review_reviewer, m.updated_at AS review_updated_at"
+                " FROM collection_items ci"
+                " JOIN items i ON i.id = ci.item_id"
+                " LEFT JOIN review_marks m ON m.item_id=i.id AND m.token=?"
+                " WHERE ci.collection_id=? AND i.deleted_at IS NULL"
+                " ORDER BY ci.added_at ASC",
+                (token, link["collection_id"]),
+            ).fetchall()
+            return self._hydrate_rows(conn, rows)
+
+    def set_review_mark(self, token: str, item_id: str, state: str,
+                        note: str = "", reviewer: str = "") -> Tuple[bool, str]:
+        """写入选片标记与批注（C-14 验收 1：刷新后状态保留）。"""
+        if state not in self.REVIEW_STATES:
+            return False, "状态必须是 selected / pending / rejected"
+        if not self.get_review_link(token):
+            return False, "选片链接无效或已失效"
+        now = int(time.time())
+        with self._write_lock, self.connect() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM collection_items ci JOIN review_links r"
+                " ON r.collection_id=ci.collection_id"
+                " WHERE r.token=? AND ci.item_id=?",
+                (token, item_id),
+            ).fetchone()
+            if not exists:
+                return False, "该资产不在本次选片范围内"
+            conn.execute(
+                "INSERT INTO review_marks(token, item_id, state, note, reviewer, updated_at)"
+                " VALUES (?,?,?,?,?,?)"
+                " ON CONFLICT(token, item_id) DO UPDATE SET"
+                " state=excluded.state, note=excluded.note,"
+                " reviewer=excluded.reviewer, updated_at=excluded.updated_at",
+                (token, item_id, state, note, reviewer, now),
+            )
+            conn.commit()
+            return True, "ok"
+
+    def review_summary(self, token: str) -> Dict[str, Any]:
+        """库主侧批注汇总：按状态分组（C-14）。"""
+        link = self.get_review_link(token)
+        if not link:
+            return {"ok": False, "states": [], "total": 0}
+        states = {"selected": [], "pending": [], "rejected": [], "unmarked": []}
+        for it in self.get_review_items(token):
+            st = it.get("review_state") or "unmarked"
+            states.setdefault(st, []).append({
+                "id": it["id"],
+                "title": it.get("title") or it.get("name"),
+                "thumb": it.get("thumb"),
+                "note": it.get("review_note") or "",
+                "reviewer": it.get("review_reviewer") or "",
+                "updated_at": it.get("review_updated_at"),
+            })
+        return {
+            "ok": True,
+            "link": link,
+            "states": states,
+            "total": sum(len(v) for v in states.values()),
+        }
+
+    # ---------- 标签治理（B-09） ----------
+
+    def list_tag_admin(self, limit: int = 200) -> List[Dict[str, Any]]:
+        """标签治理列表：频次、层级、别名（B-09）。"""
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT t.id, t.name, t.parent_id, COUNT(it.item_id) AS count"
+                " FROM tags t LEFT JOIN item_tags it ON it.tag_id=t.id"
+                " GROUP BY t.id ORDER BY count DESC, t.name ASC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            aliases: Dict[int, List[str]] = {}
+            for r in conn.execute("SELECT alias, tag_id FROM tag_aliases").fetchall():
+                aliases.setdefault(r["tag_id"], []).append(r["alias"])
+            return [
+                {
+                    "id": r["id"], "name": r["name"], "parent_id": r["parent_id"],
+                    "count": r["count"], "aliases": aliases.get(r["id"], []),
+                }
+                for r in rows
+            ]
+
+    def merge_tags(self, source: str, target: str) -> Dict[str, Any]:
+        """把 source 的全部资产并入 target 并删除 source（B-09 验收 1）。
+
+        source 作为别名保留，历史深链 ?tag=source 仍可命中 target。
+        """
+        source, target = (source or "").strip(), (target or "").strip()
+        if not source or not target or source == target:
+            return {"ok": False, "message": "源与目标不能为空且不能相同"}
+        with self._write_lock, self.connect() as conn:
+            srow = conn.execute("SELECT id FROM tags WHERE name=?", (source,)).fetchone()
+            trow = conn.execute("SELECT id FROM tags WHERE name=?", (target,)).fetchone()
+            if not srow:
+                return {"ok": False, "message": f"标签 {source} 不存在"}
+            if not trow:
+                return {"ok": False, "message": f"标签 {target} 不存在"}
+            sid, tid = srow["id"], trow["id"]
+
+            moved = conn.execute(
+                "SELECT COUNT(*) FROM item_tags WHERE tag_id=?", (sid,)
+            ).fetchone()[0]
+            # 冲突组合先删（已同时拥有目标标签），再整体改挂
+            conn.execute(
+                "DELETE FROM item_tags WHERE tag_id=? AND item_id IN"
+                " (SELECT item_id FROM item_tags WHERE tag_id=?)",
+                (sid, tid),
+            )
+            conn.execute("UPDATE item_tags SET tag_id=? WHERE tag_id=?", (tid, sid))
+            conn.execute("DELETE FROM tags WHERE id=?", (sid,))
+            conn.execute(
+                "INSERT INTO tag_aliases(alias, tag_id) VALUES (?,?)"
+                " ON CONFLICT(alias) DO UPDATE SET tag_id=excluded.tag_id",
+                (source, tid),
+            )
+            # 受影响资产的 FTS 需要重建标签文本
+            ids = [r[0] for r in conn.execute(
+                "SELECT DISTINCT item_id FROM item_tags WHERE tag_id=?", (tid,)
+            ).fetchall()]
+            for iid in ids:
+                self._sync_fts(conn, iid)
+            conn.commit()
+            return {"ok": True, "moved": moved, "target": target,
+                    "affected": len(ids), "alias": source}
+
+    def rename_tag(self, old: str, new: str) -> Dict[str, Any]:
+        """重命名标签并同步 FTS（B-09 验收 2）。"""
+        old, new = (old or "").strip(), (new or "").strip()
+        if not old or not new:
+            return {"ok": False, "message": "标签名不能为空"}
+        with self._write_lock, self.connect() as conn:
+            row = conn.execute("SELECT id FROM tags WHERE name=?", (old,)).fetchone()
+            if not row:
+                return {"ok": False, "message": f"标签 {old} 不存在"}
+            dup = conn.execute("SELECT id FROM tags WHERE name=?", (new,)).fetchone()
+            if dup:
+                return {"ok": False, "message": f"标签 {new} 已存在，请用合并"}
+            tid = row["id"]
+            conn.execute("UPDATE tags SET name=? WHERE id=?", (new, tid))
+            ids = [r[0] for r in conn.execute(
+                "SELECT item_id FROM item_tags WHERE tag_id=?", (tid,)
+            ).fetchall()]
+            for iid in ids:
+                self._sync_fts(conn, iid)
+            conn.commit()
+            return {"ok": True, "renamed": new, "affected": len(ids)}
+
+    def resolve_tag_alias(self, name: str) -> str:
+        """把别名归一到主标签名（B-09 验收 1）。"""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT t.name FROM tag_aliases a JOIN tags t ON t.id=a.tag_id"
+                " WHERE a.alias=?", (name,),
+            ).fetchone()
+            return row["name"] if row else name
+
+    # ---------- 个人工作区（C-15） ----------
+
+    def set_liked(self, item_id: str, liked: bool) -> bool:
+        with self._write_lock, self.connect() as conn:
+            conn.execute(
+                "INSERT INTO item_flags(item_id, liked, updated_at) VALUES (?,?,?)"
+                " ON CONFLICT(item_id) DO UPDATE SET liked=excluded.liked,"
+                " updated_at=excluded.updated_at",
+                (item_id, 1 if liked else 0, int(time.time())),
+            )
+            conn.commit()
+            return True
+
+    def list_liked_ids(self) -> List[str]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT f.item_id FROM item_flags f JOIN items i ON i.id=f.item_id"
+                " WHERE f.liked=1 AND i.deleted_at IS NULL ORDER BY f.updated_at DESC"
+            ).fetchall()
+            return [r[0] for r in rows]
 
     def create_job(self, job_type: str, payload: Dict[str, Any]) -> int:
         now = int(time.time())
