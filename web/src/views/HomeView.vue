@@ -34,6 +34,9 @@ function onFilterColor(color: string) {
   router.push({ name: 'browse' })
 }
 
+/** 是否具备自动加载能力：无 IntersectionObserver 时退回手动按钮 */
+const autoLoadAvailable = typeof IntersectionObserver !== 'undefined'
+
 /** 滚动后工具条淡出，让图片墙占满注意力 */
 const toolbarDim = ref(false)
 
@@ -113,11 +116,14 @@ function goSearch() {
     <!-- 无限滚动哨兵 -->
     <div ref="sentinel" class="wall__sentinel" aria-hidden="true" />
 
-    <div v-if="store.hasMore" class="wall__more">
+    <!-- 已有无限滚动哨兵自动加载，这里只在哨兵失效（如 reduced-motion 或
+         IntersectionObserver 不可用）时作为兜底入口，避免重复的手动入口 -->
+    <div v-if="store.hasMore && !autoLoadAvailable" class="wall__more">
       <MLButton variant="quiet" :disabled="store.loading" @click="store.load()">
         {{ store.loading ? t('site.loading') : t('browse.loadMore') }}
       </MLButton>
     </div>
+    <p v-else-if="store.loading" class="wall__more-hint muted">{{ t('site.loading') }}</p>
 
     <LightboxViewer
       v-if="store.currentItem"

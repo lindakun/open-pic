@@ -75,3 +75,30 @@ describe('promoteFeatured', () => {
     vi.unstubAllGlobals()
   })
 })
+
+describe('空态判定（显示 bug 修复）', () => {
+  it('首次请求完成前不判为空，避免刚进页面闪"无内容"', () => {
+    const store = useMediaStore()
+    expect(store.isEmpty).toBe(false)
+  })
+
+  it('请求返回 0 条且已完成时才为空', async () => {
+    const store = useMediaStore()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, json: async () => ({ total: 0, items: [] }),
+    }))
+    await store.refresh()
+    expect(store.isEmpty).toBe(true)
+    vi.unstubAllGlobals()
+  })
+
+  it('有数据时不为空', async () => {
+    const store = useMediaStore()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, json: async () => ({ total: 1, items: [makeItem('a')] }),
+    }))
+    await store.refresh()
+    expect(store.isEmpty).toBe(false)
+    vi.unstubAllGlobals()
+  })
+})

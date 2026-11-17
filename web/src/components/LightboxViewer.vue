@@ -332,6 +332,9 @@ onMounted(() => {
   // 标记"灯箱开启"：隐藏 sticky 顶栏并锁定背景滚动。
   // dialog::backdrop 处于 top layer，但 sticky 元素仍会绘制在其上，
   // 必须显式隐藏顶栏，否则顶栏会浮在灯箱之上（实测发现）。
+  // 记录滚动条占用宽度：隐藏滚动条后补 padding，避免内容横向抖动
+  const scrollbar = window.innerWidth - document.documentElement.clientWidth
+  document.documentElement.style.setProperty('--scrollbar-comp', `${Math.max(0, scrollbar)}px`)
   document.documentElement.classList.add('lightbox-open')
 })
 
@@ -341,6 +344,7 @@ onUnmounted(() => {
   stopSlideshow()
   if (copyTimer !== null) window.clearTimeout(copyTimer)
   document.documentElement.classList.remove('lightbox-open')
+  document.documentElement.style.removeProperty('--scrollbar-comp')
 })
 </script>
 
@@ -361,7 +365,7 @@ onUnmounted(() => {
         <figure v-for="it in compareOn ? compareItems : [item]" :key="it.id" class="lightbox__frame">
           <img
             :src="it.thumb ? `/t/${it.id}_lg.webp` : `/f/${it.file}`"
-            alt=""
+            :alt="it.title || it.name"
             class="lightbox__img"
             :style="compareOn ? { transform: `scale(${priceScale})` } : { ...zoomStyle, viewTransitionName: `media-${item.id}` }"
             @dblclick="resetZoom()"

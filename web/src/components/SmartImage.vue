@@ -40,6 +40,14 @@ const props = withDefaults(
 )
 
 const loaded = ref(false)
+/** 加载失败：展示占位图标而非永远的空白块 */
+const failed = ref(false)
+
+function onError() {
+  failed.value = true
+  // 失败时也显示容器，避免一直透明看起来像卡死
+  loaded.value = true
+}
 
 /** 白名单档位，与后端 ALLOWED_WIDTHS 保持一致 */
 const WIDTHS = [360, 720, 960, 1440, 1920]
@@ -104,6 +112,7 @@ const fallbackSrc = computed(() =>
         decoding="async"
         :class="['smart-image__img', { 'is-loaded': loaded }]"
         @load="loaded = true"
+        @error="onError"
       />
     </picture>
 
@@ -115,7 +124,10 @@ const fallbackSrc = computed(() =>
       decoding="async"
       :class="['smart-image__img', { 'is-loaded': loaded }]"
       @load="loaded = true"
+      @error="onError"
     />
+    <!-- 失败态：给明确视觉反馈，而不是一块永远的主色底 -->
+    <span v-if="failed" class="smart-image__failed" aria-hidden="true">⚠</span>
   </div>
 </template>
 
@@ -134,6 +146,16 @@ const fallbackSrc = computed(() =>
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.smart-image__failed {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 1.25rem;
+  color: var(--ink-muted);
+  pointer-events: none;
 }
 
 .smart-image__img {

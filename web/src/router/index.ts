@@ -43,9 +43,34 @@ const router = createRouter({
   },
 })
 
-router.afterEach((to) => {
-  const title = (to.meta.title as string | undefined) ?? 'MediaLib'
-  document.title = `${title} · MediaLib`
-})
+/** 页面标题走 i18n，切换语言后也能同步更新（原先写死中文） */
+const TITLE_KEYS: Record<string, string> = {
+  home: 'site.name',
+  browse: 'site.browse',
+  review: 'review.title',
+  asset: 'site.browse',
+  'not-found': 'notfound.title',
+}
+
+function applyTitle(to: { name?: unknown; meta: Record<string, unknown> }): void {
+  const key = TITLE_KEYS[String(to.name ?? '')]
+  const name = (to.meta.title as string | undefined) ?? 'MediaLib'
+  // 动态导入避免循环依赖：i18n 在组件外也能用
+  import('@/composables/useI18n').then(({ useI18n }) => {
+    const { t } = useI18n()
+    const label = key ? t(key) : name
+    document.title = label === 'MediaLib' ? 'MediaLib' : `${label} · MediaLib`
+  })
+}
+
+router.afterEach((to) => applyTitle(to as never))
+
+// 语言切换后重算标题
+if (typeof window !== 'undefined') {
+  window.addEventListener('mlib:locale-change', () => {
+    const current = router.currentRoute.value
+    if (current) applyTitle(current as never)
+  })
+}
 
 export default router

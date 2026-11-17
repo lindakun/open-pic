@@ -44,7 +44,9 @@ const { t } = useI18n()
 .ml-toast-stack {
   position: fixed;
   left: 50%;
-  bottom: var(--p-space-6);
+  /* 批量操作条占据底部中央，toast 需要让位，否则两者重叠看不清 */
+  bottom: calc(var(--p-space-6) + var(--batch-bar-offset, 0px));
+  transition: bottom var(--p-dur-base) var(--p-ease-out);
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;

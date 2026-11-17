@@ -31,7 +31,12 @@ export const useMediaStore = defineStore('media', () => {
   )
 
   const hasMore = computed(() => items.value.length < total.value)
-  const isEmpty = computed(() => !loading.value && items.value.length === 0)
+  /** 首屏是否已至少完成过一次请求：避免刚进页面就闪"空库" */
+  const settled = ref(false)
+
+  const isEmpty = computed(
+    () => settled.value && !loading.value && items.value.length === 0,
+  )
 
   /** 默认分页 48；弱网/省流量降为 24（D-17） */
   const PAGE_SIZE = pageSizeFor(48, 24)
@@ -61,9 +66,11 @@ export const useMediaStore = defineStore('media', () => {
       if (seq !== requestSeq) return
       items.value = reset ? res.items : [...items.value, ...res.items]
       total.value = res.total
+      settled.value = true
     } catch (e) {
       if (seq !== requestSeq) return
       error.value = (e as Error).message
+      settled.value = true
     } finally {
       if (seq === requestSeq) loading.value = false
     }
@@ -148,6 +155,7 @@ export const useMediaStore = defineStore('media', () => {
     currentItem,
     hasMore,
     isEmpty,
+    settled,
     load,
     replaceItems,
     promoteFeatured,

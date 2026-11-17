@@ -129,9 +129,10 @@ function isDisabled(option: FacetOption): boolean {
           :label="displayName(group.key, opt.value)"
           :count="opt.count"
           :active="isActive(group.key, opt.value)"
-          removable
-          class="facet__chip"
-          @remove="toggle(group.key, opt.value)"
+          :removable="opt.count > 0 || isActive(group.key, opt.value)"
+          :class="['facet__chip', { 'facet__chip--empty': opt.count === 0 }]"
+          :aria-disabled="opt.count === 0 && !isActive(group.key, opt.value)"
+          @remove="opt.count > 0 || isActive(group.key, opt.value) ? toggle(group.key, opt.value) : undefined"
         />
       </div>
     </details>
@@ -183,6 +184,12 @@ function isDisabled(option: FacetOption): boolean {
 
 .facet:last-child {
   border-bottom: none;
+}
+
+.facet__chip--empty {
+  /* 零结果项置灰仍可见：让用户知道"这个选项存在但现在没内容" */
+  opacity: 0.42;
+  cursor: not-allowed;
 }
 
 .facet__summary {

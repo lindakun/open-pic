@@ -5,7 +5,7 @@
  * 出现在页面底部：已选 N 项时常驻，可批量打标、加入画板、导出、移入回收站。
  * 刻意不遮挡卡片：默认贴底并留出安全区，移动端收窄为图标+计数。
  */
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import { useI18n } from '@/composables/useI18n'
 import { useToast } from '@/composables/useToast'
@@ -34,6 +34,20 @@ const collectionOpen = ref(false)
 const targetCollection = ref<number | null>(null)
 
 const count = computed(() => props.selected.length)
+
+/**
+ * 批量条出现时抬高 toast 的基线高度，避免两者在底部中央重叠。
+ * 用 CSS 变量而非直接操作 toast 组件，保持组件解耦。
+ */
+function syncBatchOffset(visible: boolean) {
+  const root = document.documentElement
+  if (visible) root.style.setProperty('--batch-bar-offset', '56px')
+  else root.style.removeProperty('--batch-bar-offset')
+}
+
+watch(count, (n) => syncBatchOffset(n > 0))
+onMounted(() => syncBatchOffset(count.value > 0))
+onBeforeUnmount(() => syncBatchOffset(false))
 
 async function run(action: string, extra: Record<string, unknown> = {}) {
   if (!count.value || busy.value) return

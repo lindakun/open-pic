@@ -20,6 +20,7 @@ const messages: Record<Locale, Dict> = {
   'zh-CN': {
     // 站点
     'site.name': 'MediaLib',
+    'notfound.title': '页面不存在',
     'site.browse': '浏览',
     'site.admin': '管理',
     'site.skipToMain': '跳到主要内容',
@@ -210,6 +211,7 @@ const messages: Record<Locale, Dict> = {
 
   'en-US': {
     'site.name': 'MediaLib',
+    'notfound.title': 'Page not found',
     'site.browse': 'Browse',
     'site.admin': 'Admin',
     'site.skipToMain': 'Skip to main content',
@@ -434,6 +436,15 @@ const locale = ref<Locale>(readStoredLocale())
 /** 同步 <html lang>，屏幕阅读器据此选择发音 */
 function applyLang() {
   document.documentElement.lang = locale.value
+  // 切换语言后标题不会自动重算（标题在路由守卫里生成），
+  // 这里派发事件让守卫逻辑有机会重跑，避免标题停留在旧语言。
+  try {
+    window.dispatchEvent(new CustomEvent('mlib:locale-change', {
+      detail: { locale: locale.value },
+    }))
+  } catch {
+    // 非浏览器环境忽略
+  }
 }
 
 applyLang()

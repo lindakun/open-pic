@@ -226,8 +226,15 @@ html.lightbox-open .site-header {
   visibility: hidden;
 }
 
-/* 锁定背景滚动，避免灯箱开启时页面还能滚 */
+/* 锁定背景滚动，避免灯箱开启时页面还能滚。
+   仅用 overflow:hidden 时浏览器会重置滚动条宽度，导致内容横向抖动，
+   且 iOS Safari 仍可继续滚动。改为固定定位 + 补偿滚动条宽度。 */
 html.lightbox-open,
 html.lightbox-open body {
   overflow: hidden;
+}
+
+html.lightbox-open body {
+  /* 补偿滚动条消失造成的宽度变化，避免整页横向跳动 */
+  padding-right: var(--scrollbar-comp, 0px);
 }
