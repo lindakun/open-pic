@@ -737,6 +737,14 @@ ssh fnos "rm -rf /tmp/open-pic-deploy && git clone --branch main   /vol1/picocla
 ssh fnos "cd .../media-library && bash scripts/ensure.sh"
 ```
 
+> **踩坑（2026-11-17 实测）**：`ensure.sh` 只保证"有进程在跑"，**不会重启已在运行的旧进程**。
+> rsync 覆盖代码后若直接 `ensure.sh`，服务仍是旧代码（表现为新路由 404）。
+> 部署后必须显式重启：
+>
+> ```bash
+> ssh fnos "cd .../media-library && venv/bin/python3 scripts/server.py --stop && sleep 2 && bash scripts/ensure.sh"
+> ```
+
 ### 11.2 双前端分工（2026-11-17 调整）
 
 两套前端并存，各自服务不同使用者：
