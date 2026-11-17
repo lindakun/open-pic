@@ -162,3 +162,25 @@ describe('BatchBar 导出', () => {
     wrapper.unmount()
   })
 })
+
+describe('BatchBar 设为精选', () => {
+  it('把已选 id 按顺序提交给 featured 接口', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: async () => ({ ok: true, count: 2 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mountBar(['x', 'y'])
+    const btn = wrapper.findAll('.batch__actions button').find((b) => b.text().includes('设为精选'))!
+    await btn.trigger('click')
+    await flushPromises()
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/api/featured')
+    expect(init.method).toBe('PATCH')
+    expect(JSON.parse(init.body).ids).toEqual(['x', 'y'])
+    expect(wrapper.emitted('done')?.[0]).toEqual(['featured', 2])
+    vi.unstubAllGlobals()
+    wrapper.unmount()
+  })
+})

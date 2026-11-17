@@ -972,6 +972,27 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
             headers={"Cache-Control": "private, max-age=0, must-revalidate"},
         )
 
+    # ---------- 人工精选（A-02） ----------
+
+    class FeaturedReq(BaseModel):
+        ids: List[str]
+
+    @app.get("/api/featured")
+    def api_get_featured():
+        """当前人工精选排布（有序）。"""
+        return {"ids": db.featured_ids(), "items": db.list_featured()}
+
+    @app.patch("/api/featured")
+    def api_set_featured(req: FeaturedReq):
+        """整体替换精选排布（A-02 验收 2：返回后下一次请求即呈现新排布）。"""
+        count = db.set_featured(req.ids)
+        return {"ok": True, "count": count, "items": db.list_featured()}
+
+    @app.get("/api/home/featured")
+    def api_home_featured(limit: int = Query(12, ge=1, le=60)):
+        """首页置顶区数据：人工精选优先，不足用最近上新补齐。"""
+        return {"items": db.featured_items_for_home(limit=limit)}
+
     # ---------- AI 能力（B-07 / B-08） ----------
 
     def _ai_provider():

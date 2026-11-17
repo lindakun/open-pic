@@ -92,6 +92,29 @@ export const useMediaStore = defineStore('media', () => {
     }
   }
 
+  /**
+   * 把人工精选提到列表最前（A-02 遗留项）。
+   *
+   * 首页保持"纯图片墙"结构不变，只改变顺序：
+   * 精选位由人工排布，其余仍按时间倒序。
+   */
+  async function promoteFeatured(limit = 12) {
+    try {
+      const res = await fetch('/api/home/featured?' + new URLSearchParams({ limit: String(limit) }))
+      if (!res.ok) return
+      const data = (await res.json()) as { items: MediaItem[] }
+      const featured = data.items ?? []
+      if (!featured.length) return
+      const order = new Map(featured.map((it, i) => [it.id, i]))
+      // 已加载条目里属于精选的按精选顺序前置，其余保持原序
+      const rest = items.value.filter((it) => !order.has(it.id))
+      const head = [...featured].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+      items.value = [...head, ...rest]
+    } catch {
+      // 精选失败不影响图片墙
+    }
+  }
+
   /** 用一次性检索结果替换列表（以图搜图等非分页场景） */
   function replaceItems(next: MediaItem[], nextTotal: number) {
     items.value = next
@@ -127,6 +150,7 @@ export const useMediaStore = defineStore('media', () => {
     isEmpty,
     load,
     replaceItems,
+    promoteFeatured,
     refresh,
     loadFacets,
     openLightbox,

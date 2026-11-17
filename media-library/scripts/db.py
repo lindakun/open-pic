@@ -115,6 +115,18 @@ CREATE TABLE IF NOT EXISTS ingest_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON ingest_jobs(status, created_at DESC);
 
+-- 人工精选排布（REQ-V2-20 A-02 遗留）：position 越小越靠前
+CREATE TABLE IF NOT EXISTS featured (
+    item_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (item_id),
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_featured_pos ON featured(position);
+
 -- 客户选片与批注（REQ-V2-20 C-14）
 CREATE TABLE IF NOT EXISTS review_links (
     token TEXT PRIMARY KEY,
@@ -1434,6 +1446,66 @@ class MediaDB:
                 " WHERE a.alias=?", (name,),
             ).fetchone()
             return row["name"] if row else name
+
+    # ---------- 人工精选（A-02） ----------
+
+    def set_featured(self, item_ids: List[str]) -> int:
+        """整体替换精选排布（有序数组，顺序即位置）。
+
+        人工排布语义是"这一版就是这些"，所以用整体替换而非增量追加，
+        避免历史残留需要逐条清理。
+        """
+        now = int(time.time())
+        with self._write_lock, self.connect() as conn:
+            conn.execute("DELETE FROM featured")
+            for pos, iid in enumerate(item_ids):
+                conn.execute(
+                    "INSERT OR REPLACE INTO featured(item_id, position, created_at)"
+                    " VALUES (?,?,?)",
+                    (iid, pos, now),
+                )
+            conn.commit()
+            return len(item_ids)
+
+    def list_featured(self) -> List[Dict[str, Any]]:
+        """按排布取精选资产（已删除或非 published 的自动跳过）。"""
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT i.*, f.position AS featured_position FROM featured f"
+                " JOIN items i ON i.id = f.item_id"
+                " WHERE i.deleted_at IS NULL AND i.status = 'published'"
+                " ORDER BY f.position ASC"
+            ).fetchall()
+            return self._hydrate_rows(conn, rows)
+
+    def featured_ids(self) -> List[str]:
+        with self.connect() as conn:
+            return [r[0] for r in conn.execute(
+                "SELECT item_id FROM featured ORDER BY position ASC"
+            ).fetchall()]
+
+    def featured_items_for_home(self, limit: int = 12) -> List[Dict[str, Any]]:
+        """首页置顶区：优先人工精选，不足时用最近上新补齐。
+
+        这样即便还没人工排过，首页也不会出现空白区。
+        """
+        picked = self.list_featured()[:limit]
+        if len(picked) >= limit:
+            return picked
+        seen = {i["id"] for i in picked}
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM items WHERE deleted_at IS NULL AND status='published'"
+                " ORDER BY ts DESC LIMIT ?",
+                (limit * 2,),
+            ).fetchall()
+            for r in self._hydrate_rows(conn, rows):
+                if len(picked) >= limit:
+                    break
+                if r["id"] not in seen:
+                    picked.append(r)
+                    seen.add(r["id"])
+        return picked
 
     # ---------- 向量与 AI 标签（B-07 / B-08） ----------
 

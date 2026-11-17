@@ -74,6 +74,26 @@ async function applyCollection() {
   }
 }
 
+/** 把已选项设为首页精选（A-02）：选择顺序即展示顺序 */
+async function setFeatured() {
+  if (!count.value || busy.value) return
+  busy.value = true
+  try {
+    const res = await fetch('/api/featured', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: props.selected }),
+    })
+    if (!res.ok) throw new Error(t('batch.featuredFailed'))
+    toast.success(t('batch.featured', { count: count.value }))
+    emit('done', 'featured', count.value)
+  } catch (e) {
+    toast.error((e as Error).message)
+  } finally {
+    busy.value = false
+  }
+}
+
 async function trash() {
   const ok = await run('delete')
   if (ok) emit('clear')
@@ -124,6 +144,9 @@ async function exportZip() {
       </MLButton>
       <MLButton variant="quiet" :disabled="busy" @click="exportZip">
         {{ t('batch.export') }}
+      </MLButton>
+      <MLButton variant="quiet" :disabled="busy" @click="setFeatured">
+        {{ t('batch.featuredSet') }}
       </MLButton>
       <MLButton variant="quiet" :disabled="busy" @click="trash">
         {{ t('batch.trash') }}

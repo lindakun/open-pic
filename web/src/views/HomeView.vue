@@ -45,8 +45,12 @@ function onScroll() {
 let observer: IntersectionObserver | null = null
 const sentinel = ref<HTMLElement | null>(null)
 
-onMounted(() => {
-  if (store.items.length === 0) store.refresh()
+onMounted(async () => {
+  if (store.items.length === 0) {
+    await store.refresh()
+    // 人工精选置顶（A-02）：不改变图片墙结构，只调整顺序
+    await store.promoteFeatured()
+  }
   window.addEventListener('scroll', onScroll, { passive: true })
 
   observer = new IntersectionObserver(
