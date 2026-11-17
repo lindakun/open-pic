@@ -38,6 +38,8 @@ const route = useRoute()
 const { t } = useI18n()
 
 const searchInput = ref(filters.q)
+const searchInputEl = ref<HTMLInputElement | null>(null)
+const showBackTop = ref(false)
 /** AI 检索能力（B-08）：未启用时隐藏以图搜图入口 */
 const { status: aiStatus, load: loadAiStatus } = useAiStatus()
 const dragActive = ref(false)
@@ -102,6 +104,11 @@ const VIEW_MODES: { key: ViewMode; icon: string }[] = [
   { key: 'list', icon: '☰' },
 ]
 
+function changeSort(value: SortKey) {
+  filters.setSort(value)
+  store.refresh()
+}
+
 function changeView(mode: ViewMode) {
   filters.setView(mode)
   try {
@@ -126,10 +133,34 @@ const SIZE_KEY: Record<string, string> = {
   small: 'facet.sizeSmall',
 }
 
-function changeSort(value: SortKey) {
-  filters.setSort(value)
-  store.refresh()
+function onScroll() {
+  showBackTop.value = window.scrollY > 600
 }
+
+function scrollToTop() {
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function onBrowseKeydown(e: KeyboardEvent) {
+  // 灯箱或弹层打开时不拦截
+  if (store.currentItem || uploadOpen.value) return
+  const el = e.target as HTMLElement | null
+  const tag = el?.tagName
+  const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || Boolean(el?.isContentEditable)
+  if (e.key === '/' && !typing && !e.isComposing) {
+    e.preventDefault()
+    searchInputEl.value?.focus()
+    return
+  }
+  if (e.key === 'Escape' && selectMode.value && !typing) {
+    toggleSelectMode()
+  }
+}
+
+const activeCollectionName = computed(() => {
+  if (filters.collectionId === null) return ''
+  return collections.value.find((c) => c.id === filters.collectionId)?.name || `#${filters.collectionId}`
+})
 
 /** 以图搜图（B-08）：拖入或粘贴图片即检索相似资产 */
 async function searchByImage(file: File) {
@@ -405,6 +436,8 @@ onMounted(async () => {
   void loadCollections()
   void loadLikes()
   window.addEventListener('paste', onPaste)
+  window.addEventListener('keydown', onBrowseKeydown)
+  window.addEventListener('scroll', onScroll, { passive: true })
   // 订阅任务事件：异步处理完成后自动补全卡片（缩略图/元数据）
   if (typeof EventSource !== 'undefined') {
     es = new EventSource('/api/jobs/stream')
@@ -460,6 +493,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('paste', onPaste)
+  window.removeEventListener('keydown', onBrowseKeydown)
+  window.removeEventListener('scroll', onScroll)
   pageObserver?.disconnect()
   es?.close()
   if (sseRefreshTimer !== undefined) window.clearTimeout(sseRefreshTimer)
@@ -506,6 +541,7 @@ watch(
     // color 必须监听：仅用色彩筛选时点「清空」，其余值不变，
     // 缺了它 watch 不触发，列表会停留在旧的色彩筛选结果
     filters.color,
+    filters.collectionId,
   ],
   () => {
     applyAndRefresh()
@@ -580,10 +616,12 @@ watch(
       >
         <span class="browse__search-icon" aria-hidden="true">⌕</span>
         <input
+          ref="searchInputEl"
           :value="searchInput"
           type="search"
           class="browse__search-input"
           :placeholder="dragActive ? t('ai.dropHint') : t('browse.searchPlaceholder')"
+          :title="t('browse.searchShortcut')"
           :aria-label="t('browse.searchLabel')"
           @input="onSearchInput(($event.target as HTMLInputElement).value)"
         />
@@ -625,7 +663,7 @@ watch(
           :aria-pressed="filters.sort === key"
           @click="changeSort(key)"
         >
-          {{ t(`sort.${key}`) }}
+          {{ t(`sort.${key}`) }}<template v-if="key === 'random' && filters.sort === 'random'"> ↻</template>
         </button>
       </div>
 
@@ -742,6 +780,13 @@ watch(
         active
         @remove="filters.setColor(''); applyAndRefresh()"
       />
+      <MLChip
+        v-if="filters.collectionId !== null"
+        :label="t('browse.collectionFilter', { value: activeCollectionName })"
+        removable
+        active
+        @remove="filters.setCollectionId(null); applyAndRefresh()"
+      />
       <button type="button" class="browse__clear" @click="filters.reset(); applyAndRefresh()">
         {{ t('browse.clearAll') }}
       </button>
@@ -753,7 +798,7 @@ watch(
         id="facet-panel"
         :class="['browse__facets', { 'browse__facets--open': facetsOpen }]"
       >
-        <FacetPanel :facets="store.facets" :loading="store.facetsLoading" />
+        <FacetPanel :facets="store.facets" :collections="collections" :loading="store.facetsLoading" />
       </div>
 
       <div class="browse__main">
@@ -831,7 +876,20 @@ watch(
       @filter-color="onFilterColor"
       @filter-tag="onFilterTag"
       @toggle-like="toggleLike"
+      @updated="store.patchItemInPlace($event)"
     />
+
+    <!-- 回到顶部悬浮钮 -->
+    <button
+      v-if="showBackTop"
+      type="button"
+      class="browse__top"
+      :aria-label="t('wall.backToTop')"
+      :title="t('wall.backToTop')"
+      @click="scrollToTop"
+    >
+      ↑
+    </button>
 
     <UploadPanel v-model:open="uploadOpen" @uploaded="onUploaded" />
 
@@ -1122,6 +1180,31 @@ watch(
   display: flex;
   justify-content: center;
   padding: var(--p-space-7) 0;
+}
+
+.browse__top {
+  position: fixed;
+  right: var(--p-space-5);
+  bottom: var(--p-space-5);
+  z-index: 30;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--p-radius-full);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--rule-strong);
+  box-shadow: var(--card-shadow-hover);
+  display: grid;
+  place-items: center;
+  font-size: 1.125rem;
+  transition:
+    transform var(--p-dur-fast) var(--p-ease-out),
+    background-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.browse__top:hover {
+  transform: translateY(-2px);
+  background: var(--surface-hover);
 }
 
 /* 窄屏：分面面板收起为抽屉式，工具条折叠按钮出现 */

@@ -16,6 +16,7 @@
  */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { MediaItem } from '@/api/types'
+import { api } from '@/api/client'
 import { useI18n } from '@/composables/useI18n'
 import { copyText } from '@/composables/useClipboard'
 import { useZoomPan } from '@/composables/useZoomPan'
@@ -42,12 +43,101 @@ const emit = defineEmits<{
   (e: 'filter-tag', tag: string): void
   /** 喜欢/取消喜欢 */
   (e: 'toggle-like', id: string): void
+  /** 行内编辑保存后通知父组件原地更新列表 */
+  (e: 'updated', item: MediaItem): void
 }>()
 
 const dialogRef = ref<HTMLDialogElement | null>(null)
 const stageRef = ref<HTMLElement | null>(null)
 const helpRef = ref<HTMLDialogElement | null>(null)
+const videoRef = ref<HTMLVideoElement | null>(null)
 const { t, formatBytes, formatDate, formatNumber } = useI18n()
+
+/** 视频播放控制：倍速、循环、画中画 */
+const videoSpeed = ref(1)
+const videoLoop = ref(false)
+const pipSupported = typeof document !== 'undefined' && 'pictureInPictureEnabled' in document && document.pictureInPictureEnabled
+
+function setVideoSpeed(rate: number) {
+  videoSpeed.value = rate
+  if (videoRef.value) videoRef.value.playbackRate = rate
+}
+
+function toggleVideoLoop() {
+  videoLoop.value = !videoLoop.value
+  if (videoRef.value) videoRef.value.loop = videoLoop.value
+}
+
+async function togglePip() {
+  const v = videoRef.value
+  if (!v || !pipSupported) return
+  try {
+    if (document.pictureInPictureElement === v) {
+      await document.exitPictureInPicture()
+    } else {
+      await v.requestPictureInPicture()
+    }
+  } catch {
+    // 浏览器限制时静默忽略
+  }
+}
+
+/** 信息面板行内编辑（REQ-05） */
+const editing = ref(false)
+const editTitle = ref('')
+const editTags = ref('')
+const editNotes = ref('')
+const editSaving = ref(false)
+const editError = ref('')
+
+function startEdit() {
+  editTitle.value = props.item.title || ''
+  editTags.value = (props.item.tags ?? []).join(' ')
+  editNotes.value = props.item.notes || ''
+  editError.value = ''
+  editing.value = true
+}
+
+async function saveEdit() {
+  if (editSaving.value) return
+  editSaving.value = true
+  editError.value = ''
+  try {
+    const tags = editTags.value
+      .split(/[,，\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+    const updated = await api.updateItem(props.item.id, {
+      title: editTitle.value.trim(),
+      tags,
+      notes: editNotes.value.trim(),
+    } as Partial<MediaItem>)
+    editing.value = false
+    emit('updated', updated)
+    await flash('saved')
+  } catch {
+    editError.value = t('lightbox.saveFailed')
+  } finally {
+    editSaving.value = false
+  }
+}
+
+/** 视觉相似推荐（REQ-09）：仅在信息面板展开时按需拉取 */
+const similarItems = ref<MediaItem[]>([])
+let similarSeq = 0
+
+async function loadSimilar() {
+  const seq = ++similarSeq
+  similarItems.value = []
+  try {
+    const list = await api.similar(props.item.id, 6)
+    if (seq === similarSeq) {
+      similarItems.value = list.filter((i) => i.id !== props.item.id).slice(0, 6)
+    }
+  } catch {
+    if (seq === similarSeq) similarItems.value = []
+  }
+}
 
 const {
   scale,
@@ -394,12 +484,22 @@ function onKeydown(e: KeyboardEvent) {
       close()
       break
     case 'ArrowLeft':
+      if (e.shiftKey && props.item.kind === 'video' && videoRef.value) {
+        e.preventDefault()
+        videoRef.value.currentTime = Math.max(0, videoRef.value.currentTime - 5)
+        break
+      }
       if (props.hasPrev) {
         emit('prev')
         if (slideshow.value.on) startSlideshow() // 手动切图后重置计时，避免紧接着又自动跳
       }
       break
     case 'ArrowRight':
+      if (e.shiftKey && props.item.kind === 'video' && videoRef.value) {
+        e.preventDefault()
+        videoRef.value.currentTime = videoRef.value.currentTime + 5
+        break
+      }
       if (props.hasNext) {
         emit('next')
         if (slideshow.value.on) startSlideshow()
@@ -499,12 +599,19 @@ watch(
   () => {
     resetZoom()
     compareIds.value = []
+    editing.value = false
+    editError.value = ''
     // 切图时若帮助浮层还开着，关掉避免说明与当前内容脱节
     if (helpOpen.value) closeHelp()
     preloadNeighbors()
+    if (infoOpen.value) void loadSimilar()
   },
   { immediate: true },
 )
+
+watch(infoOpen, (open) => {
+  if (open && !similarItems.value.length) void loadSimilar()
+})
 
 // 窗口尺寸变化后，先前的缩放/平移锚点会失效（图片被裁切），复位更符合预期
 function onResize() {
@@ -588,7 +695,7 @@ onUnmounted(() => {
             @error="onImgError($event, it)"
           />
           <figcaption v-if="compareOn" class="lightbox__cap mono">
-            {{ it.width }}×{{ it.height }} · {{ it.ext.replace(/^\./, '').toUpperCase() }}
+            {{ it.title || it.name }} · {{ it.width }}×{{ it.height }} · {{ it.ext.replace(/^\./, '').toUpperCase() }}<template v-if="it.size"> · {{ formatBytes(it.size) }}</template>
           </figcaption>
         </figure>
       </template>
@@ -596,15 +703,18 @@ onUnmounted(() => {
            不会重新触发 autoplay，会停留在上一支视频的最后一帧 -->
       <video
         v-else
+        ref="videoRef"
         :key="item.id"
         :src="videoUrl"
         :poster="`/t/${item.id}.jpg`"
+        :loop="videoLoop"
         :style="{ backgroundColor: item.dominant_color || '#12100d' }"
         controls
         autoplay
         playsinline
         preload="metadata"
         class="lightbox__video"
+        @loadedmetadata="videoRef && (videoRef.playbackRate = videoSpeed)"
       />
 
       <!-- 舞台左右悬浮切图箭头（桌面端 hover 显示，自动避让右侧信息面板） -->
@@ -629,7 +739,9 @@ onUnmounted(() => {
 
       <!-- 对比选择条：只在候选足够时出现 -->
       <div v-if="item.kind === 'image' && compareChoices.length >= 1" class="lightbox__compare">
-        <span class="lightbox__compare-label">{{ t('lightbox.compare') }}</span>
+        <span class="lightbox__compare-label">
+          {{ compareOn ? t('lightbox.compareCount', { count: compareItems.length }) : t('lightbox.compare') }}
+        </span>
         <button
           v-for="c in compareChoices"
           :key="c.id"
@@ -637,6 +749,7 @@ onUnmounted(() => {
           :class="['cmp-dot', { 'cmp-dot--on': inCompare(c.id) }]"
           :aria-pressed="inCompare(c.id)"
           :aria-label="`${t('lightbox.comparePick')} ${c.title || c.name}`"
+          :title="`${c.title || c.name} (${c.width}×${c.height})`"
           :style="{
             backgroundImage: `url(/t/${c.id}_sm.webp)`,
             backgroundColor: c.dominant_color || 'var(--surface-sunken)',
@@ -664,7 +777,41 @@ onUnmounted(() => {
       >
         ×
       </button>
-      <h2 class="panel__title">{{ item.title || item.name }}</h2>
+      <div class="panel__head">
+        <h2 class="panel__title">{{ item.title || item.name }}</h2>
+        <button
+          v-if="!editing"
+          type="button"
+          class="panel__edit-btn"
+          @click="startEdit"
+        >
+          {{ t('lightbox.edit') }}
+        </button>
+      </div>
+
+      <!-- 行内编辑表单 -->
+      <form v-if="editing" class="panel__form" @submit.prevent="saveEdit">
+        <label class="panel__field">
+          <span>{{ t('upload.fieldTitle') }}</span>
+          <input v-model="editTitle" type="text" maxlength="200" />
+        </label>
+        <label class="panel__field">
+          <span>{{ t('upload.fieldTags') }}</span>
+          <input v-model="editTags" type="text" :placeholder="t('upload.tagsPlaceholder')" />
+        </label>
+        <label class="panel__field">
+          <span>{{ t('lightbox.notes') }}</span>
+          <textarea v-model="editNotes" rows="2" :placeholder="t('lightbox.notesPlaceholder')" />
+        </label>
+        <p v-if="editError" class="panel__err">{{ editError }}</p>
+        <div class="panel__form-actions">
+          <button type="button" class="panel__btn" @click="editing = false">{{ t('common.cancel') }}</button>
+          <button type="submit" class="panel__btn panel__btn--primary" :disabled="editSaving">
+            {{ t('lightbox.save') }}
+          </button>
+        </div>
+      </form>
+
       <dl class="panel__rows">
         <div v-if="spec" class="panel__row">
           <dt>{{ t('lightbox.spec') }}</dt>
@@ -739,6 +886,25 @@ onUnmounted(() => {
           {{ t('lightbox.filterColor') }}
         </button>
       </div>
+
+      <div v-if="similarItems.length" class="panel__similar">
+        <span class="panel__label">{{ t('lightbox.similar') }}</span>
+        <div class="panel__sim-grid">
+          <a
+            v-for="sim in similarItems"
+            :key="sim.id"
+            :href="sim.slug ? `/a/${sim.slug}-${sim.id.slice(0, 8)}` : `/s/${sim.id}`"
+            class="panel__sim-item"
+            :title="sim.title || sim.name"
+          >
+            <img
+              :src="sim.kind === 'video' ? `/t/${sim.id}.jpg` : `/t/${sim.id}_sm.webp`"
+              :alt="sim.title || sim.name"
+              loading="lazy"
+            />
+          </a>
+        </div>
+      </div>
     </aside>
 
     <!-- 悬浮控制条 -->
@@ -779,6 +945,43 @@ onUnmounted(() => {
           <option :value="5000">5s</option>
           <option :value="8000">8s</option>
         </select>
+
+        <!-- 视频倍速 / 循环 / 画中画 -->
+        <template v-if="item.kind === 'video'">
+          <select
+            class="lb-select mono"
+            :value="videoSpeed"
+            :aria-label="t('lightbox.speed')"
+            :title="t('lightbox.speed')"
+            @change="setVideoSpeed(Number(($event.target as HTMLSelectElement).value))"
+          >
+            <option :value="0.5">0.5×</option>
+            <option :value="1">1×</option>
+            <option :value="1.5">1.5×</option>
+            <option :value="2">2×</option>
+          </select>
+          <button
+            type="button"
+            class="lb-btn"
+            :class="{ 'lb-btn--on': videoLoop }"
+            :aria-pressed="videoLoop"
+            :aria-label="t('lightbox.loop')"
+            :title="t('lightbox.loop')"
+            @click="toggleVideoLoop"
+          >
+            ↻
+          </button>
+          <button
+            v-if="pipSupported"
+            type="button"
+            class="lb-btn"
+            :aria-label="t('lightbox.pip')"
+            :title="t('lightbox.pip')"
+            @click="togglePip"
+          >
+            ⧉
+          </button>
+        </template>
 
         <button
           type="button"
@@ -1135,12 +1338,113 @@ onUnmounted(() => {
   background: rgba(250, 248, 245, 0.14);
 }
 
-.panel__title {
+.panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--p-space-2);
   margin: 0 0 var(--p-space-4);
+  padding-right: 28px;
+}
+
+.panel__title {
+  margin: 0;
   font-size: var(--p-step-1);
   font-weight: 600;
   line-height: 1.3;
   word-break: break-word;
+}
+
+.panel__edit-btn {
+  flex-shrink: 0;
+  font-size: var(--p-step--1);
+  padding: 2px var(--p-space-2);
+  border-radius: var(--p-radius-sm);
+  border: 1px solid rgba(250, 248, 245, 0.28);
+  color: inherit;
+}
+
+.panel__edit-btn:hover {
+  background: rgba(250, 248, 245, 0.14);
+}
+
+.panel__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--p-space-2);
+  margin-bottom: var(--p-space-4);
+  padding-bottom: var(--p-space-4);
+  border-bottom: 1px solid rgba(250, 248, 245, 0.16);
+}
+
+.panel__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--p-step--1);
+}
+
+.panel__field span {
+  opacity: 0.7;
+}
+
+.panel__field input,
+.panel__field textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--p-radius-sm);
+  border: 1px solid rgba(250, 248, 245, 0.24);
+  background: rgba(250, 248, 245, 0.08);
+  color: #faf8f5;
+  font: inherit;
+}
+
+.panel__err {
+  color: #e87a6e;
+  font-size: var(--p-step--1);
+}
+
+.panel__form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--p-space-2);
+}
+
+.panel__btn {
+  min-height: 28px;
+  padding: 0 var(--p-space-3);
+  border-radius: var(--p-radius-sm);
+  border: 1px solid rgba(250, 248, 245, 0.24);
+  font-size: var(--p-step--1);
+}
+
+.panel__btn--primary {
+  background: var(--p-accent-600);
+  border-color: var(--p-accent-600);
+}
+
+.panel__similar {
+  margin-top: var(--p-space-5);
+}
+
+.panel__sim-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--p-space-2);
+}
+
+.panel__sim-item {
+  display: block;
+  aspect-ratio: 1;
+  border-radius: var(--p-radius-sm);
+  overflow: hidden;
+  background: rgba(250, 248, 245, 0.08);
+}
+
+.panel__sim-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .panel__rows {

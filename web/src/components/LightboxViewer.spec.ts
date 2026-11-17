@@ -258,4 +258,33 @@ describe('LightboxViewer 色板与信息', () => {
     expect(wrapper.find('.lightbox__zoom').text()).toBe('1:1')
     wrapper.unmount()
   })
+
+  it('信息面板支持行内编辑并触发 updated 事件', async () => {
+    const updatedItem = makeItem({ title: '新标题', tags: ['城市', '夜景'] })
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ ok: true, item: updatedItem }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mountLightbox()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await wrapper.vm.$nextTick()
+
+    await wrapper.find('.panel__edit-btn').trigger('click')
+    expect(wrapper.find('.panel__form').exists()).toBe(true)
+
+    const inputs = wrapper.findAll('.panel__form input')
+    await inputs[0].setValue('新标题')
+    await inputs[1].setValue('城市 夜景')
+    await wrapper.find('.panel__form').trigger('submit')
+    await new Promise((r) => setTimeout(r, 10))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('updated')?.[0]).toEqual([updatedItem])
+    vi.unstubAllGlobals()
+    wrapper.unmount()
+  })
 })

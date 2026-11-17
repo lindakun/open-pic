@@ -162,6 +162,12 @@ export const useMediaStore = defineStore('media', () => {
     lightboxIndex.value = -1
   }
 
+  /** 行内编辑后原地更新列表中的条目，不重置分页与滚动位置 */
+  function patchItemInPlace(updated: MediaItem) {
+    const i = items.value.findIndex((it) => it.id === updated.id)
+    if (i >= 0) items.value[i] = updated
+  }
+
   function openLightbox(index: number) {
     lightboxIndex.value = index
   }
@@ -197,6 +203,7 @@ export const useMediaStore = defineStore('media', () => {
     load,
     loadFacets,
     updateItem,
+    patchItemInPlace,
     replaceItems,
     promoteFeatured,
     refresh,

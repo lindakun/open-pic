@@ -5,19 +5,25 @@
  * 每个分面显示计数，零结果项置灰不可点，避免用户点进空结果。
  * 使用原生 <details> 获得折叠语义与键盘支持，无需 JS 状态。
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import MLChip from './MLChip.vue'
 import { useFilterStore } from '@/stores/filters'
 import { useI18n } from '@/composables/useI18n'
 import type { Facets, FacetOption } from '@/stores/filters'
+import type { Collection } from '@/api/types'
 
 const props = defineProps<{
   facets: Facets | null
+  collections?: Collection[]
   loading?: boolean
 }>()
 
 const filters = useFilterStore()
 const { t } = useI18n()
+
+/** 标签组超过 18 个时默认折叠，避免侧栏过长 */
+const TAG_FOLD_LIMIT = 18
+const tagsExpanded = ref(false)
 
 /** 方向的中文标签 */
 /** 分面值到 i18n key 的映射 */
@@ -118,6 +124,27 @@ function canToggle(option: FacetOption): boolean {
 
     <p v-if="loading" class="facets__loading muted">{{ t('facet.counting') }}</p>
 
+    <!-- 画板（Collections）筛选：有画板时展示 -->
+    <details v-if="collections?.length" class="facet" open>
+      <summary class="facet__summary">
+        <span class="facet__name">{{ t('facet.collections') }}</span>
+        <span class="facet__chevon" aria-hidden="true">›</span>
+      </summary>
+      <div class="facet__body">
+        <MLChip
+          v-for="col in collections"
+          :key="col.id"
+          :label="col.name"
+          :count="col.count"
+          :active="filters.collectionId === col.id"
+          :removable="filters.collectionId === col.id"
+          :interactive="true"
+          @remove="filters.setCollectionId(null)"
+          @click="filters.setCollectionId(filters.collectionId === col.id ? null : col.id)"
+        />
+      </div>
+    </details>
+
     <details
       v-for="group in groups"
       :key="group.key"
@@ -131,19 +158,44 @@ function canToggle(option: FacetOption): boolean {
       <div class="facet__body">
         <!-- 已选项渲染为可移除 chip（×），未选项渲染为普通 chip：
              两者都点击即切换。此前未选项也带 ×，视觉上像「移除」而非「添加」。 -->
-        <MLChip
-          v-for="opt in group.options"
+        <template
+          v-for="opt in group.key === 'tag' && !tagsExpanded ? group.options.slice(0, TAG_FOLD_LIMIT) : group.options"
           :key="opt.value"
-          :label="displayName(group.key, opt.value)"
-          :count="opt.count"
-          :active="isActive(group.key, opt.value)"
-          :removable="isActive(group.key, opt.value)"
-          :interactive="canToggle(opt) || isActive(group.key, opt.value)"
-          :class="['facet__chip', { 'facet__chip--empty': opt.count === 0 }]"
-          :aria-disabled="!canToggle(opt) && !isActive(group.key, opt.value)"
-          @remove="toggle(group.key, opt.value)"
-          @click="canToggle(opt) || isActive(group.key, opt.value) ? toggle(group.key, opt.value) : undefined"
-        />
+        >
+          <span class="facet__item">
+            <MLChip
+              :label="displayName(group.key, opt.value)"
+              :count="opt.count"
+              :active="isActive(group.key, opt.value)"
+              :removable="isActive(group.key, opt.value)"
+              :interactive="canToggle(opt) || isActive(group.key, opt.value)"
+              :class="['facet__chip', { 'facet__chip--empty': opt.count === 0 }]"
+              :aria-disabled="!canToggle(opt) && !isActive(group.key, opt.value)"
+              @remove="toggle(group.key, opt.value)"
+              @click="canToggle(opt) || isActive(group.key, opt.value) ? toggle(group.key, opt.value) : undefined"
+            />
+            <!-- 标签组支持快捷排除（NOT 逻辑） -->
+            <button
+              v-if="group.key === 'tag' && opt.count > 0 && !isActive('tag', opt.value)"
+              type="button"
+              :class="['facet__exclude', { 'facet__exclude--on': filters.excludeTags.includes(opt.value) }]"
+              :title="`${t('facet.excludeTag')} ${opt.value}`"
+              :aria-label="`${t('facet.excludeTag')} ${opt.value}`"
+              :aria-pressed="filters.excludeTags.includes(opt.value)"
+              @click.stop="filters.excludeTag(opt.value)"
+            >
+              −
+            </button>
+          </span>
+        </template>
+        <button
+          v-if="group.key === 'tag' && group.options.length > TAG_FOLD_LIMIT"
+          type="button"
+          class="facet__more"
+          @click="tagsExpanded = !tagsExpanded"
+        >
+          {{ tagsExpanded ? t('facet.showLess') : t('facet.showMore', { count: group.options.length }) }}
+        </button>
       </div>
     </details>
   </aside>
@@ -243,5 +295,55 @@ function canToggle(option: FacetOption): boolean {
   flex-wrap: wrap;
   gap: var(--p-space-1);
   padding: 0 0 var(--p-space-3);
+}
+
+.facet__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+}
+
+.facet__exclude {
+  min-width: 20px;
+  min-height: 22px;
+  border-radius: var(--p-radius-full);
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+  line-height: 1;
+  opacity: 0;
+  transition:
+    opacity var(--p-dur-fast) var(--p-ease-out),
+    background-color var(--p-dur-fast) var(--p-ease-out),
+    color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.facet__item:hover .facet__exclude,
+.facet__item:focus-within .facet__exclude,
+.facet__exclude--on {
+  opacity: 1;
+}
+
+.facet__exclude:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.facet__exclude--on {
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.facet__more {
+  width: 100%;
+  text-align: left;
+  padding: var(--p-space-1) 0 0;
+  font-size: var(--p-step--1);
+  color: var(--accent-hover);
+}
+
+.facet__more:hover {
+  text-decoration: underline;
 }
 </style>

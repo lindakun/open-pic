@@ -7,12 +7,23 @@
  *   - 滚动 200px 后自动隐藏，回到顶部 40px 内复现
  */
 import { onMounted, onUnmounted, ref, watch } from 'vue'
-import { RouterLink, RouterView } from 'vue-router'
+import { RouterLink, RouterView, useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import { useI18n } from '@/composables/useI18n'
+import { useRecent } from '@/composables/useRecent'
+import MLSheet from './MLSheet.vue'
+import MLButton from './MLButton.vue'
 
 const { mode, resolved, cycle } = useTheme()
 const { t, locale, toggleLocale } = useI18n()
+const { recent, clearRecent } = useRecent()
+const router = useRouter()
+const recentOpen = ref(false)
+
+function openRecentItem(id: string) {
+  recentOpen.value = false
+  void router.push(`/a/asset-${id.slice(0, 8)}`)
+}
 
 const headerRef = ref<HTMLElement | null>(null)
 const headerHidden = ref(false)
@@ -107,11 +118,40 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
         >
           <span aria-hidden="true">{{ localeShort() }}</span>
         </button>
+        <button
+          type="button"
+          class="icon-btn"
+          :aria-label="t('recent.title')"
+          :title="t('recent.title')"
+          @click="recentOpen = true"
+        >
+          <span aria-hidden="true">◷</span>
+        </button>
         <!-- 管理后台是独立的旧版单页，用普通链接跳转，不经 SPA 路由 -->
         <a href="/admin" class="admin-link" :title="t('site.admin')">{{ t('site.admin') }}</a>
       </div>
     </div>
   </header>
+
+  <MLSheet v-model:open="recentOpen" :title="t('recent.title')" variant="drawer" width="340px">
+    <div v-if="!recent.length" class="recent-empty muted">{{ t('recent.empty') }}</div>
+    <ul v-else class="recent-list">
+      <li v-for="entry in recent" :key="entry.id">
+        <button type="button" class="recent-item" @click="openRecentItem(entry.id)">
+          <img
+            :src="entry.kind === 'video' ? `/t/${entry.id}.jpg` : `/t/${entry.id}_sm.webp`"
+            alt=""
+            class="recent-item__thumb"
+            loading="lazy"
+          />
+          <span class="recent-item__title">{{ entry.title }}</span>
+        </button>
+      </li>
+    </ul>
+    <template v-if="recent.length" #footer>
+      <MLButton variant="quiet" size="sm" @click="clearRecent">{{ t('recent.clear') }}</MLButton>
+    </template>
+  </MLSheet>
 
   <!-- tabindex=-1：让 skip link 的锚点跳转真正把焦点交给主内容区 -->
   <main id="main" tabindex="-1">
@@ -239,5 +279,52 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
   .site-header {
     transition: none;
   }
+}
+
+.recent-empty {
+  padding: var(--p-space-6) 0;
+  text-align: center;
+  font-size: var(--p-step--1);
+}
+
+.recent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--p-space-2);
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: var(--p-space-3);
+  width: 100%;
+  padding: var(--p-space-1);
+  border-radius: var(--p-radius-md);
+  text-align: left;
+  transition: background-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.recent-item:hover {
+  background: var(--surface-hover);
+}
+
+.recent-item__thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--p-radius-sm);
+  object-fit: cover;
+  background: var(--surface-sunken);
+  flex-shrink: 0;
+}
+
+.recent-item__title {
+  font-size: var(--p-step--1);
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

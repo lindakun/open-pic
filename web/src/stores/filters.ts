@@ -38,6 +38,8 @@ export const useFilterStore = defineStore('filters', () => {
   const sizeClass = ref('')
   /** 主色筛选（A-04 色板 → B-10 色彩分面打通） */
   const color = ref('')
+  /** 画板筛选（REQ-10） */
+  const collectionId = ref<number | null>(null)
   const sort = ref<SortKey>('newest')
   const view = ref<ViewMode>('masonry')
 
@@ -52,7 +54,8 @@ export const useFilterStore = defineStore('filters', () => {
       (platform.value ? 1 : 0) +
       (ext.value ? 1 : 0) +
       (sizeClass.value ? 1 : 0) +
-      (color.value ? 1 : 0),
+      (color.value ? 1 : 0) +
+      (collectionId.value !== null ? 1 : 0),
   )
 
   const hasFilters = computed(() => activeCount.value > 0)
@@ -68,6 +71,7 @@ export const useFilterStore = defineStore('filters', () => {
     ext: ext.value,
     size_class: sizeClass.value,
     color: color.value,
+    collection_id: collectionId.value,
     sort: sort.value,
   }))
 
@@ -83,6 +87,7 @@ export const useFilterStore = defineStore('filters', () => {
     if (ext.value) out.ext = ext.value
     if (sizeClass.value) out.size = sizeClass.value
     if (color.value) out.color = color.value
+    if (collectionId.value !== null) out.collection = String(collectionId.value)
     if (sort.value !== 'newest') out.sort = sort.value
     if (view.value !== 'masonry') out.view = view.value
     return out
@@ -105,6 +110,9 @@ export const useFilterStore = defineStore('filters', () => {
     ext.value = get('ext')
     sizeClass.value = get('size')
     color.value = get('color')
+    const rawCol = get('collection')
+    const parsedCol = rawCol ? Number(rawCol) : NaN
+    collectionId.value = Number.isFinite(parsedCol) && parsedCol > 0 ? parsedCol : null
     sort.value = (get('sort') as SortKey) || 'newest'
     view.value = (get('view') as ViewMode) || 'masonry'
   }
@@ -185,6 +193,11 @@ export const useFilterStore = defineStore('filters', () => {
     syncUrl()
   }
 
+  function setCollectionId(value: number | null): void {
+    collectionId.value = value
+    syncUrl()
+  }
+
   function setSort(value: SortKey): void {
     sort.value = value
     syncUrl()
@@ -206,6 +219,7 @@ export const useFilterStore = defineStore('filters', () => {
     ext.value = ''
     sizeClass.value = ''
     color.value = ''
+    collectionId.value = null
     syncUrl()
   }
 
@@ -219,6 +233,7 @@ export const useFilterStore = defineStore('filters', () => {
     ext,
     sizeClass,
     color,
+    collectionId,
     sort,
     view,
     activeCount,
@@ -238,6 +253,7 @@ export const useFilterStore = defineStore('filters', () => {
     setExt,
     setSizeClass,
     setColor,
+    setCollectionId,
     setSort,
     setView,
     reset,

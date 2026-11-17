@@ -258,6 +258,7 @@ function goBrowseAndUpload() {
       @filter-color="onFilterColor"
       @filter-tag="onFilterTag"
       @toggle-like="toggleLike"
+      @updated="store.patchItemInPlace($event)"
     />
   </div>
 </template>

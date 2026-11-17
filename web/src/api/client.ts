@@ -96,10 +96,16 @@ export const api = {
   },
 
   updateItem(id: string, patch: Partial<MediaItem>): Promise<MediaItem> {
-    return request<MediaItem>(`/api/item/${id}`, {
+    return request<{ ok: boolean; item: MediaItem }>(`/api/item/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
-    })
+    }).then((d) => d.item)
+  },
+
+  similar(id: string, limit = 6): Promise<MediaItem[]> {
+    return request<{ items: MediaItem[] }>(`/api/item/${id}/similar?limit=${limit}`).then(
+      (d) => d.items ?? [],
+    )
   },
 
   deleteItem(id: string, permanent = false): Promise<unknown> {
