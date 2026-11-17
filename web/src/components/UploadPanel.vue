@@ -24,7 +24,7 @@ const emit = defineEmits<{
   (e: 'uploaded', count: number): void
 }>()
 
-const { t } = useI18n()
+const { t, formatBytes } = useI18n()
 const toast = useToast()
 
 type Tab = 'file' | 'url'
@@ -227,7 +227,7 @@ onBeforeUnmount(() => window.removeEventListener('paste', onPaste))
         <ul v-if="queue.length" class="up__queue">
           <li v-for="(f, i) in queue" :key="`${f.name}-${i}`" class="up__item">
             <span class="up__item-name">{{ f.name }}</span>
-            <span class="up__item-size mono">{{ Math.round(f.size / 1024) }} KB</span>
+            <span class="up__item-size mono">{{ formatBytes(f.size) }}</span>
             <button
               type="button"
               class="up__remove"

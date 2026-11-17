@@ -1901,6 +1901,27 @@ class MediaDB:
             conn.execute(f"UPDATE ingest_jobs SET {sets} WHERE id=?", (*updates.values(), job_id))
             conn.commit()
 
+    def get_job(self, job_id: int) -> Optional[Dict[str, Any]]:
+        """按 id 精确取任务。
+
+        工作线程必须用本方法而不是 list_jobs(limit=N) 翻找：
+        列表按 id 倒序截断，积压超过 N 条时老任务会被误判为不存在而静默丢弃。
+        """
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM ingest_jobs WHERE id=?", (job_id,)).fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            try:
+                d["payload"] = json.loads(d["payload"])
+            except Exception:
+                pass
+            try:
+                d["result"] = json.loads(d.pop("result_json", "{}") or "{}")
+            except Exception:
+                d["result"] = {}
+            return d
+
     def list_jobs(self, limit: int = 50) -> List[Dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(

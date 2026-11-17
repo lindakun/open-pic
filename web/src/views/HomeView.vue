@@ -28,10 +28,13 @@ const compareCandidates = computed(() => {
   return store.items.slice(start, start + 8)
 })
 
-/** 灯箱内点色板 → 带主色跳转浏览页（打通 A-04 与 B-10） */
+/** 灯箱内点色板 → 带主色跳转浏览页（打通 A-04 与 B-10）。
+ *  必须显式带上 query：浏览页挂载时按 URL 还原筛选，
+ *  空路由会把刚设置的主色清掉（实测踩到）。
+ */
 function onFilterColor(color: string) {
   filters.setColor(color)
-  router.push({ name: 'browse' })
+  void router.push({ name: 'browse', query: filters.toUrlQuery() })
 }
 
 /** 是否具备自动加载能力：无 IntersectionObserver 时退回手动按钮 */
@@ -49,10 +52,17 @@ let observer: IntersectionObserver | null = null
 const sentinel = ref<HTMLElement | null>(null)
 
 onMounted(async () => {
+  // 首页是"全部资产"的图墙：清掉浏览页遗留的筛选，
+  // 否则从浏览页返回首页时图片墙会静默变成筛选子集
+  filters.reset()
   if (store.items.length === 0) {
     await store.refresh()
     // 人工精选置顶（A-02）：不改变图片墙结构，只调整顺序
     await store.promoteFeatured()
+  } else {
+    // 有缓存列表也要按无筛选状态刷新一次（可能上次是被筛选过的）
+    void store.refresh()
+    void store.promoteFeatured()
   }
   window.addEventListener('scroll', onScroll, { passive: true })
 

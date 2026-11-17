@@ -64,6 +64,16 @@ let slideshowTimer: number | null = null
 let copyTimer: number | null = null
 
 const mediaUrl = computed(() => `/f/${props.item.file}`)
+/**
+ * 视频播放地址：优先走后端生成的 H.264 兼容副本（?play=1），
+ * HEVC/AVI/MKV 等浏览器不支持的编码会黑屏，副本由入库任务自动转码。
+ * 原图仅用于下载。
+ */
+const videoUrl = computed(() =>
+  props.item.play_file ? `/f/${props.item.file}?play=1` : `/f/${props.item.file}`,
+)
+/** 下载地址：带 dl=1 让后端计入下载量统计 */
+const downloadUrl = computed(() => `/f/${props.item.file}?dl=1`)
 const previewUrl = computed(() =>
   props.item.thumb ? `/t/${props.item.id}_lg.webp` : `/f/${props.item.file}`,
 )
@@ -148,9 +158,12 @@ const compareItems = computed<MediaItem[]>(() => {
 const compareOn = computed(() => compareIds.value.length >= 1)
 const COMPARE_EXTRA_MAX = 3
 
-/** 对比候选：限额 8 个，覆盖当前列表附近即可，避免长列表渲染开销 */
+/** 对比候选：限额 8 个，覆盖当前列表附近即可，避免长列表渲染开销。
+ *  当前项不进候选条——它已恒定参与对比，点自己的圆点只会产生
+ *  单图"对比"的挤压布局（实测发现）。
+ */
 const compareChoices = computed(() =>
-  (props.candidates ?? []).slice(0, 8),
+  (props.candidates ?? []).filter((i) => i.id !== props.item.id).slice(0, 8),
 )
 
 function toggleCompare(id: string) {
@@ -235,7 +248,7 @@ function filterByColor(color: string) {
 
 function download() {
   const a = document.createElement('a')
-  a.href = mediaUrl.value
+  a.href = downloadUrl.value
   a.download = props.item.name || ''
   a.rel = 'noopener'
   document.body.appendChild(a)
@@ -437,7 +450,7 @@ onUnmounted(() => {
       </template>
       <video
         v-else
-        :src="mediaUrl"
+        :src="videoUrl"
         :poster="`/t/${item.id}.jpg`"
         :style="{ backgroundColor: item.dominant_color || '#12100d' }"
         controls
@@ -617,7 +630,7 @@ onUnmounted(() => {
         >
           →
         </button>
-        <a :href="mediaUrl" download class="lb-btn" :aria-label="t('lightbox.download')">↓</a>
+        <a :href="downloadUrl" download class="lb-btn" :aria-label="t('lightbox.download')">↓</a>
         <button type="button" class="lb-btn" :aria-label="t('lightbox.close')" @click="close">✕</button>
       </div>
     </div>

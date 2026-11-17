@@ -105,8 +105,9 @@ class TaskManager:
                 self._q.task_done()
 
     def _run_job(self, job_id: int):
-        jobs = self.db.list_jobs(limit=200)
-        job = next((j for j in jobs if j["id"] == job_id), None)
+        # 按 id 精确查询：list_jobs(limit=200) 按 id 倒序截断，
+        # 批量上传积压超 200 条时老任务会被误判不存在而静默丢弃（实测踩到）
+        job = self.db.get_job(job_id)
         if not job:
             return
         jtype = job["job_type"]

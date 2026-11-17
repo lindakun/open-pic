@@ -126,7 +126,21 @@ function onDrop(e: DragEvent) {
   if (file && file.type.startsWith('image/')) void searchByImage(file)
 }
 
+/**
+ * 拖拽高亮不应在「从父元素移到子元素」时熄灭：
+ * dragleave 在经过每个子节点时都会触发，直接置 false 会造成闪烁
+ * （与上传面板同款修复，R3 只修了面板这处漏了搜索框）。
+ */
+function onSearchDragLeave(e: DragEvent) {
+  const next = e.relatedTarget as Node | null
+  if (next && (e.currentTarget as HTMLElement).contains(next)) return
+  dragActive.value = false
+}
+
 function onPaste(e: ClipboardEvent) {
+  // 上传面板打开时让粘贴专供上传队列，避免同一张截图
+  // 同时触发 AI 以图搜图把列表替换掉（两个全局监听都会收到事件）
+  if (uploadOpen.value) return
   if (!aiStatus.value?.available) return
   const file = Array.from(e.clipboardData?.files ?? [])[0]
   if (file && file.type.startsWith('image/')) void searchByImage(file)
@@ -388,7 +402,7 @@ watch(
       <div
         :class="['browse__search', { 'browse__search--drag': dragActive, 'browse__search--busy': aiBusy }]"
         @dragover.prevent="aiStatus?.available && (dragActive = true)"
-        @dragleave.prevent="dragActive = false"
+        @dragleave.prevent="onSearchDragLeave"
         @drop.prevent="onDrop"
       >
         <span class="browse__search-icon" aria-hidden="true">⌕</span>

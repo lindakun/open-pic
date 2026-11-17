@@ -212,6 +212,7 @@ export const useFilterStore = defineStore('filters', () => {
     hasFilters,
     queryParams,
     fromUrlQuery,
+    toUrlQuery,
     syncUrl,
     toggleTag,
     excludeTag,

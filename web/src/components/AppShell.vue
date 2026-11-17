@@ -80,7 +80,7 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
           type="button"
           class="icon-btn icon-btn--text mono"
           :aria-label="locale === 'zh-CN' ? t('site.switchToEn') : t('site.switchToZh')"
-          :title="locale === 'zh-CN' ? 'Switch to English' : '切换到中文'"
+          :title="locale === 'zh-CN' ? t('site.switchToEn') : t('site.switchToZh')"
           @click="toggleLocale"
         >
           <span aria-hidden="true">{{ localeShort() }}</span>
