@@ -306,6 +306,10 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
             # 视频入库后异步生成悬停预览与兼容播放副本
             if rec["kind"] == "video" and start_workers:
                 tasks.enqueue("video_postprocess", {"item_id": item_id})
+            # AI 自动打标入队（B-07）：是否真正执行由任务内开关决定，
+            # 未开启时任务标记 skipped，成本为零。
+            if start_workers and rec["kind"] == "image":
+                tasks.enqueue("ai_tagging", {"item_id": item_id})
             if start_workers:
                 tasks.broadcast("library_updated", {"reason": "upload", "item_id": item_id})
             # 同步模式下才可能已算好近似重复；异步模式由任务完成后回传
@@ -971,6 +975,42 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
             filename=name,
             headers={"Cache-Control": "private, max-age=0, must-revalidate"},
         )
+
+    # ---------- AI 自动打标（B-07） ----------
+
+    class TagItemReq(BaseModel):
+        item_id: str
+        force: bool = False
+
+    @app.post("/api/ai/tag")
+    def api_ai_tag(req: TagItemReq):
+        """手动触发单条打标（B-07）。
+
+        与自动打标共用同一任务；未开启自动开关时，手动触发仍可执行。
+        """
+        # 先判能力再判资产：能力缺失时 501 更能说明问题（B-07 验收 4 的口径）
+        prov = _ai_provider()
+        if not prov.available():
+            raise HTTPException(
+                status_code=501,
+                detail="AI 检索未启用：配置 MEDIA_LIB_AI_PROVIDER 与 API Key 后可用",
+            )
+        if not db.get_item(req.item_id):
+            raise HTTPException(status_code=404, detail="not found")
+        job_id = tasks.enqueue("ai_tagging", {"item_id": req.item_id, "force": req.force})
+        return {"ok": True, "job_id": job_id}
+
+    @app.get("/api/ai/tags/{item_id}")
+    def api_ai_tags(item_id: str):
+        """查看某资产的 AI 来源标签与已否决标签（B-07）。"""
+        it = db.get_item(item_id)
+        if not it:
+            raise HTTPException(status_code=404, detail="not found")
+        return {
+            "item_id": item_id,
+            "tags": it.get("tags") or [],
+            "rejected": db.rejected_tags(item_id),
+        }
 
     # ---------- 运营事件与指标（D-18） ----------
 

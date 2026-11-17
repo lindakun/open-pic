@@ -124,8 +124,71 @@ class TaskManager:
             self._handle_export_zip(job_id, payload)
         elif jtype == "embedding_backfill":
             self._handle_embedding_backfill(job_id, payload)
+        elif jtype == "ai_tagging":
+            self._handle_ai_tagging(job_id, payload)
         else:
             self._update(job_id, "failed", 100, f"未知任务类型: {jtype}")
+
+    def _handle_ai_tagging(self, job_id: int, payload: Dict[str, Any]):
+        """入库后 AI 自动打标（REQ-V2-20 B-07）。
+
+        默认关闭：外部多模态 API 有成本，且打标质量需人工抽检后才能作为默认行为。
+        通过 MEDIA_LIB_AI_AUTOTAG=1 开启；provider 未配置时标记 skipped，
+        不影响入库与浏览（B-07 验收 4 的同款口径）。
+        """
+        import ai_provider
+
+        if os.environ.get("MEDIA_LIB_AI_AUTOTAG", "").strip().lower() not in ("1", "true", "yes", "on"):
+            self._update(job_id, "skipped", 100, "AI 自动打标未开启（MEDIA_LIB_AI_AUTOTAG=1 启用）")
+            return
+
+        item_id = payload.get("item_id", "")
+        item = self.db.get_item(item_id) if item_id else None
+        if not item:
+            self._update(job_id, "failed", 100, "资产不存在")
+            return
+        if item.get("kind") != "image":
+            self._update(job_id, "skipped", 100, "仅对图片打标")
+            return
+
+        factory = getattr(self, "provider_factory", None) or ai_provider.get_provider
+        prov = factory()
+        if not prov.available():
+            self._update(job_id, "skipped", 100, "AI provider 未配置，跳过打标")
+            return
+
+        src = os.path.join(self.files_dir, item["file"])
+        if not os.path.isfile(src):
+            self._update(job_id, "failed", 100, "源文件缺失")
+            return
+
+        self._update(job_id, "running", 20, "调用视觉模型打标")
+        try:
+            with open(src, "rb") as fh:
+                data = fh.read()
+            result = prov.tag_image(data, hint=item.get("title") or "")
+        except Exception as e:
+            self._update(job_id, "failed", 100, f"打标失败: {e}")
+            return
+
+        # 结构化字段（风格/景别/场景/时段/主色）与自由 tags 合并成标签
+        structured = [
+            result.get("style"), result.get("shot"), result.get("scene"),
+            result.get("time"), result.get("color"),
+        ]
+        tags = [str(t).strip() for t in (result.get("tags") or []) if str(t).strip()]
+        tags += [s for s in structured if isinstance(s, str) and s.strip()]
+
+        # 过滤人工否决过的组合（B-07 验收 3）
+        rejected = set(self.db.rejected_tags(item_id))
+        tags = [t for t in dict.fromkeys(tags) if t not in rejected]
+
+        written = self.db.set_tags_with_source(item_id, tags, source="ai")
+        self._update(
+            job_id, "done", 100, f"已生成 {written} 个 AI 标签",
+            {"item_id": item_id, "tags": tags[:20], "description": result.get("description", "")},
+        )
+        self.broadcast("media_ready", {"item_id": item_id, "ai_tags": tags[:20]})
 
     def _handle_embedding_backfill(self, job_id: int, payload: Dict[str, Any]):
         """批量生成向量（REQ-V2-20 B-08 验收 5）。
