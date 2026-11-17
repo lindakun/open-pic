@@ -437,7 +437,8 @@ class TaskManager:
         self.broadcast("library_updated", {"reason": "video_postprocess", "item_id": item_id})
 
     def _handle_backfill(self, job_id: int):
-        _, items = self.db.query_items(limit=100000, offset=0)
+        # 草稿/归档也要回填：它们只是不可见，不是不需要缩略图与元数据
+        _, items = self.db.query_items(limit=100000, offset=0, include_unpublished=True)
         total = len(items)
         if total == 0:
             self._update(job_id, "done", 100, "暂无需要回填的条目")

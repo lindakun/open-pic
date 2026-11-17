@@ -477,7 +477,14 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
         base_url = str(request.base_url).rstrip("/")
         title_esc = html.escape(it["title"] or it["name"])
         thumb_url = f"{base_url}/t/{it['id']}.jpg"
-        media_url = f"{base_url}/f/{it['file']}"
+        original_url = f"{base_url}/f/{it['file']}"
+        # 视频优先用后端生成的 H.264 兼容副本：HEVC/MKV 原文件在浏览器里
+        # 直接播放会黑屏，分享页必须走 ?play=1（与灯箱同款口径）
+        media_url = (
+            f"{original_url}?play=1"
+            if it["kind"] == "video" and it.get("play_file")
+            else original_url
+        )
         tags_esc = html.escape(" ".join(f"#{t}" for t in it.get("tags", [])))
         dim_info = f"{it['width']}×{it['height']}" if it.get("width") else ""
         desc_esc = html.escape(f"{it['kind'].upper()} · {dim_info} · {tags_esc}".strip(" ·"))
@@ -509,6 +516,7 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
 <meta property="og:description" content="{desc_esc}">
 <meta property="og:type" content="{og_type}">
 <meta property="og:image" content="{thumb_url}">
+{f'<meta property="og:video" content="{media_url}">' if it["kind"] == "video" else ""}
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{title_esc}">
 <meta name="twitter:image" content="{thumb_url}">
@@ -1246,9 +1254,13 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
         up = form.get("file")
         if up is None or not hasattr(up, "read"):
             raise HTTPException(status_code=400, detail="缺少 file 字段")
-        data = await up.read()
+        # 以图搜图只用于取向量，无需原图全量进内存；限制 20MB 防误传大文件
+        MAX_QUERY_IMAGE = 20 * 1024 * 1024
+        data = await up.read(MAX_QUERY_IMAGE + 1)
         if not data:
             raise HTTPException(status_code=400, detail="文件为空")
+        if len(data) > MAX_QUERY_IMAGE:
+            raise HTTPException(status_code=413, detail="搜索图片不能超过 20MB")
 
         try:
             qvec = prov.embed_image(data)
@@ -1547,8 +1559,12 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
 
 
 def repair_library(db: MediaDB, verbose: bool = True) -> Dict[str, Any]:
-    """一致性自检：剔除磁盘缺失的孤儿记录、补全缺失缩略图、报告残留文件"""
-    _, items = db.query_items(limit=100000, offset=0)
+    """一致性自检：剔除磁盘缺失的孤儿记录、补全缺失缩略图、报告残留文件。
+
+    必须带 include_unpublished：草稿/归档同样占磁盘、同样需要缩略图，
+    只扫可见资产会让它们永远得不到修复。
+    """
+    _, items = db.query_items(limit=100000, offset=0, include_unpublished=True)
     orphans, fixed_thumb = [], 0
     for it in items:
         fpath = os.path.join(FILES, it["file"])

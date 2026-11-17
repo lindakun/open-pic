@@ -5,7 +5,7 @@
  * 使用原生 <dialog>（A-03 要求）：免费获得焦点陷阱、Esc 关闭、
  * 顶层渲染与惰性焦点的正确语义，无需手写 div 遮罩。
  */
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from '@/composables/useI18n'
 
 const props = withDefaults(
@@ -51,6 +51,15 @@ watch(
   },
   { immediate: true },
 )
+
+// immediate 的 watch 在 setup 阶段执行时 dialogRef 还是 null；
+// 若组件以 open=true 初始挂载，showModal 会永远不被调用。
+// 挂载后补一次同步。
+onMounted(() => {
+  if (props.open && dialogRef.value && !dialogRef.value.open) {
+    dialogRef.value.showModal()
+  }
+})
 
 // <dialog> 在 Esc 关闭时会触发 cancel/close，需同步回父组件的状态
 function onClose() {

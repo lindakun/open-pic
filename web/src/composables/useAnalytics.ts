@@ -57,9 +57,13 @@ function pageType(): string {
   if (typeof window === 'undefined') return ''
   const p = window.location.pathname
   if (p.includes('/review/')) return 'review'
-  if (p.startsWith('/browse')) return 'browse'
-  if (p.startsWith('/app')) return 'home'
-  return p.replace(/^\/+/, '').split('/')[0] || 'root'
+  // SPA 的 base 是 /app/，实际浏览页路径是 /app/browse。
+  // 原先 startsWith('/app') 一律记为 home，浏览页数据全被算进首页。
+  const path = p.replace(/^\/app(?=\/|$)/, '') || '/'
+  if (path === '/') return 'home'
+  if (path.startsWith('/browse')) return 'browse'
+  if (path.startsWith('/a/')) return 'asset'
+  return path.replace(/^\/+/, '').split('/')[0] || 'root'
 }
 
 /** 立即上报队列（失败静默，不重试，避免堆积） */

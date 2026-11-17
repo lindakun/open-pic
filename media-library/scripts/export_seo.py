@@ -158,8 +158,13 @@ def render_variant(
     out_ext = "jpg" if fmt == "jpeg" else fmt
     buf = io.BytesIO()
 
-    # 剥离隐私 EXIF：重建图像对象，不复制 info/exif
-    clean = im if im.mode in ("RGB", "L") else im.convert("RGB")
+    # 剥离隐私 EXIF：重建图像对象，不复制 info/exif。
+    # PNG 保留透明通道（RGBA/LA/P）；其余格式必须转 RGB，
+    # 否则 JPEG 无法保存 alpha，会报错或出现黑底。
+    if fmt == "png":
+        clean = im if im.mode in ("RGB", "RGBA", "L", "LA", "P") else im.convert("RGBA")
+    else:
+        clean = im if im.mode in ("RGB", "L") else im.convert("RGB")
     if fmt in ("jpeg", "webp", "avif"):
         if clean.mode != "RGB":
             clean = clean.convert("RGB")
@@ -222,6 +227,17 @@ def metadata_json(items: List[Dict[str, Any]]) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
+def _safe_arc_stem(name: str, fallback: str) -> str:
+    """把用户文件名清洗成安全的 ZIP 条目名。
+
+    只取 basename 并剔除路径分隔符/控制字符：multipart 上传的文件名
+    完全由客户端提供，带 `../` 的条目会在解压时写到目标目录之外。
+    """
+    stem = os.path.splitext(os.path.basename(name or ""))[0]
+    stem = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", stem).strip(" .")
+    return stem or fallback
+
+
 def build_zip_to_path(
     files_dir: str,
     items: List[Dict[str, Any]],
@@ -246,13 +262,16 @@ def build_zip_to_path(
             except Exception as e:  # 单条失败只记录，不影响整包
                 failures.append(f"{it.get('id')}: {e}")
                 continue
-            stem = os.path.splitext(it.get("name") or it["file"])[0] or it["id"]
+            stem = _safe_arc_stem(it.get("name") or it["file"], it["id"])
             arcname = f"{stem}.{ext}"
             if arcname in used:
-                used[arcname] += 1
-                arcname = f"{stem}_{used[arcname]}.{ext}"
-            else:
-                used[arcname] = 0
+                # 序号也要继续探测，避免 _1 已被另一个同名文件占用
+                n = used[arcname] + 1
+                while f"{stem}_{n}.{ext}" in used:
+                    n += 1
+                used[arcname] = n
+                arcname = f"{stem}_{n}.{ext}"
+            used.setdefault(arcname, 0)
             zf.writestr(arcname, data)
             written += 1
 

@@ -10,7 +10,7 @@
  *
  * 数据流：库主生成 /review/{token} 链接 → 客户打开即标记 → 库主在后台看汇总。
  */
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from '@/composables/useI18n'
 import type { MediaItem } from '@/api/types'
@@ -106,8 +106,10 @@ async function load() {
       }
     }
     marks.value = next
+    savedAt.value = 0
     // 首次进入时也要把批注框填成当前项的已存批注
     noteDraft.value = items.value[0] ? (marks.value[items.value[0].id]?.note ?? '') : ''
+    void scrollFilmToCurrent()
   } catch (e) {
     error.value = (e as Error).message
   } finally {
@@ -172,17 +174,42 @@ function saveNote() {
   void setMark(marks.value[it.id]?.state ?? 'pending', noteDraft.value)
 }
 
+/** 胶片条跟随当前项滚动：键盘切图后选中项可能在可视区外 */
+async function scrollFilmToCurrent() {
+  await nextTick()
+  // jsdom 等环境没有 scrollIntoView，可选调用避免测试/降级环境报错
+  document
+    .querySelector<HTMLElement>('.film--cur')
+    ?.scrollIntoView?.({ block: 'nearest', inline: 'center', behavior: 'smooth' })
+}
+
 function step(delta: number) {
   const next = index.value + delta
   if (next >= 0 && next < items.value.length) {
     index.value = next
     noteDraft.value = marks.value[items.value[next].id]?.note ?? ''
+    // 「已保存」是上一张的状态，切图后必须清掉
+    savedAt.value = 0
+    void scrollFilmToCurrent()
   }
 }
 
 function jump(i: number) {
   index.value = i
   noteDraft.value = marks.value[items.value[i].id]?.note ?? ''
+  savedAt.value = 0
+  void scrollFilmToCurrent()
+}
+
+/** 胶片条缩略图失败：先回退主缩略图，再失败回退原图 */
+function onFilmError(event: Event, item: MediaItem) {
+  const img = event.target as HTMLImageElement
+  const main = `/t/${item.id}.jpg`
+  if (img.getAttribute('src') !== main) {
+    img.src = main
+    return
+  }
+  img.src = `/f/${item.file}`
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -192,6 +219,11 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  // Esc 退出输入态（文档约定）：让快捷键重新作用于选片而非文本框
+  if (e.key === 'Escape' && isTypingTarget(e.target)) {
+    ;(e.target as HTMLElement).blur()
+    return
+  }
   if (isTypingTarget(e.target) || e.isComposing) return
   switch (e.key) {
     case 'ArrowLeft':
@@ -327,7 +359,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <img
             :src="`/t/${it.id}_sm.webp`"
             alt=""
-            @error="($event.target as HTMLImageElement).src = `/t/${it.id}.jpg`"
+            @error="onFilmError($event, it)"
           />
           <span v-if="markOf(it.id)" :class="['film__dot', `film__dot--${markOf(it.id)!.state}`]" />
         </button>

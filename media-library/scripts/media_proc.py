@@ -31,7 +31,9 @@ def clean_title(raw_title: str, filename: str, source: str = "") -> str:
         t = stem
     if _TMP_NAME_RE.match(t) and source:
         parsed = urlparse(source)
-        host = parsed.netloc.lower().lstrip("www.")
+        # 必须用 removeprefix：lstrip("www.") 会把字符集里任意前缀字符剥掉，
+        # "web.com" 会被截成 "eb.com"（实测踩到）
+        host = parsed.netloc.lower().removeprefix("www.")
         parts = [p for p in parsed.path.split("/") if p]
         if "x.com" in host or "twitter.com" in host:
             if len(parts) >= 3 and parts[1] == "status":

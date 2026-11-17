@@ -49,9 +49,12 @@ onUnmounted(() => {
 const themeLabel = () => {
   if (mode.value === 'light') return t('site.themeLight')
   if (mode.value === 'dark') return t('site.themeDark')
-  // auto 模式下说明当前实际生效的主题，避免重复带「点击切换」后缀
-  const active = resolved.value === 'dark' ? t('site.themeDark') : t('site.themeLight')
-  return `${t('site.themeAuto')}：${active.replace('（点击切换）', '')}`
+  // auto 模式下说明当前实际生效的主题。用 *Short 文案而不是对完整
+  // 文案做中文字符串替换——英文环境下替换不生效，会出现双重「点击切换」
+  const active = resolved.value === 'dark'
+    ? t('site.themeDarkShort')
+    : t('site.themeLightShort')
+  return `${t('site.themeAutoShort')} · ${active}`
 }
 
 /** 按钮上的语言显示：切换目标而非当前语言，减少歧义 */

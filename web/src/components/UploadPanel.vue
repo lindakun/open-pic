@@ -44,11 +44,20 @@ const urlBusy = ref(false)
 const queue = ref<File[]>([])
 const canSubmit = computed(() => queue.value.length > 0 && !uploading.value)
 
+/** 部分容器格式（如 .mkv）浏览器给不出 MIME，需按扩展名兜底 */
+const MEDIA_EXT = /\.(jpe?g|png|gif|webp|bmp|avif|heic|mp4|webm|mov|m4v|mkv|avi)$/i
+
+function isMediaFile(file: File): boolean {
+  return (
+    file.type.startsWith('image/') ||
+    file.type.startsWith('video/') ||
+    MEDIA_EXT.test(file.name)
+  )
+}
+
 function addFiles(files: FileList | File[] | null | undefined) {
   if (!files) return
-  const list = Array.from(files).filter(
-    (f) => f.type.startsWith('image/') || f.type.startsWith('video/'),
-  )
+  const list = Array.from(files).filter(isMediaFile)
   if (!list.length) {
     errors.value = [t('upload.onlyMedia')]
     return
@@ -230,7 +239,7 @@ onBeforeUnmount(() => window.removeEventListener('paste', onPaste))
         <input
           ref="fileInput"
           type="file"
-          accept="image/*,video/*"
+          accept="image/*,video/*,.mkv,.avi,.mov,.m4v,.webm,.heic,.avif"
           multiple
           tabindex="-1"
           class="sr-only"

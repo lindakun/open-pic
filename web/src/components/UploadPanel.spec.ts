@@ -124,6 +124,24 @@ describe('UploadPanel 上传', () => {
     expect(wrapper.text()).toContain('服务错误')
     // 有失败时不自动关闭，便于重试
     expect(wrapper.emitted('update:open')).toBeUndefined()
+    // 成功项移除、失败项保留，用户可直接重试
+    const remaining = wrapper.findAll('.up__item')
+    expect(remaining.length).toBe(1)
+    expect(remaining[0].text()).toContain('b.jpg')
+    wrapper.unmount()
+  })
+
+  it('浏览器给不出 MIME 的容器格式按扩展名放行（如 .mkv）', async () => {
+    const wrapper = mountPanel()
+    const input = wrapper.find('input[type="file"]')
+    Object.defineProperty(input.element, 'files', {
+      value: [makeFile('clip.mkv', '')], configurable: true,
+    })
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(wrapper.find('.up__errors').exists()).toBe(false)
+    expect(wrapper.findAll('.up__item').length).toBe(1)
     wrapper.unmount()
   })
 })
