@@ -21,6 +21,7 @@ const messages: Record<Locale, Dict> = {
     // 站点
     'site.name': 'MediaLib',
     'site.browse': '浏览',
+    'site.admin': '管理',
     'site.skipToMain': '跳到主要内容',
     'site.toggleTheme': '切换主题',
     'site.themeLight': '浅色主题（点击切换）',
@@ -108,6 +109,7 @@ const messages: Record<Locale, Dict> = {
   'en-US': {
     'site.name': 'MediaLib',
     'site.browse': 'Browse',
+    'site.admin': 'Admin',
     'site.skipToMain': 'Skip to main content',
     'site.toggleTheme': 'Toggle theme',
     'site.themeLight': 'Light theme (click to change)',

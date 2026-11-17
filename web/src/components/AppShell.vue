@@ -83,6 +83,8 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
         >
           <span aria-hidden="true">{{ localeShort() }}</span>
         </button>
+        <!-- 管理后台是独立的旧版单页，用普通链接跳转，不经 SPA 路由 -->
+        <a href="/admin" class="admin-link" :title="t('site.admin')">{{ t('site.admin') }}</a>
       </div>
     </div>
   </header>
@@ -189,6 +191,22 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
   font-size: 0.75rem;
   font-weight: 500;
   letter-spacing: 0.02em;
+}
+
+/* 管理后台入口：文字链，弱化为工具属性，不与浏览动作争夺注意力 */
+.admin-link {
+  font-size: var(--p-step--1);
+  color: var(--ink-faint);
+  padding: var(--p-space-1) var(--p-space-2);
+  border-left: 1px solid var(--rule);
+  margin-left: var(--p-space-1);
+  white-space: nowrap;
+  transition: color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.admin-link:hover {
+  color: var(--ink);
+  text-decoration: none;
 }
 
 /* 减弱动效：顶栏不滑动，仅淡出（A-03） */

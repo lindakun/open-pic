@@ -375,10 +375,23 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
         """
         if _use_next_frontend() and os.path.isfile(os.path.join(APP_DIR, "index.html")):
             return RedirectResponse(url="/app/", status_code=302)
+        # 未启用新前端时，根路径直接进入管理后台
+        return RedirectResponse(url="/admin", status_code=302)
+
+    @app.get("/admin", response_class=HTMLResponse)
+    @app.get("/admin/", response_class=HTMLResponse)
+    def admin_shell():
+        """管理员后台：旧版单页前端（完整管理能力）。
+
+        旧前端的资源引用是绝对路径 /static/app.css 与 /static/app.js，
+        因此原样托管即可，无需改写，两套前端互不干扰：
+          /admin  -> 管理后台（旧单页：上传、删除、合集、回收站、任务、统计）
+          /app    -> 用户主页（新前端：卡片流浏览、检索、筛选）
+        """
         shell = _read_shell(STATIC_DIR)
-        if shell is not None:
-            return HTMLResponse(shell, headers={"Cache-Control": "no-cache"})
-        return HTMLResponse("<h1>MediaLib</h1><p>static/index.html missing</p>")
+        if shell is None:
+            raise HTTPException(status_code=404, detail="旧前端不存在")
+        return HTMLResponse(shell, headers={"Cache-Control": "no-cache"})
 
     @app.get("/app", response_class=HTMLResponse)
     @app.get("/app/{spa_path:path}", response_class=HTMLResponse)
