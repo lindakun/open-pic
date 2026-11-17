@@ -304,6 +304,7 @@ defineExpose({ renderedCount, isVisible, visibleRange, saveData })
   left: 0;
   /* 用 transform 定位，交给合成层，滚动更顺滑（D-17 前置） */
   will-change: transform;
-  transition: width var(--p-dur-base) var(--p-ease-out);
+  /* 只对宽度做过渡：位置由 transform 驱动，无需过渡，
+     否则列数变化时会看到卡片"飞过去"的拖影（实测观感差） */
 }
 </style>

@@ -325,7 +325,18 @@ watch(
   },
 )
 
+// 窗口尺寸变化后，先前的缩放/平移锚点会失效（图片被裁切），复位更符合预期
+function onResize() {
+  resetZoom()
+}
+
+/** 记住触发元素，关闭后把焦点还回去（键盘用户不会丢失位置） */
+let lastFocused: HTMLElement | null = null
+
+onMounted(() => window.addEventListener('resize', onResize, { passive: true }))
+
 onMounted(() => {
+  lastFocused = document.activeElement as HTMLElement | null
   dialogRef.value?.showModal()
   window.addEventListener('keydown', onKeydown)
   if (stageRef.value && props.item.kind === 'image') bindZoom(stageRef.value)
@@ -339,7 +350,12 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  // 焦点还原：仅在原元素仍在文档中时执行，避免指针落到已卸载节点
+  if (lastFocused && document.contains(lastFocused)) {
+    lastFocused.focus({ preventScroll: true })
+  }
   window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('resize', onResize)
   if (stageRef.value) unbindZoom(stageRef.value)
   stopSlideshow()
   if (copyTimer !== null) window.clearTimeout(copyTimer)

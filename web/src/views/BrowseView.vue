@@ -47,6 +47,22 @@ const aiBusy = ref(false)
 const uploadOpen = ref(false)
 const selectMode = ref(false)
 const selectedIds = ref<string[]>([])
+/**
+ * 空态文案：区分「搜索无结果」「筛选无结果」「库本来就空」三种情况，
+ * 统一文案会让用户不知道下一步该做什么。
+ */
+const emptyHint = computed(() => {
+  if (filters.q.trim()) return t('browse.emptyHintSearch', { q: filters.q.trim() })
+  if (filters.hasFilters) return t('browse.emptyHintFilter')
+  return t('browse.emptyHintNoFilter')
+})
+
+/** 是否具备自动分页能力（无 IntersectionObserver 时退回手动按钮） */
+const pageAutoLoad = typeof IntersectionObserver !== 'undefined'
+
+/** 分页哨兵：与首页一致的自动加载，避免每次手动点按钮 */
+const sentinel = ref<HTMLElement | null>(null)
+let pageObserver: IntersectionObserver | null = null
 const collections = ref<Collection[]>([])
 /** 收藏 id 集合（C-15）：来自后端，跨设备一致 */
 const likedIds = ref<string[]>([])
@@ -261,8 +277,21 @@ onMounted(async () => {
 useEventFlush()
 useImpressionTracker(computed(() => store.items.map((i) => i.id)))
 
+onMounted(() => {
+  if (typeof IntersectionObserver === 'undefined') return
+  pageObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries[0]?.isIntersecting && store.hasMore && !store.loading) void store.load()
+    },
+    // 提前两屏开始加载，滚动时几乎无等待
+    { rootMargin: '200% 0px' },
+  )
+  if (sentinel.value) pageObserver.observe(sentinel.value)
+})
+
 onUnmounted(() => {
   window.removeEventListener('paste', onPaste)
+  pageObserver?.disconnect()
 })
 
 // 筛选变化时刷新（面板内直接改 store 的路径）
@@ -323,6 +352,16 @@ watch(
           :aria-label="t('browse.searchLabel')"
           @input="onSearchInput(($event.target as HTMLInputElement).value)"
         />
+        <!-- 有内容时提供一键清除，避免逐字删除 -->
+        <button
+          v-if="searchInput"
+          type="button"
+          class="browse__search-clear"
+          :aria-label="t('browse.clearSearch')"
+          @click="onSearchInput(''); filters.setQ(''); applyAndRefresh()"
+        >
+          ×
+        </button>
         <!-- AI 检索未启用时只给说明，不显示入口（B-08 验收 4） -->
         <span v-if="aiStatus && !aiStatus.available" class="browse__ai-off" :title="aiStatus.hint">
           {{ t('ai.disabled') }}
@@ -423,10 +462,16 @@ watch(
       </div>
 
       <div class="browse__main">
+        <!-- 筛选切换中：给明确的加载态，避免误以为无响应 -->
+        <div v-if="store.loading && !store.items.length" class="browse__loading" role="status" aria-live="polite">
+          <span class="browse__spinner" aria-hidden="true" />
+          <span>{{ t('site.loading') }}</span>
+        </div>
+
         <div v-if="store.isEmpty" class="browse__empty">
           <h2>{{ t('browse.emptyTitle') }}</h2>
           <p class="muted">
-            {{ filters.hasFilters ? t('browse.emptyHint') : t('browse.emptyHintNoFilter') }}
+            {{ emptyHint }}
           </p>
           <MLButton
             v-if="filters.hasFilters"
@@ -454,7 +499,9 @@ watch(
           @toggle="toggleSelect"
         />
 
-        <div v-if="store.hasMore" class="browse__more">
+        <!-- 分页哨兵：进入视口即自动加载；同时保留手动按钮作为兜底 -->
+        <div ref="sentinel" class="browse__sentinel" aria-hidden="true" />
+        <div v-if="store.hasMore && !pageAutoLoad" class="browse__more">
           <MLButton variant="ghost" :disabled="store.loading" @click="store.load()">
             {{ store.loading ? t('site.loading') : t('browse.loadMore') }}
           </MLButton>
@@ -495,11 +542,12 @@ watch(
 .browse__toolbar {
   display: flex;
   align-items: center;
-  gap: var(--p-space-4);
+  gap: var(--p-space-3);
   flex-wrap: wrap;
   padding-bottom: var(--p-space-4);
 }
 
+/* 窄屏：工具项按行排布，搜索框独占一行，避免挤压成极窄的输入条 */
 .browse__facets-toggle {
   display: none;
   align-items: center;
@@ -540,6 +588,23 @@ watch(
 }
 
 /* 右侧能力标识：不可用时只作说明，不构成可点击入口 */
+.browse__search-clear {
+  position: absolute;
+  right: var(--p-space-2);
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 24px;
+  min-height: 24px;
+  border-radius: var(--p-radius-full);
+  color: var(--ink-muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.browse__search-clear:hover {
+  background: var(--surface-sunken);
+}
+
 .browse__ai-off,
 .browse__ai-on {
   position: absolute;
@@ -662,6 +727,42 @@ watch(
   min-width: 0;
 }
 
+.browse__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--p-space-2);
+  padding: var(--p-space-8) var(--p-space-4);
+  color: var(--ink-muted);
+  font-size: var(--p-step--1);
+}
+
+.browse__spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--p-radius-full);
+  border: 2px solid var(--rule-strong);
+  border-top-color: var(--accent);
+  animation: browse-spin 700ms linear infinite;
+}
+
+@keyframes browse-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .browse__spinner {
+    animation: none;
+    border-top-color: var(--accent);
+  }
+}
+
+.browse__sentinel {
+  height: 1px;
+}
+
 .browse__empty {
   padding: var(--p-space-9) 0;
   text-align: center;
@@ -699,4 +800,23 @@ watch(
     margin-bottom: var(--p-space-4);
   }
 }
+
+@media (max-width: 720px) {
+  .browse__toolbar {
+    gap: var(--p-space-2);
+  }
+  .browse__search {
+    order: -1;
+    /* flex:1 + min-width 会阻止换行铺满，窄屏必须显式给 basis */
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .browse__sorts {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    max-width: 100%;
+    padding-bottom: 2px;
+  }
+}
+
 </style>

@@ -48,6 +48,7 @@ const messages: Record<Locale, Dict> = {
     // 浏览页
     'browse.searchPlaceholder': '搜索标题、标签、来源…',
     'browse.searchLabel': '搜索媒体库',
+    'browse.clearSearch': '清除搜索词',
     'browse.filter': '筛选',
     'browse.clearAll': '清空全部',
     'browse.clearFilter': '清空筛选',
@@ -239,11 +240,13 @@ const messages: Record<Locale, Dict> = {
 
     'browse.searchPlaceholder': 'Search titles, tags, sources…',
     'browse.searchLabel': 'Search media library',
+    'browse.clearSearch': 'Clear search',
     'browse.filter': 'Filters',
     'browse.clearAll': 'Clear all',
     'browse.clearFilter': 'Clear filters',
     'browse.emptyTitle': 'No matching content',
-    'browse.emptyHint': 'Try loosening the filters, or clear them all.',
+    'browse.emptyHintFilter': 'Nothing matches these filters — try loosening or clearing them.',
+    'browse.emptyHintSearch': 'No assets match “{q}”. Try another keyword.',
     'browse.emptyHintNoFilter':
       'Upload images or fetch from a link to start building your library.',
     'browse.loadMore': 'Load more',

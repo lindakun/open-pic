@@ -98,7 +98,13 @@ const altText = computed(() =>
         :ratio="ratio"
         :display-width="width"
       />
-      <span v-if="item.kind === 'video'" class="ml-card__badge mono" :aria-label="t('facet.kindVideo')">
+      <!-- 视频徽标：带播放符号，一眼可辨；时长同时给出 -->
+      <span
+        v-if="item.kind === 'video'"
+        class="ml-card__badge mono"
+        :aria-label="`${t('facet.kindVideo')} ${item.duration ? Math.round(item.duration) + 's' : ''}`"
+      >
+        <span class="ml-card__play" aria-hidden="true">▶</span>
         {{ item.duration ? `${Math.round(item.duration)}s` : 'VIDEO' }}
       </span>
       <!-- 选择圈：选择模式下常驻，避免 hover 才可见导致移动端不可用 -->
@@ -123,6 +129,11 @@ const altText = computed(() =>
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: var(--p-radius-lg);
+}
+
+.ml-card__play {
+  font-size: 0.5625rem;
+  margin-right: 2px;
 }
 
 .ml-card__check {
@@ -161,7 +172,15 @@ const altText = computed(() =>
     box-shadow var(--p-dur-base) var(--p-ease-out);
 }
 
-.ml-card:hover,
+/* 触屏设备没有 hover，:hover 会"粘住"导致卡片一直浮起。
+   限定只有真正支持 hover 的设备才应用位移。 */
+@media (hover: hover) {
+  .ml-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--card-shadow-hover);
+  }
+}
+
 .ml-card:focus-visible {
   transform: translateY(-2px);
   box-shadow: var(--card-shadow-hover);
@@ -209,16 +228,16 @@ const altText = computed(() =>
 }
 
 .ml-card__title {
-  font-size: var(--p-step--1);
-  font-weight: 500;
-  line-height: 1.45;
-  color: var(--ink);
-  /* 最多两行，超出省略 */
+  /* 统一两行截断：卡片高度依赖两行标题计算，行数变动会让瀑布流底部参差 */
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  font-size: var(--p-step--1);
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--ink);
 }
 
 /* 底部信息行：标签 + 规格，弱化但不低于 AA 对比度 */
