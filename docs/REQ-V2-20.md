@@ -685,7 +685,8 @@
 | **D-18 性能预算** | ✅ 完成（性能侧） | `scripts/perf_report.py`：首包 JS gzip / 资源总量 / 关键接口耗时预算，超预算退出码非 0，支持 `--json`；不建分位数看板（内网单用户 ROI 低） | 4 项脚本测试；线上实测 JS 首包 44.4KB（预算 120）、接口 1.5–4.7ms |
 | **B-08 语义检索** | ✅ 完成（链路就绪，待配 Key） | `ai_provider` 抽象（none/openai，环境变量切换）、512 维向量以 float32 紧凑存储、`/api/search/semantic` 关键词+向量 RRF 融合、`/api/search/by-image` 以图搜图、`/api/jobs/embedding-backfill` 回填任务；未配置时一律 501 语义 + 前端显示「AI 检索未启用」而不报错 | 22 项 AI 单测；实测未配置→status 200/available=false、semantic 501；注入 fake provider 后回填 3 条、semantic 返回 3 条、前端入口由说明态切换 |
 | **B-07 AI 打标** | 🟡 部分 | provider 侧 `tag_image`（结构化 风格/景别/场景/时段/主色 + tags）、`set_tags_with_source(source='ai')`、否决黑名单 `tag_rejections` 与 `/api/ai/reject-tags`；**入库自动触发尚未接入**（需先配真实 provider 再验证成本与质量） | 单测覆盖 JSON 抽取、AI 标签入库可检索、否决持久化 |
-| S4 剩余 | 🟡 部分 | B-07 入库自动打标、C-15 工作区其余部分（最近浏览/跨页多选） | — |
+| **C-15 工作区（补全）** | ✅ 完成 | 最近浏览（localStorage 上限 50、重复提前不重复、存储不可用静默降级）、喜欢与「只看喜欢」过滤（乐观更新失败回滚）、跨页多选保持（选择状态在视图层，翻页不清空） | 5 项最近浏览测试；实测打开卡片即写入最近浏览、喜欢后「只看喜欢」4→1 项且可恢复 |
+| S4 剩余 | 🟡 部分 | B-07 入库自动打标（需真实 provider 后接入） | — |
 
 ### 已落地的技术细节
 

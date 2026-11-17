@@ -201,6 +201,10 @@ const messages: Record<Locale, Dict> = {
     'batch.featuredFailed': '设置精选失败',
     'batch.exported': '导出包已开始下载',
     'batch.exportQueued': '{count} 项较大，已转后台打包，可在任务中心下载',
+    'like.onlyLiked': '只看喜欢',
+    'like.showAll': '显示全部',
+    'like.empty': '还没有喜欢的素材',
+    'like.failed': '操作失败，已回滚',
     'common.confirm': '确定',
   },
 
@@ -383,6 +387,10 @@ const messages: Record<Locale, Dict> = {
     'batch.featuredFailed': 'Failed to set featured',
     'batch.exported': 'Download started',
     'batch.exportQueued': '{count} items are large; packing in background, download from Jobs',
+    'like.onlyLiked': 'Liked only',
+    'like.showAll': 'Show all',
+    'like.empty': 'No liked assets yet',
+    'like.failed': 'Action failed, reverted',
     'common.confirm': 'Confirm',
   },
 }

@@ -11,6 +11,7 @@ import { useMediaStore } from '@/stores/media'
 import { useFilterStore } from '@/stores/filters'
 import { useToast } from '@/composables/useToast'
 import { useAiStatus } from '@/composables/useAiStatus'
+import { pushRecent } from '@/composables/useRecent'
 import { api } from '@/api/client'
 import { useI18n } from '@/composables/useI18n'
 import MasonryGrid from '@/components/MasonryGrid.vue'
@@ -46,6 +47,9 @@ const uploadOpen = ref(false)
 const selectMode = ref(false)
 const selectedIds = ref<string[]>([])
 const collections = ref<Collection[]>([])
+/** 收藏 id 集合（C-15）：来自后端，跨设备一致 */
+const likedIds = ref<string[]>([])
+const onlyLiked = ref(false)
 /** 移动端分面面板折叠 */
 const facetsOpen = ref(false)
 
@@ -154,12 +158,61 @@ function applyAndRefresh() {
  * 与共享元素快照机制不兼容（实测报 "Transition was aborted because of
  * invalid state"）。改由灯箱自身的进入动画承担过渡，功能一致且无报错。
  */
-function openLightbox(index: number) {
+function openLightbox(filteredIndex: number) {
   // 进灯箱前记录锚点（D-17）：返回列表时按资产定位，而非纯像素
   const anchor = sampleAnchor()
   if (anchor) saveScrollAnchor(anchor)
-  store.openLightbox(index)
+  // index 来自渲染列表（可能被「只看喜欢」过滤），
+  // 需换算回 store 索引，否则灯箱会打开错误的资产。
+  const target = visibleItems.value[filteredIndex]
+  const realIndex = target ? store.items.findIndex((i) => i.id === target.id) : -1
+  if (realIndex < 0) return
+  store.openLightbox(realIndex)
+  recordView(filteredIndex)
 }
+
+/** 记录最近浏览（C-15）；只看不发请求，成本可忽略 */
+function recordView(index: number) {
+  const it = visibleItems.value[index]
+  if (!it) return
+  pushRecent({ id: it.id, title: it.title || it.name, kind: it.kind })
+}
+
+/** 喜欢/取消喜欢（C-15）：乐观更新，失败回滚 */
+async function toggleLike(id: string) {
+  const liked = !likedIds.value.includes(id)
+  const before = [...likedIds.value]
+  likedIds.value = liked ? [...before, id] : before.filter((x) => x !== id)
+  try {
+    const res = await fetch('/api/like', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_id: id, liked }),
+    })
+    if (!res.ok) throw new Error()
+  } catch {
+    likedIds.value = before
+    toast.error(t('like.failed'))
+  }
+}
+
+async function loadLikes() {
+  try {
+    const res = await fetch('/api/likes')
+    if (!res.ok) return
+    const data = (await res.json()) as { ids: string[] }
+    likedIds.value = data.ids ?? []
+  } catch {
+    likedIds.value = []
+  }
+}
+
+/** 只看已喜欢：在已加载列表上过滤，避免为一枚开关新建查询参数 */
+const visibleItems = computed(() =>
+  onlyLiked.value
+    ? store.items.filter((i) => likedIds.value.includes(i.id))
+    : store.items,
+)
 
 /** 从灯箱返回：还原锚点（列数变化也能回到同一资产） */
 function onCloseLightbox() {
@@ -192,6 +245,7 @@ onMounted(async () => {
   // 探测 AI 能力（B-08）：失败静默，入口隐藏即可
   void loadAiStatus()
   void loadCollections()
+  void loadLikes()
   window.addEventListener('paste', onPaste)
 })
 
@@ -279,6 +333,13 @@ watch(
         </button>
       </div>
 
+      <MLButton
+        variant="quiet"
+        :aria-pressed="onlyLiked"
+        @click="onlyLiked = !onlyLiked"
+      >
+        {{ onlyLiked ? t('like.showAll') : t('like.onlyLiked') }}<template v-if="likedIds.length"> {{ likedIds.length }}</template>
+      </MLButton>
       <MLButton variant="quiet" @click="uploadOpen = true">{{ t('upload.open') }}</MLButton>
       <MLButton
         variant="quiet"
@@ -364,9 +425,17 @@ watch(
           </MLButton>
         </div>
 
+        <!-- 只看喜欢时若一条都没有，给出可撤销的空态，而非直接空白 -->
+        <div v-else-if="!visibleItems.length" class="browse__empty">
+          <h2>{{ t('like.empty') }}</h2>
+          <MLButton variant="ghost" @click="onlyLiked = false">
+            {{ t('like.showAll') }}
+          </MLButton>
+        </div>
+
         <MasonryGrid
           v-else
-          :items="store.items"
+          :items="visibleItems"
           :selectable="selectMode"
           :selected-ids="selectedIds"
           @open="openLightbox"
