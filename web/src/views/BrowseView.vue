@@ -5,7 +5,7 @@
  * 结构：左侧分面面板 + 右侧瀑布流。
  * URL 即状态：刷新或分享链接都能还原完整筛选视图。
  */
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMediaStore } from '@/stores/media'
 import { useFilterStore } from '@/stores/filters'
@@ -68,6 +68,21 @@ function applyAndRefresh() {
  */
 function openLightbox(index: number) {
   store.openLightbox(index)
+}
+
+/**
+ * 对比候选（A-04）：取当前项前后各若干项，覆盖同屏浏览范围即可。
+ * 传整屏 48 项会带来无谓的缩略图请求，故限制在附近 8 项。
+ */
+const compareCandidates = computed(() => {
+  const start = Math.max(0, store.lightboxIndex - 4)
+  return store.items.slice(start, start + 8)
+})
+
+/** 灯箱内点色板 → 按主色筛选（打通 A-04 与 B-10） */
+function onFilterColor(color: string) {
+  filters.setColor(color)
+  store.refresh()
 }
 
 // 从 URL 还原筛选，然后加载
@@ -236,9 +251,11 @@ watch(
       :item="store.currentItem"
       :has-prev="store.lightboxIndex > 0"
       :has-next="store.lightboxIndex < store.items.length - 1"
+      :candidates="compareCandidates"
       @close="store.closeLightbox"
       @prev="store.stepLightbox(-1)"
       @next="store.stepLightbox(1)"
+      @filter-color="onFilterColor"
     />
   </div>
 </template>

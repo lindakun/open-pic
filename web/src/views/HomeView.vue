@@ -8,17 +8,31 @@
  *   - 仅保留一条极轻的悬浮工具条（搜索入口 / 计数 / 主题），
  *     滚动时淡出，把画面完全让给图片
  */
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMediaStore } from '@/stores/media'
+import { useFilterStore } from '@/stores/filters'
 import { useI18n } from '@/composables/useI18n'
 import MasonryGrid from '@/components/MasonryGrid.vue'
 import LightboxViewer from '@/components/LightboxViewer.vue'
 import MLButton from '@/components/MLButton.vue'
 
 const store = useMediaStore()
+const filters = useFilterStore()
 const router = useRouter()
 const { t } = useI18n()
+
+/** 对比候选（A-04）：取当前项附近 8 项 */
+const compareCandidates = computed(() => {
+  const start = Math.max(0, store.lightboxIndex - 4)
+  return store.items.slice(start, start + 8)
+})
+
+/** 灯箱内点色板 → 带主色跳转浏览页（打通 A-04 与 B-10） */
+function onFilterColor(color: string) {
+  filters.setColor(color)
+  router.push({ name: 'browse' })
+}
 
 /** 滚动后工具条淡出，让图片墙占满注意力 */
 const toolbarDim = ref(false)
@@ -106,9 +120,11 @@ function goSearch() {
       :item="store.currentItem"
       :has-prev="store.lightboxIndex > 0"
       :has-next="store.lightboxIndex < store.items.length - 1"
+      :candidates="compareCandidates"
       @close="store.closeLightbox"
       @prev="store.stepLightbox(-1)"
       @next="store.stepLightbox(1)"
+      @filter-color="onFilterColor"
     />
   </div>
 </template>

@@ -67,7 +67,11 @@ describe('withViewTransition', () => {
     const update = vi.fn()
     const start = vi.fn((cb: () => void) => {
       cb()
-      return { finished: Promise.reject(new Error('transition failed')) }
+      // finished 被 withViewTransition 主动忽略，这里预置 catch 避免
+      // 测试进程报告未处理拒绝（vitest 会把它记为 unhandled error）。
+      const finished = Promise.reject(new Error('transition failed'))
+      finished.catch(() => {})
+      return { finished }
     })
     ;(document as unknown as Record<string, unknown>).startViewTransition = start
 
