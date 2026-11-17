@@ -708,3 +708,45 @@
 - **前端竞态控制**：列表请求带自增序号，过期响应直接丢弃，解决快速切换筛选时的覆盖问题。
 - **筛选状态**：全部写入 URL query（`replaceState` 防抖 200ms），滚动位置不进 URL。
 - **无障碍**：分面用原生 `<details>`/`<summary>`、卡片用原生 `<button>`、浮层用 `<dialog>`。
+
+---
+
+## 十一、部署记录
+
+### 11.1 NAS 部署链路（已建立）
+
+按规范「先 push 到远程仓库，再在远程机器 pull」，建立了如下链路：
+
+| 环节 | 位置 |
+| :--- | :--- |
+| 本地仓库 | `/Users/linda/code/open-pic`（`main`） |
+| 远程裸仓库 | NAS `fnos:/vol1/picoclaw/.picoclaw/workspace/skills/open-pic.git`（本地 remote 名 `nas`） |
+| 部署目录 | NAS `/vol1/picoclaw/.picoclaw/workspace/skills/media-library` |
+| 数据目录 | NAS `/vol1/picoclaw/.picoclaw/workspace/media-library`（`files/` `thumbs/` `media.db` `imgcache/`） |
+
+部署命令：
+
+```bash
+git push nas main
+ssh fnos "rm -rf /tmp/open-pic-deploy && git clone --branch main   /vol1/picoclaw/.picoclaw/workspace/skills/open-pic.git /tmp/open-pic-deploy &&   rsync -a --delete /tmp/open-pic-deploy/media-library/scripts/   /vol1/picoclaw/.picoclaw/workspace/skills/media-library/scripts/"
+ssh fnos "cd .../media-library && bash scripts/ensure.sh"
+```
+
+### 11.2 上线验证结果（2026-11-17）
+
+| 检查项 | 结果 |
+| :--- | :--- |
+| `/` | 302 → `/app/`（新前端启用） |
+| `/app/`、`/app/browse` | 200 |
+| `/api/stats`、`/api/facets`、`/api/items` | 200 |
+| `/img/{真实id}?w=720&fm=webp` | 200，720×959 WebP，69KB |
+| `/t/{视频id}.jpg` 海报帧 | 200，64KB |
+| 首页渲染 | 129 项，首屏 48 卡片，**零失败请求、零控制台错误** |
+| 浏览页桌面/移动 | 48 卡片、21 个分面 chip、无横向溢出、零错误 |
+| 旧前端 `/static/app.js` | 200（回退保险仍有效） |
+
+### 11.3 部署期间发现并修复的问题
+
+1. **视频卡片纯黑块**（线上验收发现）：`SmartImage` 对视频回退到 `/f/{file}`，浏览器将视频当图片解码失败。改用后端海报帧 `/t/{id}.jpg`，已修复并复验。
+2. **部署目录非 git 仓库**：NAS 部署目录原本是纯文件目录。已建立裸仓库 + `git clone` + `rsync` 的正式链路，后续改动一律走 push/pull。
+3. **服务重启需提权**：服务以 `picoclaw` 用户运行，`lindakun` 无信号权限。已改用 `sudo` 重启；`ensure.sh` 为幂等脚本，服务已响应时不会重启，因此变更后必须显式停止再拉起。
