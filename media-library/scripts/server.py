@@ -436,34 +436,39 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
         """语义资产页 /a/{slug}-{shortId}（REQ-V2-20 E-19）。
 
         以短 ID 为准定位资产：slug 仅用于可读性与分享，冲突或改名不影响访问。
-        旧 /s/{id} 保留并 301 到新地址，不破坏既有分享链接。
+        请求已是 canonical 地址时直接渲染分享页——不能 307 到同一个地址，
+        否则构成重定向死循环（sitemap 收录的全部 /a/ URL 此前都无法访问）。
+        旧 /s/{id} 保留渲染并借 canonical 指向新地址，不破坏既有分享链接。
         """
         short = slug_id.rsplit("-", 1)[-1]
         it = _find_by_short_id(short)
         if not it:
             raise HTTPException(status_code=404, detail="资源不存在或已删除")
-        return RedirectResponse(
-            url=export_seo.asset_path(it.get("slug") or "", it["id"]), status_code=307
-        )
-
-    @app.get("/sitemap.xml")
-    def sitemap(request: Request):
-        """单文件 sitemap，仅收录 published（E-19 验收 2）。"""
-        items = db.list_published_items()
-        xml = export_seo.sitemap_xml(items, base_url=str(request.base_url).rstrip("/"))
-        return Response(content=xml, media_type="application/xml")
-
-    @app.get("/robots.txt")
-    def robots(request: Request):
-        txt = export_seo.robots_txt(str(request.base_url).rstrip("/"))
-        return Response(content=txt, media_type="text/plain")
+        # slug 缺失时先补齐，保证 canonical 与 sitemap 一致
+        if not it.get("slug"):
+            it["slug"] = db.ensure_slug(it["id"])
+        canonical = export_seo.asset_path(it.get("slug") or "", it["id"])
+        if f"/a/{slug_id}" != canonical:
+            return RedirectResponse(url=canonical, status_code=301)
+        return _render_share_html(it, request)
 
     @app.get("/s/{item_id}", response_class=HTMLResponse)
     def share_page(item_id: str, request: Request):
         it = db.get_item(item_id)
         if not it or it.get("deleted_at"):
             raise HTTPException(status_code=404, detail="资源不存在或已删除")
-        db.increment_counter(item_id, "views")
+        return _render_share_html(it, request)
+
+    def _render_share_html(it: Dict[str, Any], request: Request) -> HTMLResponse:
+        """渲染资产分享页（/s/ 与 /a/ 共用）。
+
+        浏览量计数做基础 bot 排除：sitemap 收录后爬虫会持续抓取，
+        不排除的话 views 全是爬虫贡献，运营数据失真。
+        """
+        ua = request.headers.get("user-agent", "").lower()
+        is_bot = any(s in ua for s in ("bot", "spider", "crawl", "slurp"))
+        if not is_bot:
+            db.increment_counter(it["id"], "views")
         base_url = str(request.base_url).rstrip("/")
         title_esc = html.escape(it["title"] or it["name"])
         thumb_url = f"{base_url}/t/{it['id']}.jpg"
@@ -522,6 +527,29 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
 </div>
 </body>
 </html>""")
+
+    @app.get("/sitemap.xml")
+    def sitemap(request: Request):
+        """单文件 sitemap，仅收录 published（E-19 验收 2）。
+
+        全库查询 + 拼装不便宜，加短缓存头让爬虫与浏览器复用结果。
+        """
+        items = db.list_published_items()
+        xml = export_seo.sitemap_xml(items, base_url=str(request.base_url).rstrip("/"))
+        return Response(
+            content=xml,
+            media_type="application/xml",
+            headers={"Cache-Control": "public, max-age=300"},
+        )
+
+    @app.get("/robots.txt")
+    def robots(request: Request):
+        txt = export_seo.robots_txt(str(request.base_url).rstrip("/"))
+        return Response(
+            content=txt,
+            media_type="text/plain",
+            headers={"Cache-Control": "public, max-age=300"},
+        )
 
     @app.get("/healthz")
     def healthz():
@@ -713,6 +741,9 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
         it = db.get_item(item_id)
         if not it:
             raise HTTPException(status_code=404, detail="not found")
+        # 已删除资产不计数不返回详情，与 /s/ 分享页口径一致
+        if it.get("deleted_at"):
+            raise HTTPException(status_code=404, detail="not found")
         if view:
             db.increment_counter(item_id, "views")
         return it
@@ -720,6 +751,14 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
     @app.get("/api/item/{item_id}/similar")
     def api_similar_items(item_id: str, limit: int = Query(12, ge=1, le=30)):
         return {"items": db.find_similar(item_id, limit=limit)}
+
+    @app.get("/api/resolve/{short_id}")
+    def api_resolve_short(short_id: str):
+        """按短 ID（6–8 位前缀）解析资产，供 SPA 的 /app/a/ 兼容路由定位。"""
+        it = _find_by_short_id(short_id)
+        if not it:
+            raise HTTPException(status_code=404, detail="not found")
+        return it
 
     class LicenseReq(BaseModel):
         license: Optional[str] = None

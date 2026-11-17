@@ -85,6 +85,14 @@ function onSearchInput(value: string) {
   }, 300)
 }
 
+/** 一键清除搜索词：取消未决防抖、同步状态、只刷一次 */
+function clearSearch() {
+  window.clearTimeout(debounceTimer)
+  searchInput.value = ''
+  filters.setQ('')
+  applyAndRefresh()
+}
+
 /** 排序项：label 由 i18n 提供，故用 key 而非直接存文案 */
 const SORT_KEYS: SortKey[] = ['newest', 'oldest', 'pixels', 'size', 'views']
 
@@ -271,6 +279,12 @@ function onFilterColor(color: string) {
   store.refresh()
 }
 
+/** 灯箱内点标签 → 按标签筛选（与色板筛选对称） */
+function onFilterTag(tag: string) {
+  if (!filters.tags.includes(tag)) filters.toggleTag(tag)
+  store.refresh()
+}
+
 // 从 URL 还原筛选，然后加载
 onMounted(async () => {
   filters.fromUrlQuery(route.query as Record<string, string>)
@@ -291,7 +305,34 @@ onMounted(async () => {
     es.addEventListener('media_ready', onMediaReady as EventListener)
     es.addEventListener('library_updated', scheduleLibraryRefresh)
   }
+  // 旧分享链接 /app/a/{slug}-{shortId} 兼容路由：解析短 ID 后打开对应灯箱
+  if (route.name === 'asset') {
+    void resolveAssetFromSlug(String(route.params.slug ?? ''))
+  }
 })
+
+/** 解析语义链接中的短 ID 并打开灯箱（E-19 的 SPA 兼容路径） */
+async function resolveAssetFromSlug(slug: string) {
+  const last = slug.split('-').pop() ?? ''
+  if (!/^[0-9a-f]{6,32}$/.test(last)) return
+  try {
+    const res = await fetch(`/api/resolve/${encodeURIComponent(last)}`)
+    if (!res.ok) return
+    const it = (await res.json()) as { id: string }
+    const idx = store.items.findIndex((x) => x.id === it.id)
+    if (idx >= 0) {
+      store.openLightbox(idx)
+      return
+    }
+    // 不在当前筛选结果里：清空筛选重载后再开
+    filters.reset()
+    await store.refresh()
+    const j = store.items.findIndex((x) => x.id === it.id)
+    if (j >= 0) store.openLightbox(j)
+  } catch {
+    // 解析失败静默：落到普通浏览页即可
+  }
+}
 
 // 组合式函数必须在 setup 同步作用域调用：
 // 它们内部注册的 onMounted 只有在 setup 期间才会被执行（实测踩到，
@@ -414,13 +455,14 @@ watch(
           :aria-label="t('browse.searchLabel')"
           @input="onSearchInput(($event.target as HTMLInputElement).value)"
         />
-        <!-- 有内容时提供一键清除，避免逐字删除 -->
+        <!-- 有内容时提供一键清除：直接清队列/状态/刷新一次，
+             走 onSearchInput 会再排一个 300ms 防抖造成双重请求 -->
         <button
           v-if="searchInput"
           type="button"
           class="browse__search-clear"
           :aria-label="t('browse.clearSearch')"
-          @click="onSearchInput(''); filters.setQ(''); applyAndRefresh()"
+          @click="clearSearch"
         >
           ×
         </button>
@@ -582,6 +624,7 @@ watch(
       @next="store.stepLightbox(1)"
       @slideshow-end="store.stepToFirst()"
       @filter-color="onFilterColor"
+      @filter-tag="onFilterTag"
     />
 
     <UploadPanel v-model:open="uploadOpen" @uploaded="onUploaded" />

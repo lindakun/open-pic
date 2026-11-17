@@ -35,6 +35,8 @@ const emit = defineEmits<{
   (e: 'slideshow-end'): void
   /** 按主色筛选（对接 B-10 的 color 参数） */
   (e: 'filter-color', color: string): void
+  /** 按标签筛选（信息面板的标签 chips） */
+  (e: 'filter-tag', tag: string): void
 }>()
 
 const dialogRef = ref<HTMLDialogElement | null>(null)
@@ -243,6 +245,11 @@ async function copyColor(color: string) {
 
 function filterByColor(color: string) {
   emit('filter-color', color)
+  close()
+}
+
+function filterByTag(tag: string) {
+  emit('filter-tag', tag)
   close()
 }
 
@@ -527,7 +534,16 @@ onUnmounted(() => {
       </dl>
 
       <div v-if="item.tags?.length" class="panel__tags">
-        <span v-for="tag in item.tags" :key="tag" class="panel__tag">{{ tag }}</span>
+        <button
+          v-for="tag in item.tags"
+          :key="tag"
+          type="button"
+          class="panel__tag"
+          :aria-label="`${t('lightbox.filterTag')} ${tag}`"
+          @click="filterByTag(tag)"
+        >
+          {{ tag }}
+        </button>
       </div>
 
       <div v-if="palette.length" class="panel__palette">
@@ -882,6 +898,11 @@ onUnmounted(() => {
   font-size: var(--p-step--1);
   border-radius: var(--p-radius-sm);
   background: rgba(250, 248, 245, 0.14);
+  transition: background-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.panel__tag:hover {
+  background: rgba(250, 248, 245, 0.26);
 }
 
 .panel__palette {

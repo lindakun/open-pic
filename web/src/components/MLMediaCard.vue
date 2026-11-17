@@ -9,7 +9,7 @@
  *
  * 使用 <button> 而非 <div onclick>，键盘可达（E-20 整改的 45 处之一）。
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { MediaItem } from '@/api/types'
 import SmartImage from './SmartImage.vue'
 import { useI18n } from '@/composables/useI18n'
@@ -39,6 +39,14 @@ const emit = defineEmits<{
   (e: 'toggle', id: string): void
 }>()
 
+/** 视频悬停动态预览（后端预生成的 3s WebP）：
+ *  用独立叠加层换图，不改写 SmartImage 的 src（会破坏 srcset 选择）。
+ */
+const previewing = ref(false)
+const previewSrc = computed(() =>
+  props.item.preview_file ? `/p/${props.item.preview_file}` : '',
+)
+
 function onClick() {
   if (props.selectable) emit('toggle', props.item.id)
   else emit('open', props.item)
@@ -59,10 +67,10 @@ const displayTitle = computed(() => props.item.title || props.item.name)
 const meta = computed(() => {
   const parts: string[] = []
   if (props.item.width && props.item.height) {
-    parts.push(`${props.item.width}×${props.item.height}`)
+    parts.push(`${formatNumber(props.item.width)}×${formatNumber(props.item.height)}`)
   }
   if (props.item.kind === 'video' && props.item.duration) {
-    parts.push(`${Math.round(props.item.duration)}s`)
+    parts.push(`${formatNumber(Math.round(props.item.duration))}s`)
   }
   return parts.join(' · ')
 })
@@ -83,6 +91,8 @@ const altText = computed(() =>
     :class="['ml-card', { 'ml-card--picked': selectable && selected }]"
     :aria-pressed="selectable ? selected : undefined"
     @click="onClick"
+    @mouseenter="item.kind === 'video' && previewSrc && (previewing = true)"
+    @mouseleave="previewing = false"
   >
     <div
       class="ml-card__media"
@@ -97,6 +107,15 @@ const altText = computed(() =>
         :alt="altText"
         :ratio="ratio"
         :display-width="width"
+      />
+      <!-- 视频悬停动态预览：叠加在海报帧上，移出即停。
+           桌面 hover 设备才显示（触屏长按会误触） -->
+      <img
+        v-if="previewing && previewSrc"
+        :src="previewSrc"
+        alt=""
+        aria-hidden="true"
+        class="ml-card__preview"
       />
       <!-- 视频徽标：带播放符号，一眼可辨；时长同时给出 -->
       <span
@@ -134,6 +153,22 @@ const altText = computed(() =>
 .ml-card__play {
   font-size: 0.5625rem;
   margin-right: 2px;
+}
+
+/* 悬停动态预览叠加层：铺满媒体区，覆盖海报帧 */
+.ml-card__preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+@media (hover: none) {
+  .ml-card__preview {
+    display: none;
+  }
 }
 
 .ml-card__check {

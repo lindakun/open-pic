@@ -37,6 +37,12 @@ function onFilterColor(color: string) {
   void router.push({ name: 'browse', query: filters.toUrlQuery() })
 }
 
+/** 灯箱内点标签 → 带标签跳转浏览页（与色板筛选对称） */
+function onFilterTag(tag: string) {
+  if (!filters.tags.includes(tag)) filters.toggleTag(tag)
+  void router.push({ name: 'browse', query: filters.toUrlQuery() })
+}
+
 /** 是否具备自动加载能力：无 IntersectionObserver 时退回手动按钮 */
 const autoLoadAvailable = typeof IntersectionObserver !== 'undefined'
 
@@ -151,6 +157,7 @@ function goBrowseAndUpload() {
       @next="store.stepLightbox(1)"
       @slideshow-end="store.stepToFirst()"
       @filter-color="onFilterColor"
+      @filter-tag="onFilterTag"
     />
   </div>
 </template>

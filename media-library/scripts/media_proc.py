@@ -231,25 +231,37 @@ def make_thumbnails(src: str, thumbs_dir: str, item_id: str, ext: str) -> Option
     args += ["-i", src, "-frames:v", "1", "-vf", "scale=1440:-1", jpg_path]
     try:
         subprocess.run(args, timeout=90, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        if os.path.exists(jpg_path) and os.path.getsize(jpg_path) > 0:
-            try:
-                from PIL import Image
-                with Image.open(jpg_path) as frame:
-                    rgb = _prepare_rgb_image(frame)
-                    for tag, px in THUMB_SIZES.items():
-                        wp = os.path.join(thumbs_dir, f"{item_id}_{tag}.webp")
-                        cw = rgb.copy()
-                        cw.thumbnail((px, px * 2), Image.LANCZOS)
-                        cw.save(wp, "WEBP", quality=80, method=4)
-                    # 主 jpg 控制在 640px
-                    c640 = rgb.copy()
-                    c640.thumbnail((640, 640), Image.LANCZOS)
-                    c640.save(jpg_path, "JPEG", quality=82, optimize=True)
-            except Exception:
-                pass
-            return f"{item_id}.jpg"
     except Exception as e:
-        print(f"[thumb] ffmpeg 失败 {src}: {e}", file=sys.stderr)
+        # 极短视频（<0.5s）时 -ss 越界会取不到帧：去掉起点重试一次
+        if ext in VIDEO_EXT:
+            retry = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                     "-i", src, "-frames:v", "1", "-vf", "scale=1440:-1", jpg_path]
+            try:
+                subprocess.run(retry, timeout=90, check=True,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            except Exception as e2:
+                print(f"[thumb] ffmpeg 失败 {src}: {e2}", file=sys.stderr)
+                return None
+        else:
+            print(f"[thumb] ffmpeg 失败 {src}: {e}", file=sys.stderr)
+            return None
+    if os.path.exists(jpg_path) and os.path.getsize(jpg_path) > 0:
+        try:
+            from PIL import Image
+            with Image.open(jpg_path) as frame:
+                rgb = _prepare_rgb_image(frame)
+                for tag, px in THUMB_SIZES.items():
+                    wp = os.path.join(thumbs_dir, f"{item_id}_{tag}.webp")
+                    cw = rgb.copy()
+                    cw.thumbnail((px, px * 2), Image.LANCZOS)
+                    cw.save(wp, "WEBP", quality=80, method=4)
+                # 主 jpg 控制在 640px
+                c640 = rgb.copy()
+                c640.thumbnail((640, 640), Image.LANCZOS)
+                c640.save(jpg_path, "JPEG", quality=82, optimize=True)
+        except Exception:
+            pass
+        return f"{item_id}.jpg"
     return None
 
 
