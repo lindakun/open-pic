@@ -117,6 +117,10 @@ async function exportZip() {
   if (!count.value || busy.value) return
   busy.value = true
   try {
+    // 后端同步/异步导出上限 200 项，超出部分静默丢弃——必须提前告知
+    if (count.value > 200) {
+      toast.info(t('batch.exportCapped', { count: count.value }))
+    }
     const res = await api.exportZip(props.selected, { preset: 'original' })
     if (res.kind === 'job') {
       toast.info(t('batch.exportQueued', { count: res.count }))

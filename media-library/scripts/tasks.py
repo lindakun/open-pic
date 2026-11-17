@@ -40,10 +40,31 @@ class TaskManager:
     def start(self, num_workers: int = 2):
         if self._workers:
             return
+        self._stop_event.clear()
         for idx in range(num_workers):
             t = threading.Thread(target=self._worker_loop, name=f"mlib-worker-{idx}", daemon=True)
             t.start()
             self._workers.append(t)
+        self._recover_pending_jobs()
+
+    def _recover_pending_jobs(self):
+        """重启后恢复未完成任务。
+
+        队列本身在内存里，进程重启即丢；但任务行落在 ingest_jobs 表。
+        启动时把 pending/running 复位后按创建顺序重新入队，
+        否则重启前正在批量上传的资产会永远停留在"无缩略图"状态。
+        """
+        try:
+            n = self.db.requeue_interrupted_jobs()
+            ids = self.db.list_pending_job_ids()
+            for jid in ids:
+                self._q.put(jid)
+            if ids:
+                print(f"[tasks] 已恢复 {len(ids)} 个中断任务（复位 {n} 条）", file=sys.stderr)
+                self.broadcast("job", {"id": 0, "status": "pending", "progress": 0,
+                                       "message": f"恢复 {len(ids)} 个中断任务"})
+        except Exception as e:
+            print(f"[tasks] 恢复中断任务失败: {e}", file=sys.stderr)
 
     def stop(self):
         self._stop_event.set()

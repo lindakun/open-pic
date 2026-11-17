@@ -10,7 +10,7 @@
  *
  * 数据流：库主生成 /review/{token} 链接 → 客户打开即标记 → 库主在后台看汇总。
  */
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from '@/composables/useI18n'
 import type { MediaItem } from '@/api/types'
@@ -39,9 +39,29 @@ const marks = ref<Record<string, Mark>>({})
 const noteDraft = ref('')
 /** 上一次因 saving 锁而未提交的标记，写入完成后补发 */
 const pendingMark = ref<{ itemId: string; state: MarkState; note?: string } | null>(null)
-const reviewer = ref('')
+/** 审阅人名字持久化：客户刷新后不用重输（C-14）。
+ *  localStorage 用安全访问器：测试环境/隐私模式下不可用时静默降级。
+ */
+const savedReviewer = (() => {
+  try {
+    return localStorage.getItem('medialib.reviewer') ?? ''
+  } catch {
+    return ''
+  }
+})()
+const reviewer = ref(savedReviewer)
 
 const current = computed(() => items.value[index.value] ?? null)
+
+// 审阅人名字落 localStorage，跨会话保留
+watch(reviewer, (v) => {
+  try {
+    if (v.trim()) localStorage.setItem('medialib.reviewer', v.trim())
+    else localStorage.removeItem('medialib.reviewer')
+  } catch {
+    // 隐私模式等存储不可用场景静默降级
+  }
+})
 
 const counts = computed(() => {
   const c = { selected: 0, pending: 0, rejected: 0, unmarked: 0 }
@@ -241,7 +261,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           />
           <video
             v-else
-            :src="`/f/${current.file}`"
+            :src="current.play_file ? `/f/${current.file}?play=1` : `/f/${current.file}`"
             :poster="`/t/${current.id}.jpg`"
             controls
             playsinline

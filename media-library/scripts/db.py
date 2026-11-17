@@ -1155,7 +1155,8 @@ class MediaDB:
             }
 
     def get_facets(self, kind: str = "", ext: str = "", orientation: str = "",
-                   platform: str = "") -> Dict[str, Any]:
+                   platform: str = "", tags: Optional[List[str]] = None,
+                   exclude_tags: Optional[List[str]] = None) -> Dict[str, Any]:
         """分面统计（REQ-V2-20 B-10）。
 
         返回在当前筛选上下文下，各维度的可选值与计数，
@@ -1164,6 +1165,17 @@ class MediaDB:
         做法：用与 query_items 相同的 where 条件跑聚合，
         每个维度额外排除自身的筛选条件，避免"选了 A 后 A 维度只剩 A"。
         """
+        # 标签别名归一（与 query_items 同款口径）
+        alias_map: Dict[str, str] = {}
+        if tags or exclude_tags:
+            with self.connect() as _c:
+                for r in _c.execute(
+                    "SELECT a.alias, t.name FROM tag_aliases a JOIN tags t ON t.id=a.tag_id"
+                ).fetchall():
+                    alias_map[r["alias"]] = r["name"]
+        tag_names = [alias_map.get(t.strip(), t.strip()) for t in (tags or []) if t.strip()]
+        ex_tag_names = [alias_map.get(t.strip(), t.strip()) for t in (exclude_tags or []) if t.strip()]
+
         # 逐维度聚合：kind / ext / orientation / platform / tag
         with self.connect() as conn:
             def scalar(sql: str, params: List[Any]) -> int:
@@ -1190,6 +1202,20 @@ class MediaDB:
                 if exclude != "platform" and platform:
                     where.append("i.source_platform = ?")
                     params.append(platform)
+                # 标签上下文对所有维度生效（标签不在分面面板自身的排除逻辑里，
+                # 因为标签是多选，排除自己会让计数回到全集，语义反直觉）
+                for t in tag_names:
+                    where.append(
+                        "EXISTS (SELECT 1 FROM item_tags it JOIN tags tg ON it.tag_id=tg.id"
+                        " WHERE it.item_id=i.id AND tg.name=?)"
+                    )
+                    params.append(t)
+                for et in ex_tag_names:
+                    where.append(
+                        "NOT EXISTS (SELECT 1 FROM item_tags it JOIN tags tg ON it.tag_id=tg.id"
+                        " WHERE it.item_id=i.id AND tg.name=?)"
+                    )
+                    params.append(et)
                 return " AND ".join(where), params
 
             result: Dict[str, Any] = {}
@@ -1900,6 +1926,31 @@ class MediaDB:
         with self._write_lock, self.connect() as conn:
             conn.execute(f"UPDATE ingest_jobs SET {sets} WHERE id=?", (*updates.values(), job_id))
             conn.commit()
+
+    def requeue_interrupted_jobs(self) -> int:
+        """把重启前遗留的 pending/running 任务复位并返回数量。
+
+        任务队列在内存中，进程重启即丢；DB 里的任务行却还挂着
+        pending/running 状态。启动时统一复位为 pending 并重新入队，
+        由调用方（TaskManager.start）负责入队，这里只改状态。
+        """
+        with self._write_lock, self.connect() as conn:
+            cur = conn.execute(
+                "UPDATE ingest_jobs SET status='pending', message='重启后恢复排队',"
+                " updated_at=? WHERE status IN ('pending','running')",
+                (int(time.time()),),
+            )
+            conn.commit()
+            return cur.rowcount or 0
+
+    def list_pending_job_ids(self, limit: int = 1000) -> List[int]:
+        """按创建顺序取 pending 任务 id（重启恢复用）。"""
+        with self.connect() as conn:
+            return [r[0] for r in conn.execute(
+                "SELECT id FROM ingest_jobs WHERE status='pending'"
+                " ORDER BY id ASC LIMIT ?",
+                (limit,),
+            ).fetchall()]
 
     def get_job(self, job_id: int) -> Optional[Dict[str, Any]]:
         """按 id 精确取任务。

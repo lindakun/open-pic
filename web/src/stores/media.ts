@@ -94,6 +94,9 @@ export const useMediaStore = defineStore('media', () => {
         ext: filters.ext,
         orientation: filters.orientation,
         platform: filters.platform,
+        // 标签也参与分面上下文：否则选标签后其余维度仍显示全集计数
+        tag: filters.tags,
+        exclude_tag: filters.excludeTags,
       })
       if (seq !== facetsSeq) return
       facets.value = res

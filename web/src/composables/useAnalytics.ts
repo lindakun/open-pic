@@ -160,8 +160,17 @@ export function useImpressionTracker(ids: Ref<string[]>) {
     // 只扫一次会漏掉全部曝光（实测踩到）。用 MutationObserver 增量补观测。
     observeCards()
     if (typeof MutationObserver !== 'undefined') {
+      // 虚拟化列表滚动时每次卡片回收/挂载都会触发 mutation，
+      // 不节流的话每次都全量 querySelectorAll（滚动性能实测劣化）。
+      // 用 rAF 合并同一帧内的多次变更，每帧最多扫一遍。
+      let scanPending = false
       mutation = new MutationObserver(() => {
-        observeCards()
+        if (scanPending) return
+        scanPending = true
+        requestAnimationFrame(() => {
+          scanPending = false
+          observeCards()
+        })
       })
       mutation.observe(document.body, { childList: true, subtree: true })
     }

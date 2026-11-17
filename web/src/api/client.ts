@@ -66,9 +66,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     let message = `请求失败（${res.status}）`
+    // 后端部分校验错误是英文短码，换成本地化文案
+    if (res.status === 413) message = '文件超过大小上限（1GB）'
     try {
       const body = (await res.json()) as ApiError
-      if (body?.detail) message = body.detail
+      if (res.status !== 413 && body?.detail) message = body.detail
     } catch {
       // 响应不是 JSON 时保留默认文案
     }

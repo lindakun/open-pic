@@ -647,12 +647,25 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
         return db.get_analytics()
 
     @app.get("/api/facets")
-    def api_facets(kind: str = "", ext: str = "", orientation: str = "", platform: str = ""):
+    def api_facets(
+        kind: str = "",
+        ext: str = "",
+        orientation: str = "",
+        platform: str = "",
+        tag: str = "",
+        exclude_tag: str = "",
+    ):
         """分面统计（REQ-V2-20 B-10）。
 
         返回各筛选维度的可选值与计数，前端据此渲染分面面板并对零结果项置灰。
+        标签筛选也参与上下文：否则选了标签后其他维度的计数仍是全集，误导点选。
         """
-        return db.get_facets(kind=kind, ext=ext, orientation=orientation, platform=platform)
+        tags_list = [t.strip() for t in tag.split(",") if t.strip()] if tag else []
+        ex_list = [t.strip() for t in exclude_tag.split(",") if t.strip()] if exclude_tag else []
+        return db.get_facets(
+            kind=kind, ext=ext, orientation=orientation, platform=platform,
+            tags=tags_list, exclude_tags=ex_list,
+        )
 
     @app.get("/api/items")
     def api_items(
@@ -971,7 +984,9 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
         """下载异步导出产物（REQ-V2-20 C-13）。"""
         if not re.match(r"^medialib-\d+\.zip$", name):
             raise HTTPException(status_code=404, detail="not found")
-        path = os.path.join(DATA, "exports", name)
+        exports_dir = os.path.join(DATA, "exports")
+        _cleanup_old_exports(exports_dir)
+        path = os.path.join(exports_dir, name)
         if not os.path.isfile(path):
             raise HTTPException(status_code=404, detail="导出文件不存在或已过期")
         return FileResponse(
@@ -980,6 +995,17 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
             filename=name,
             headers={"Cache-Control": "private, max-age=0, must-revalidate"},
         )
+
+    def _cleanup_old_exports(exports_dir: str, keep_days: int = 7):
+        """清理过期导出产物：exports 目录没有别的回收机制，ZIP 会无限堆积。"""
+        try:
+            cutoff = time.time() - keep_days * 86400
+            for fn in os.listdir(exports_dir):
+                fp = os.path.join(exports_dir, fn)
+                if os.path.isfile(fp) and os.stat(fp).st_mtime < cutoff:
+                    os.remove(fp)
+        except OSError:
+            pass
 
     # ---------- AI 自动打标（B-07） ----------
 
@@ -1396,7 +1422,7 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
     # ---------- 任务队列与存储治理 ----------
 
     @app.get("/api/jobs")
-    def api_list_jobs(limit: int = 50):
+    def api_list_jobs(limit: int = Query(50, ge=1, le=500)):
         return {"jobs": db.list_jobs(limit=limit)}
 
     @app.post("/api/jobs/backfill")
@@ -1411,14 +1437,24 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
         async def event_gen():
             try:
                 yield "event: ping\ndata: {}\n\n"
+                # 周期心跳：长期无事件时中间代理/浏览器可能掐掉空闲连接，
+                # 每 15s 补一个 ping 保活（客户端 EventSource 自动重连忽略 ping）
+                import asyncio
+
+                heartbeat = 0.0
                 while True:
                     if await request.is_disconnected():
                         break
                     try:
                         msg = q.get_nowait()
                         yield msg
+                        heartbeat = 0.0
                     except Exception:
-                        await __import__("asyncio").sleep(0.5)
+                        await asyncio.sleep(0.5)
+                        heartbeat += 0.5
+                        if heartbeat >= 15:
+                            heartbeat = 0.0
+                            yield "event: ping\ndata: {}\n\n"
             finally:
                 tasks.unsubscribe(q)
 
