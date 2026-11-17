@@ -682,6 +682,7 @@
 | **C-15 个人工作区** | ✅ 完成（收藏部分） | 「喜欢」独立于合集（`item_flags`），可列表回看；删除资产自动排除 | 单测 2 项；实测 like/likes 接口往返一致 |
 | S3 剩余 | ✅ 完成 | S3 运营增强全部 5 项落地 | — |
 | **D-17 虚拟滚动** | ✅ 完成 | 视口 ± 2 屏外回收为等高占位（滚动条总高不变）、首屏前 4 张强制保留、锚点恢复（itemId + 比例，列数变化仍定位同一资产）、位置存 `history.state` 不进 URL、弱网/省流量分页降为 24 | 5 项组件测试 + 10 项锚点测试；500 张实测 48 单元格仅真实渲染 24–25 张、滚动后位移 0、关闭灯箱回到同一 itemId（偏差 0）、768↔1440 列数 2↔4 变化后仍同资产 |
+| **D-18 运营度量** | ✅ 完成 | `events` / `metrics` 表 + `/api/events` 批量上报（单事务、非法类型跳过、失败静默）+ `/api/events/overview`（7/30 日趋势、资产漏斗、零结果搜索词、设备与来源）+ `/api/metrics/summary` 分位数；前端队列 10s/20 条合并上报、曝光需停留 ≥1s、页面隐藏时刷出 | 12 项后端测试 + 6 项前端测试；实测零结果搜索词入榜、漏斗满足曝光≥点击≥下载、单次交互仅 1 个请求 |
 | **D-18 性能预算** | ✅ 完成（性能侧） | `scripts/perf_report.py`：首包 JS gzip / 资源总量 / 关键接口耗时预算，超预算退出码非 0，支持 `--json`；不建分位数看板（内网单用户 ROI 低） | 4 项脚本测试；线上实测 JS 首包 44.4KB（预算 120）、接口 1.5–4.7ms |
 | **B-08 语义检索** | ✅ 完成（链路就绪，待配 Key） | `ai_provider` 抽象（none/openai，环境变量切换）、512 维向量以 float32 紧凑存储、`/api/search/semantic` 关键词+向量 RRF 融合、`/api/search/by-image` 以图搜图、`/api/jobs/embedding-backfill` 回填任务；未配置时一律 501 语义 + 前端显示「AI 检索未启用」而不报错 | 22 项 AI 单测；实测未配置→status 200/available=false、semantic 501；注入 fake provider 后回填 3 条、semantic 返回 3 条、前端入口由说明态切换 |
 | **B-07 AI 打标** | 🟡 部分 | provider 侧 `tag_image`（结构化 风格/景别/场景/时段/主色 + tags）、`set_tags_with_source(source='ai')`、否决黑名单 `tag_rejections` 与 `/api/ai/reject-tags`；**入库自动触发尚未接入**（需先配真实 provider 再验证成本与质量） | 单测覆盖 JSON 抽取、AI 标签入库可检索、否决持久化 |

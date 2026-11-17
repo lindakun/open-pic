@@ -972,6 +972,48 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
             headers={"Cache-Control": "private, max-age=0, must-revalidate"},
         )
 
+    # ---------- 运营事件与指标（D-18） ----------
+
+    class EventsReq(BaseModel):
+        events: List[Dict[str, Any]]
+
+    class MetricsReq(BaseModel):
+        metrics: List[Dict[str, Any]]
+
+    @app.post("/api/events")
+    def api_add_events(req: EventsReq):
+        """批量埋点上报（D-18 验收 4：单次交互合并为一次请求）。
+
+        埋点失败一律静默（返回 ok=false 而非 4xx/5xx），不能影响业务。
+        """
+        try:
+            n = db.add_events(req.events)
+            return {"ok": True, "accepted": n}
+        except Exception:
+            return {"ok": False, "accepted": 0}
+
+    @app.get("/api/events/overview")
+    def api_events_overview(days: int = Query(7, ge=1, le=90)):
+        """运营看板数据：趋势、资产漏斗、零结果搜索词、设备与来源。"""
+        return db.event_overview(days=days)
+
+    @app.post("/api/metrics")
+    def api_add_metrics(req: MetricsReq):
+        """性能指标上报（默认关闭，由前端开关控制）。"""
+        try:
+            n = db.add_metrics(req.metrics)
+            return {"ok": True, "accepted": n}
+        except Exception:
+            return {"ok": False, "accepted": 0}
+
+    @app.get("/api/metrics/summary")
+    def api_metrics_summary(
+        name: str = "",
+        days: int = Query(7, ge=1, le=90),
+    ):
+        """指标分位数（供 CLI 使用，不做前端看板）。"""
+        return {"summary": db.metrics_summary(name=name, days=days)}
+
     # ---------- 人工精选（A-02） ----------
 
     class FeaturedReq(BaseModel):

@@ -12,6 +12,7 @@ import { useFilterStore } from '@/stores/filters'
 import { useToast } from '@/composables/useToast'
 import { useAiStatus } from '@/composables/useAiStatus'
 import { pushRecent } from '@/composables/useRecent'
+import { track, useEventFlush, useImpressionTracker } from '@/composables/useAnalytics'
 import { api } from '@/api/client'
 import { useI18n } from '@/composables/useI18n'
 import MasonryGrid from '@/components/MasonryGrid.vue'
@@ -58,9 +59,13 @@ let debounceTimer: number | undefined
 function onSearchInput(value: string) {
   searchInput.value = value
   window.clearTimeout(debounceTimer)
-  debounceTimer = window.setTimeout(() => {
+  debounceTimer = window.setTimeout(async () => {
     filters.setQ(value)
-    store.refresh()
+    await store.refresh()
+    // 记录搜索结果数：后续「零结果搜索词榜」直接来自这里（D-18）
+    if (value.trim()) {
+      track('search', { meta: { q: value.trim(), result_count: store.total } })
+    }
   }, 300)
 }
 
@@ -169,6 +174,7 @@ function openLightbox(filteredIndex: number) {
   if (realIndex < 0) return
   store.openLightbox(realIndex)
   recordView(filteredIndex)
+  track('view', { itemId: target!.id })
 }
 
 /** 记录最近浏览（C-15）；只看不发请求，成本可忽略 */
@@ -248,6 +254,12 @@ onMounted(async () => {
   void loadLikes()
   window.addEventListener('paste', onPaste)
 })
+
+// 组合式函数必须在 setup 同步作用域调用：
+// 它们内部注册的 onMounted 只有在 setup 期间才会被执行（实测踩到，
+// 放在 onMounted 回调里注册的生命周期钩子永远不会触发）。
+useEventFlush()
+useImpressionTracker(computed(() => store.items.map((i) => i.id)))
 
 onUnmounted(() => {
   window.removeEventListener('paste', onPaste)

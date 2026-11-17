@@ -138,9 +138,18 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="MediaLib 性能预算检查（D-18）")
     ap.add_argument("--base", default="http://127.0.0.1:18100", help="站点基址")
     ap.add_argument("--json", action="store_true", help="仅输出 JSON")
+    ap.add_argument("--metrics", action="store_true",
+                    help="附带输出已上报性能指标的 P50/P75/P95（需前端开关开启过）")
     args = ap.parse_args()
 
     report = check(args.base)
+    if args.metrics:
+        st, body, _, _ = fetch(f"{args.base}/api/metrics/summary?days=7")
+        if st == 200:
+            try:
+                report["metrics"] = json.loads(body).get("summary", [])
+            except Exception:
+                report["metrics"] = []
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
@@ -150,6 +159,13 @@ def main() -> int:
             mark = "✓" if c["passed"] else "✗"
             print(f"{mark} {c['name']:<24} {c['value']:>10} / {c['budget']} {c['unit']}")
         print("-" * 56)
+        metrics = report.get("metrics") or []
+        if metrics:
+            print("实测指标（近 7 日）：")
+            for m in metrics:
+                print(f"  {m['name']:<10} n={m['count']:<5} "
+                      f"p50={m['p50']} p75={m['p75']} p95={m['p95']}")
+            print("-" * 56)
         print("结论：" + ("全部达标" if report["ok"] else "存在超出预算项"))
     return 0 if report["ok"] else 1
 

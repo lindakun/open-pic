@@ -115,6 +115,34 @@ CREATE TABLE IF NOT EXISTS ingest_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON ingest_jobs(status, created_at DESC);
 
+-- 运营事件（REQ-V2-20 D-18）：一次交互的埋点在应用层合并为批量事务写入
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id TEXT DEFAULT NULL,
+    type TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    page TEXT NOT NULL DEFAULT '',
+    referrer TEXT NOT NULL DEFAULT '',
+    device TEXT NOT NULL DEFAULT '',
+    meta TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_events_type_ts ON events(type, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_events_item ON events(item_id, ts DESC);
+
+-- 性能指标（D-18 性能侧）：默认关闭，开启后按页面类型上报
+CREATE TABLE IF NOT EXISTS metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    value REAL NOT NULL,
+    page_type TEXT NOT NULL DEFAULT '',
+    device TEXT NOT NULL DEFAULT '',
+    ts INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_metrics_name_ts ON metrics(name, ts DESC);
+
 -- 人工精选排布（REQ-V2-20 A-02 遗留）：position 越小越靠前
 CREATE TABLE IF NOT EXISTS featured (
     item_id TEXT NOT NULL,
@@ -1446,6 +1474,178 @@ class MediaDB:
                 " WHERE a.alias=?", (name,),
             ).fetchone()
             return row["name"] if row else name
+
+    # ---------- 运营事件与指标（D-18） ----------
+
+    EVENT_TYPES = (
+        "impression", "view", "download", "like", "collect", "search", "share",
+    )
+
+    def add_events(self, events: List[Dict[str, Any]]) -> int:
+        """批量写事件（D-18：高频埋点合并为单事务，避免逐条抢写锁）。
+
+        非法事件类型直接跳过，不使整批失败——埋点永远不该影响业务。
+        """
+        if not events:
+            return 0
+        now = int(time.time())
+        rows = []
+        for e in events[:500]:
+            etype = str(e.get("type") or "").strip()
+            if etype not in self.EVENT_TYPES:
+                continue
+            rows.append((
+                e.get("item_id") or None,
+                etype,
+                int(e.get("ts") or now),
+                str(e.get("page") or "")[:200],
+                str(e.get("referrer") or "")[:300],
+                str(e.get("device") or "")[:20],
+                json.dumps(e.get("meta") or {}, ensure_ascii=False)[:2000],
+            ))
+        if not rows:
+            return 0
+        with self._write_lock, self.connect() as conn:
+            conn.executemany(
+                "INSERT INTO events(item_id, type, ts, page, referrer, device, meta)"
+                " VALUES (?,?,?,?,?,?,?)",
+                rows,
+            )
+            conn.commit()
+        return len(rows)
+
+    def add_metrics(self, metrics: List[Dict[str, Any]]) -> int:
+        """批量写性能指标（默认关闭，前端按开关上报）。"""
+        if not metrics:
+            return 0
+        now = int(time.time())
+        rows = []
+        for m in metrics[:200]:
+            name = str(m.get("name") or "").strip()
+            if not name:
+                continue
+            try:
+                value = float(m.get("value"))
+            except (TypeError, ValueError):
+                continue
+            rows.append((
+                name[:40], value, str(m.get("page_type") or "")[:40],
+                str(m.get("device") or "")[:20], int(m.get("ts") or now),
+            ))
+        if not rows:
+            return 0
+        with self._write_lock, self.connect() as conn:
+            conn.executemany(
+                "INSERT INTO metrics(name, value, page_type, device, ts) VALUES (?,?,?,?,?)",
+                rows,
+            )
+            conn.commit()
+        return len(rows)
+
+    def event_overview(self, days: int = 7) -> Dict[str, Any]:
+        """运营看板：趋势 / 漏斗 / 零结果搜索 / 设备与来源（D-18 验收 2/3）。"""
+        since = int(time.time()) - days * 86400
+        with self.connect() as conn:
+            # 按日趋势
+            trend = conn.execute(
+                "SELECT strftime('%Y-%m-%d', ts, 'unixepoch', 'localtime') AS day,"
+                " type, COUNT(*) AS cnt FROM events WHERE ts >= ?"
+                " GROUP BY day, type ORDER BY day ASC",
+                (since,),
+            ).fetchall()
+
+            # Top 资产漏斗：曝光 ≥ 点击 ≥ 下载
+            funnel = conn.execute(
+                """
+                SELECT COALESCE(e.item_id, '') AS item_id,
+                       SUM(CASE WHEN e.type='impression' THEN 1 ELSE 0 END) AS impressions,
+                       SUM(CASE WHEN e.type='view' THEN 1 ELSE 0 END) AS views,
+                       SUM(CASE WHEN e.type='download' THEN 1 ELSE 0 END) AS downloads
+                FROM events e WHERE e.ts >= ? AND e.item_id IS NOT NULL
+                GROUP BY e.item_id
+                ORDER BY impressions DESC, views DESC
+                LIMIT 20
+                """,
+                (since,),
+            ).fetchall()
+            titles = {}
+            ids = [r["item_id"] for r in funnel if r["item_id"]]
+            if ids:
+                ph = ",".join("?" for _ in ids)
+                for r in conn.execute(
+                    f"SELECT id, title, name FROM items WHERE id IN ({ph})", ids
+                ).fetchall():
+                    titles[r["id"]] = r["title"] or r["name"]
+
+            # 零结果搜索词：meta.result_count 为 0 的 search 事件
+            zero = conn.execute(
+                "SELECT json_extract(meta, '$.q') AS q, COUNT(*) AS cnt"
+                " FROM events WHERE type='search' AND ts >= ?"
+                " AND COALESCE(json_extract(meta, '$.result_count'), 1) = 0"
+                " GROUP BY q ORDER BY cnt DESC LIMIT 20",
+                (since,),
+            ).fetchall()
+
+            device = conn.execute(
+                "SELECT device, COUNT(*) AS cnt FROM events WHERE ts >= ?"
+                " GROUP BY device ORDER BY cnt DESC LIMIT 10",
+                (since,),
+            ).fetchall()
+            referrer = conn.execute(
+                "SELECT referrer, COUNT(*) AS cnt FROM events WHERE ts >= ?"
+                " GROUP BY referrer ORDER BY cnt DESC LIMIT 10",
+                (since,),
+            ).fetchall()
+
+        return {
+            "days": days,
+            "trend": [dict(r) for r in trend],
+            "funnel": [
+                {
+                    "item_id": r["item_id"],
+                    "title": titles.get(r["item_id"], r["item_id"]),
+                    "impressions": r["impressions"],
+                    "views": r["views"],
+                    "downloads": r["downloads"],
+                }
+                for r in funnel
+            ],
+            "zero_result_searches": [
+                {"q": r["q"], "count": r["cnt"]} for r in zero if r["q"]
+            ],
+            "devices": [dict(r) for r in device],
+            "referrers": [dict(r) for r in referrer],
+        }
+
+    def metrics_summary(self, name: str = "", days: int = 7) -> List[Dict[str, Any]]:
+        """性能指标 P50/P75/P95（D-18：不做分位数看板，只供 CLI 使用）。"""
+        since = int(time.time()) - days * 86400
+        sql = ("SELECT name, value FROM metrics WHERE ts >= ?")
+        params: List[Any] = [since]
+        if name:
+            sql += " AND name=?"
+            params.append(name)
+        with self.connect() as conn:
+            rows = conn.execute(sql + " ORDER BY value ASC", params).fetchall()
+        if not rows:
+            return []
+        groups: Dict[str, List[float]] = {}
+        for r in rows:
+            groups.setdefault(r["name"], []).append(float(r["value"]))
+
+        def pct(vals: List[float], p: float) -> float:
+            if not vals:
+                return 0.0
+            idx = min(len(vals) - 1, max(0, int(round((len(vals) - 1) * p))))
+            return round(vals[idx], 2)
+
+        return [
+            {
+                "name": k, "count": len(v),
+                "p50": pct(v, 0.50), "p75": pct(v, 0.75), "p95": pct(v, 0.95),
+            }
+            for k, v in sorted(groups.items())
+        ]
 
     # ---------- 人工精选（A-02） ----------
 
