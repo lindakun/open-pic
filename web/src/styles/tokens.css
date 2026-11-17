@@ -1,0 +1,150 @@
+/**
+ * 设计 Token —— 浅色编辑纸感（REQ-V2-20 §2.4）
+ *
+ * 三层结构：
+ *   1. primitive：原始色阶与尺度，只在本文件出现
+ *   2. semantic：语义变量，组件唯一可消费的层
+ *   3. 组件层通过 var(--semantic-*) 取值，禁止硬编码颜色
+ *
+ * 基准色板为暖纸系：主背景 #FAF8F5（非纯白），卡片 #FFFFFF，
+ * 靠极轻明度差分层，而非灰底白卡。
+ */
+
+:root {
+  /* ---------- 1. primitive：暖纸色阶 ---------- */
+  --p-paper-50: #fdfcfa;
+  --p-paper-100: #faf8f5;
+  --p-paper-200: #f4f0ea;
+  --p-paper-300: #ede8e1;
+  --p-paper-400: #e0d9cf;
+  --p-paper-500: #c9bfb2;
+
+  --p-ink-900: #1a1815;
+  --p-ink-700: #3d3833;
+  --p-ink-500: #6f6a63;
+  --p-ink-400: #918b83;
+  --p-ink-300: #b5aea5;
+
+  /* 低饱和赭石：不与照片争色 */
+  --p-accent-700: #6f5238;
+  --p-accent-600: #8c6a4a;
+  --p-accent-500: #a8825e;
+  --p-accent-100: #f0e7dc;
+
+  --p-danger-600: #b04a3f;
+  --p-danger-100: #f7e8e6;
+  --p-success-600: #4a7c59;
+  --p-success-100: #e8f0ea;
+
+  /* 尺度：8px 基准；区块间距用大尺度建立"呼吸" */
+  --p-space-1: 4px;
+  --p-space-2: 8px;
+  --p-space-3: 12px;
+  --p-space-4: 16px;
+  --p-space-5: 24px;
+  --p-space-6: 32px;
+  --p-space-7: 48px;
+  --p-space-8: 64px;
+  --p-space-9: 96px;
+
+  --p-radius-sm: 2px;
+  --p-radius-md: 4px;
+  --p-radius-lg: 8px;
+  --p-radius-full: 999px;
+
+  /* 排版：1.25 模数 */
+  --p-font-display: 'Fraunces', 'Playfair Display', Georgia, 'Songti SC', serif;
+  --p-font-text: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Noto Sans SC',
+    'Microsoft YaHei', 'Segoe UI', sans-serif;
+  --p-font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+
+  --p-step--1: 0.75rem;
+  --p-step-0: 0.9375rem;
+  --p-step-1: 1.1719rem;
+  --p-step-2: 1.4648rem;
+  --p-step-3: 1.8311rem;
+  --p-step-4: 2.2888rem;
+
+  /* 动效：组件层禁止裸写时长 */
+  --p-dur-fast: 120ms;
+  --p-dur-base: 240ms;
+  --p-dur-slow: 400ms;
+  --p-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --p-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --p-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --p-z-header: 40;
+  --p-z-sheet: 60;
+  --p-z-lightbox: 80;
+  --p-z-toast: 100;
+}
+
+/* ---------- 2. semantic：浅色主主题 ---------- */
+:root,
+html[data-theme='light'] {
+  --paper: var(--p-paper-100);
+  --surface: #ffffff;
+  --surface-sunken: var(--p-paper-200);
+  --surface-hover: var(--p-paper-200);
+
+  --ink: var(--p-ink-900);
+  --ink-muted: var(--p-ink-500);
+  --ink-faint: var(--p-ink-400);
+  --ink-inverse: var(--p-paper-50);
+
+  --rule: var(--p-paper-300);
+  --rule-strong: var(--p-paper-400);
+
+  --accent: var(--p-accent-600);
+  --accent-hover: var(--p-accent-700);
+  --accent-soft: var(--p-accent-100);
+  --on-accent: var(--p-paper-50);
+
+  --danger: var(--p-danger-600);
+  --danger-soft: var(--p-danger-100);
+  --success: var(--p-success-600);
+  --success-soft: var(--p-success-100);
+
+  --focus-ring: var(--p-accent-600);
+
+  /* 卡片无边框无阴影：靠留白分层（§2.3 纯图规范） */
+  --card-shadow: none;
+  --card-shadow-hover: 0 12px 32px rgba(26, 24, 21, 0.1);
+  --sheet-shadow: 0 24px 64px rgba(26, 24, 21, 0.18);
+
+  color-scheme: light;
+}
+
+/* ---------- 2b. semantic：深色等价映射（仅替换 primitive 引用） ---------- */
+html[data-theme='dark'] {
+  --paper: #14120f;
+  --surface: #1c1a16;
+  --surface-sunken: #0f0d0b;
+  --surface-hover: #24211c;
+
+  --ink: #ede8e1;
+  --ink-muted: #9c958c;
+  --ink-faint: #756f67;
+  --ink-inverse: #1a1815;
+
+  --rule: #2b2721;
+  --rule-strong: #3a352e;
+
+  --accent: var(--p-accent-500);
+  --accent-hover: var(--p-accent-600);
+  --accent-soft: #2a231b;
+  --on-accent: #14120f;
+
+  --danger: #d9776c;
+  --danger-soft: #2c1c19;
+  --success: #7fa98c;
+  --success-soft: #1a241d;
+
+  --focus-ring: var(--p-accent-500);
+
+  --card-shadow: none;
+  --card-shadow-hover: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --sheet-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+
+  color-scheme: dark;
+}

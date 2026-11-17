@@ -1,0 +1,12 @@
+# 依赖
+node_modules/
+
+# 构建缓存
+.vite/
+*.tsbuildinfo
+
+# 测试产物
+coverage/
+
+# 注意：构建产物 media-library/scripts/static/app/ 有意纳入版本库，
+# 因为 NAS 端部署以 git pull 为准，避免在 NAS 上安装 Node 构建链。

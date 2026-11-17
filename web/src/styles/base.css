@@ -1,0 +1,192 @@
+@import './tokens.css';
+
+/* ---------- 基础重置 ---------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--p-font-text);
+  font-size: var(--p-step-0);
+  line-height: 1.6;
+  /* 纸感的细节：轻微字距放松，避免默认紧凑 */
+  letter-spacing: 0.006em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* ---------- 标题：高字重 + 大字建立层级，不靠色块 ---------- */
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+}
+
+h1 {
+  font-family: var(--p-font-display);
+  font-size: clamp(2rem, 5vw, 4.5rem);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+
+h2 {
+  font-family: var(--p-font-display);
+  font-size: clamp(1.5rem, 2.6vw, 2.29rem);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+h3 {
+  font-size: var(--p-step-1);
+}
+
+p {
+  margin: 0;
+}
+
+/* ---------- 链接 ---------- */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  text-decoration-thickness: 1px;
+}
+
+/* ---------- 焦点：WCAG 2.2 AA，焦点环 ≥3:1 ---------- */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--p-radius-sm);
+}
+
+/* 鼠标点击不显示焦点环，键盘才显示 */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ---------- 图片：全站默认块级，避免行内基线间隙 ---------- */
+img,
+picture,
+video {
+  display: block;
+  max-width: 100%;
+}
+
+/* ---------- 按钮基础（组件层会覆盖样式） ---------- */
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* ---------- 数字与度量：等宽字体建立"专业工具"质感 ---------- */
+.mono {
+  font-family: var(--p-font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* ---------- 正文强调：纸感的克制强调 ---------- */
+.eyebrow {
+  font-size: var(--p-step--1);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+
+.muted {
+  color: var(--ink-muted);
+}
+
+/* ---------- 跳过导航：键盘用户首个 Tab 目标 ---------- */
+.skip-link {
+  position: absolute;
+  top: 0;
+  left: var(--p-space-4);
+  transform: translateY(-120%);
+  background: var(--surface);
+  color: var(--ink);
+  padding: var(--p-space-2) var(--p-space-4);
+  border-radius: var(--p-radius-md);
+  box-shadow: var(--sheet-shadow);
+  z-index: var(--p-z-toast);
+  transition: transform var(--p-dur-fast) var(--p-ease-out);
+}
+
+.skip-link:focus {
+  transform: translateY(var(--p-space-2));
+}
+
+/* ---------- 屏读专用 ---------- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- 减弱动效：全局兜底（A-03）---------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------- 滚动条：纸感化的细滚动条 ---------- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--rule-strong);
+  border-radius: var(--p-radius-full);
+  border: 2px solid var(--paper);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-faint);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------- 选中文本：强调色浅底 ---------- */
+::selection {
+  background: var(--accent-soft);
+  color: var(--ink);
+}

@@ -19,6 +19,14 @@ open-pic/
 ├── CLAUDE.md                        # 项目开发与部署规范（本文件）
 ├── REQUIREMENTS.md                  # 商业化 20 点优化需求及落地状态
 ├── requirements.txt                 # Python 依赖（FastAPI/Uvicorn/Pillow/Pytest）
+├── docs/
+│   ├── REQ-V2-20.md                 # 商业化 20 点需求文档（v3.0 已拍板）
+│   └── reviews/                     # 两轮三方交叉审核报告归档
+├── web/                             # 新前端（Vite + Vue 3 + TypeScript）
+│   ├── src/components/              # 基础组件库 MLButton/MLMediaCard 等
+│   ├── src/styles/tokens.css        # 三层设计 Token（浅色编辑纸感）
+│   └── README.md                    # 前端开发与构建说明
+├── scripts/build-web.sh             # 前端构建脚本（产物纳入版本库）
 └── media-library/
     ├── SKILL.md                     # picoclaw 技能说明文档
     ├── references/LEARNINGS.md      # 踩坑经验记录
@@ -31,7 +39,9 @@ open-pic/
         ├── ensure.sh                # 幂等守护拉起脚本（优先使用 venv）
         ├── learn.py                 # 经验记录工具
         ├── test_server.py           # FastAPI + SQLite 集成测试
-        └── static/                  # 独立前端（index.html / app.css / app.js）
+        └── static/                  # 前端目录
+            ├── index.html/app.css/app.js   # 旧前端（legacy 回退用）
+            └── app/                        # 新前端构建产物（勿手改）
 ```
 
 ## 核心开发约定
@@ -46,6 +56,12 @@ open-pic/
 4. **语言与注释**：
    - 代码注释与文档统一使用中文。
 
+5. **前端重构约定（v2.0）**：
+   - 新前端源码在 `web/`，构建产物输出到 `media-library/scripts/static/app/`，**产物纳入版本库**，NAS 端只需 `git pull`。
+   - `static/app/` 为构建产物，**禁止手改**；所有改动在 `web/src/` 内完成并重新 `bash scripts/build-web.sh`。
+   - 双前端切换：环境变量 `MEDIA_LIB_FRONTEND=next|legacy`，未设置时依据产物存在性自动判定。旧前端保留至重构验收通过。
+   - 样式只消费 `web/src/styles/tokens.css` 的语义变量，组件内禁止硬编码颜色（浅色编辑纸感为设计基准）。
+
 ## 常用命令
 
 ```bash
@@ -54,6 +70,15 @@ pytest -v media-library/scripts/test_server.py
 
 # 本地启动开发服务（默认数据目录可通过 MEDIA_LIB_DIR 指定）
 MEDIA_LIB_DIR=/tmp/mlib-dev python3 media-library/scripts/server.py --port 18100
+
+# 前端开发（需先启动后端 :18100）
+cd web && pnpm install && pnpm dev
+
+# 前端构建（产物进 static/app/）
+bash scripts/build-web.sh
+
+# 前端单元测试
+cd web && pnpm test
 
 # NAS 端服务管理（以 picoclaw 用户运行）
 bash /vol1/picoclaw/.picoclaw/workspace/skills/media-library/scripts/ensure.sh

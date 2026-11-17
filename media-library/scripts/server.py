@@ -37,7 +37,14 @@ import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -55,6 +62,11 @@ INDEX_JSON = os.path.join(DATA, "index.json")
 DB_PATH = os.path.join(DATA, "media.db")
 PIDFILE = os.path.join(DATA, "server.pid")
 STATIC_DIR = os.path.join(BASE, "static")
+# 新前端（Vite + Vue3）构建产物目录；旧前端仍在 STATIC_DIR 根下
+APP_DIR = os.path.join(STATIC_DIR, "app")
+# 双前端切换开关：legacy = 旧单页，next = 新前端（REQ-V2-20 §7.1）
+# 未显式配置时，若新前端产物存在则默认使用新前端
+FRONTEND_MODE = os.environ.get("MEDIA_LIB_FRONTEND", "").lower()
 
 MAX_UPLOAD = 1024 * 1024 * 1024  # 1GB
 
@@ -176,6 +188,11 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
 
     if os.path.isdir(STATIC_DIR):
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+    # 新前端的静态资源（带 hash，可长缓存）
+    _app_assets = os.path.join(APP_DIR, "assets")
+    if os.path.isdir(_app_assets):
+        app.mount("/app/assets", StaticFiles(directory=_app_assets), name="app-assets")
 
     # ---------- 辅助函数 ----------
 
@@ -303,14 +320,45 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
 
     # ---------- 页面路由 ----------
 
+    def _use_next_frontend() -> bool:
+        """是否使用新前端：显式开关优先，否则看构建产物是否存在。"""
+        if FRONTEND_MODE == "legacy":
+            return False
+        if FRONTEND_MODE == "next":
+            return True
+        return os.path.isfile(os.path.join(APP_DIR, "index.html"))
+
+    def _read_shell(directory: str) -> Optional[str]:
+        idx_file = os.path.join(directory, "index.html")
+        if os.path.isfile(idx_file):
+            with open(idx_file, "r", encoding="utf-8") as f:
+                return f.read()
+        return None
+
     @app.get("/", response_class=HTMLResponse)
     @app.get("/index.html", response_class=HTMLResponse)
     def index_page():
-        idx_file = os.path.join(STATIC_DIR, "index.html")
-        if os.path.isfile(idx_file):
-            with open(idx_file, "r", encoding="utf-8") as f:
-                return HTMLResponse(f.read(), headers={"Cache-Control": "no-cache"})
+        """站点入口。
+
+        新前端构建产物使用 /app/ 作为 base（资源路径绝对），
+        因此启用新前端时从 / 重定向到 /app/，保持路由 base 一致。
+        旧前端模式则直接返回旧单页。
+        """
+        if _use_next_frontend() and os.path.isfile(os.path.join(APP_DIR, "index.html")):
+            return RedirectResponse(url="/app/", status_code=302)
+        shell = _read_shell(STATIC_DIR)
+        if shell is not None:
+            return HTMLResponse(shell, headers={"Cache-Control": "no-cache"})
         return HTMLResponse("<h1>MediaLib</h1><p>static/index.html missing</p>")
+
+    @app.get("/app", response_class=HTMLResponse)
+    @app.get("/app/{spa_path:path}", response_class=HTMLResponse)
+    def app_shell(spa_path: str = ""):
+        """新前端 SPA 回退：非 assets 路径一律返回 index.html，由前端路由接管。"""
+        shell = _read_shell(APP_DIR)
+        if shell is None:
+            raise HTTPException(status_code=404, detail="新前端未构建")
+        return HTMLResponse(shell, headers={"Cache-Control": "no-cache"})
 
     @app.get("/s/{item_id}", response_class=HTMLResponse)
     def share_page(item_id: str, request: Request):
