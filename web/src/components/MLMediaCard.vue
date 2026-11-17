@@ -20,16 +20,29 @@ const props = withDefaults(
     width?: number
     /** 首屏前若干张用 eager 加载并提升优先级（A-05） */
     priority?: boolean
+    /** 批量选择模式：显示勾选圈（REQ-05） */
+    selectable?: boolean
+    /** 当前是否被选中 */
+    selected?: boolean
   }>(),
   {
     width: 320,
     priority: false,
+    selectable: false,
+    selected: false,
   },
 )
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'open', item: MediaItem): void
+  /** 选择模式下点击卡片是勾选而非打开 */
+  (e: 'toggle', id: string): void
 }>()
+
+function onClick() {
+  if (props.selectable) emit('toggle', props.item.id)
+  else emit('open', props.item)
+}
 
 const { t } = useI18n()
 
@@ -67,8 +80,9 @@ const altText = computed(() =>
 <template>
   <button
     type="button"
-    class="ml-card"
-    @click="$emit('open', item)"
+    :class="['ml-card', { 'ml-card--picked': selectable && selected }]"
+    :aria-pressed="selectable ? selected : undefined"
+    @click="onClick"
   >
     <div
       class="ml-card__media"
@@ -87,6 +101,10 @@ const altText = computed(() =>
       <span v-if="item.kind === 'video'" class="ml-card__badge mono" :aria-label="t('facet.kindVideo')">
         {{ item.duration ? `${Math.round(item.duration)}s` : 'VIDEO' }}
       </span>
+      <!-- 选择圈：选择模式下常驻，避免 hover 才可见导致移动端不可用 -->
+      <span v-if="selectable" :class="['ml-card__check', { 'ml-card__check--on': selected }]" aria-hidden="true">
+        {{ selected ? '✓' : '' }}
+      </span>
     </div>
 
     <!-- 标题与数据：小红书式两行标题 + 底部信息行 -->
@@ -101,6 +119,34 @@ const altText = computed(() =>
 </template>
 
 <style scoped>
+.ml-card--picked {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--p-radius-lg);
+}
+
+.ml-card__check {
+  position: absolute;
+  top: var(--p-space-2);
+  right: var(--p-space-2);
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--p-radius-full);
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  background: rgba(18, 16, 13, 0.35);
+  color: #fff;
+  font-size: 0.8125rem;
+  line-height: 1;
+  backdrop-filter: blur(2px);
+}
+
+.ml-card__check--on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
 .ml-card {
   display: block;
   width: 100%;

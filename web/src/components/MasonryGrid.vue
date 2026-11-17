@@ -19,16 +19,25 @@ const props = withDefaults(
     artistic?: boolean
     /** 列宽基准（px），艺术墙模式下在此基础上浮动 */
     baseColumnWidth?: number
+    /** 批量选择模式（REQ-05） */
+    selectable?: boolean
+    /** 已选中的 id 集合 */
+    selectedIds?: string[]
   }>(),
   {
     artistic: false,
     baseColumnWidth: 280,
+    selectable: false,
+    selectedIds: () => [],
   },
 )
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'open', index: number): void
+  (e: 'toggle', id: string): void
 }>()
+
+const selectedSet = computed(() => new Set(props.selectedIds))
 
 /**
  * 虚拟化的目的（D-17）：DOM 随滚动无限增长会拖慢合成与内存。
@@ -262,7 +271,10 @@ defineExpose({ renderedCount, isVisible, visibleRange, saveData })
         v-if="isVisible(index)"
         :item="item"
         :priority="index < 4"
-        @open="$emit('open', index)"
+        :selectable="selectable"
+        :selected="selectedSet.has(item.id)"
+        @open="emit('open', index)"
+        @toggle="emit('toggle', $event)"
       />
       <!-- 回收态占位：与卡片同尺寸同位置，保证滚动条总高与已渲染卡片零位移 -->
       <div

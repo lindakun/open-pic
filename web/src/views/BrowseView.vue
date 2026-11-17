@@ -11,12 +11,16 @@ import { useMediaStore } from '@/stores/media'
 import { useFilterStore } from '@/stores/filters'
 import { useToast } from '@/composables/useToast'
 import { useAiStatus } from '@/composables/useAiStatus'
+import { api } from '@/api/client'
 import { useI18n } from '@/composables/useI18n'
 import MasonryGrid from '@/components/MasonryGrid.vue'
 import LightboxViewer from '@/components/LightboxViewer.vue'
 import FacetPanel from '@/components/FacetPanel.vue'
 import MLButton from '@/components/MLButton.vue'
 import MLChip from '@/components/MLChip.vue'
+import UploadPanel from '@/components/UploadPanel.vue'
+import BatchBar from '@/components/BatchBar.vue'
+import type { Collection } from '@/api/types'
 import type { SortKey } from '@/api/types'
 import {
   clearScrollAnchor,
@@ -37,6 +41,11 @@ const searchInput = ref(filters.q)
 const { status: aiStatus, load: loadAiStatus } = useAiStatus()
 const dragActive = ref(false)
 const aiBusy = ref(false)
+/** 上传面板与批量选择（REQ-05） */
+const uploadOpen = ref(false)
+const selectMode = ref(false)
+const selectedIds = ref<string[]>([])
+const collections = ref<Collection[]>([])
 /** 移动端分面面板折叠 */
 const facetsOpen = ref(false)
 
@@ -98,6 +107,40 @@ function onPaste(e: ClipboardEvent) {
   if (file && file.type.startsWith('image/')) void searchByImage(file)
 }
 
+/** 勾选/取消勾选单项（REQ-05 批量操作） */
+function toggleSelect(id: string) {
+  const i = selectedIds.value.indexOf(id)
+  if (i >= 0) selectedIds.value.splice(i, 1)
+  else selectedIds.value.push(id)
+}
+
+function clearSelection() {
+  selectedIds.value = []
+}
+
+/** 开启选择模式时清空旧选择，避免跨筛选的陈旧选择 */
+function toggleSelectMode() {
+  selectMode.value = !selectMode.value
+  if (!selectMode.value) clearSelection()
+}
+
+async function onUploaded() {
+  await store.refresh()
+}
+
+async function loadCollections() {
+  try {
+    collections.value = await api.collections()
+  } catch {
+    collections.value = []
+  }
+}
+
+function onBatchDone() {
+  void store.refresh()
+  clearSelection()
+}
+
 /** 应用筛选后统一刷新（标签切换等由面板触发） */
 function applyAndRefresh() {
   clearScrollAnchor()
@@ -148,6 +191,7 @@ onMounted(async () => {
   restoreScrollAnchor(readScrollAnchor(), store.items)
   // 探测 AI 能力（B-08）：失败静默，入口隐藏即可
   void loadAiStatus()
+  void loadCollections()
   window.addEventListener('paste', onPaste)
 })
 
@@ -235,6 +279,15 @@ watch(
         </button>
       </div>
 
+      <MLButton variant="quiet" @click="uploadOpen = true">{{ t('upload.open') }}</MLButton>
+      <MLButton
+        variant="quiet"
+        :aria-pressed="selectMode"
+        @click="toggleSelectMode"
+      >
+        {{ selectMode ? t('batch.exitSelect') : t('batch.select') }}
+      </MLButton>
+
       <span class="browse__count mono" aria-live="polite">
         {{
           store.loading && !store.items.length
@@ -311,7 +364,14 @@ watch(
           </MLButton>
         </div>
 
-        <MasonryGrid v-else :items="store.items" @open="openLightbox" />
+        <MasonryGrid
+          v-else
+          :items="store.items"
+          :selectable="selectMode"
+          :selected-ids="selectedIds"
+          @open="openLightbox"
+          @toggle="toggleSelect"
+        />
 
         <div v-if="store.hasMore" class="browse__more">
           <MLButton variant="ghost" :disabled="store.loading" @click="store.load()">
@@ -331,6 +391,15 @@ watch(
       @prev="store.stepLightbox(-1)"
       @next="store.stepLightbox(1)"
       @filter-color="onFilterColor"
+    />
+
+    <UploadPanel v-model:open="uploadOpen" @uploaded="onUploaded" />
+
+    <BatchBar
+      :selected="selectedIds"
+      :collections="collections"
+      @clear="clearSelection"
+      @done="onBatchDone"
     />
   </div>
 </template>
