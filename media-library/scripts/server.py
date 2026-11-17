@@ -640,6 +640,9 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
             raise HTTPException(status_code=404, detail="源文件不存在")
 
         fmt = img_transform.normalize_format(fm)
+        # fit 是外部输入，白名单外一律按 cover 处理，避免把任意字符串
+        # 透传到图像处理层
+        fit = fit if fit in ("cover", "contain", "fill") else "cover"
         w = img_transform.clamp_dimension(w)
         h = img_transform.clamp_dimension(h)
         # 未指定尺寸或非白名单档位：按原图返回，不落缓存
@@ -889,21 +892,33 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
                 raise HTTPException(status_code=400, detail="文件为空或未选择文件")
 
             out = []
+            file_errors: List[str] = []
             for tp, fname in files_to_save:
-                rec, is_new, near_dup = store_file(
-                    tp, fname, title=title, tags=tags, source=source,
-                    synchronous=synchronous, license_name=license_name,
-                    license_url=license_url, credit=credit,
-                    copyright_holder=copyright_holder, commercial_ok=commercial_ok,
-                )
+                try:
+                    rec, is_new, near_dup = store_file(
+                        tp, fname, title=title, tags=tags, source=source,
+                        synchronous=synchronous, license_name=license_name,
+                        license_url=license_url, credit=credit,
+                        copyright_holder=copyright_holder, commercial_ok=commercial_ok,
+                    )
+                except ValueError as e:
+                    # 单个文件类型不支持不应让整批失败：
+                    # 已成功入库的文件照常返回，错误按文件名回传
+                    file_errors.append(f"{fname}: {e}")
+                    continue
                 rec = dict(rec)
                 rec["duplicate"] = not is_new
                 if near_dup and near_dup["id"] != rec["id"]:
                     rec["near_duplicate_id"] = near_dup["id"]
                 out.append(rec)
-            return {"ok": True, "count": len(out), "items": out}
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            if not out and file_errors:
+                raise HTTPException(status_code=400, detail="; ".join(file_errors))
+            return {
+                "ok": True,
+                "count": len(out),
+                "items": out,
+                "errors": file_errors,
+            }
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -972,6 +987,9 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
             cnt = db.batch_tags(req.ids, remove_tags=req.tags or [])
             return {"ok": True, "count": cnt}
         if req.action == "add_collection" and req.collection_id is not None:
+            # 画板不存在时返回 404，而不是静默 ok+0：前端会误报「已加入」
+            if not db.get_collection(req.collection_id):
+                raise HTTPException(status_code=404, detail="画板不存在")
             cnt = db.add_to_collection(req.collection_id, req.ids)
             return {"ok": True, "count": cnt}
         if req.action == "delete":
@@ -1501,6 +1519,8 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
 
     @app.post("/api/collections/{cid}/items")
     def api_add_collection_items(cid: int, req: CollectionItemsReq):
+        if not db.get_collection(cid):
+            raise HTTPException(status_code=404, detail="画板不存在")
         cnt = db.add_to_collection(cid, req.item_ids)
         return {"ok": True, "added": cnt}
 

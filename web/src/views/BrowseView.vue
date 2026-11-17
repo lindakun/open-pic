@@ -234,6 +234,11 @@ function applyAndRefresh() {
 /** 只看喜欢：过滤的是已加载列表，切换后同样回到顶部 */
 function toggleOnlyLiked() {
   onlyLiked.value = !onlyLiked.value
+  // 进入「只看喜欢」后，此前选中的未喜欢项已不可见，
+  // 继续留在选择里会让批量操作作用于看不见的资产
+  if (onlyLiked.value) {
+    selectedIds.value = selectedIds.value.filter((id) => likedIds.value.includes(id))
+  }
   window.scrollTo({ top: 0, behavior: 'auto' })
 }
 

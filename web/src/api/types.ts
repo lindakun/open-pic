@@ -16,6 +16,8 @@ export interface MediaItem {
   ext: string
   name: string
   title: string
+  /** 语义 URL 用的 slug（E-19），存量数据可能为空 */
+  slug?: string
   source: string
   source_platform: string
   author: string

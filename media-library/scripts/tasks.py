@@ -434,7 +434,8 @@ class TaskManager:
         if updates:
             self.db.update_item(item_id, updates)
         self._update(job_id, "done", 100, "视频后处理完成", updates)
-        self.broadcast("library_updated", {"reason": "video_postprocess", "item_id": item_id})
+        # 只更新这一张卡（预览/播放副本），不必触发整库刷新打断浏览位置
+        self.broadcast("media_ready", {"item_id": item_id, **updates})
 
     def _handle_backfill(self, job_id: int):
         # 草稿/归档也要回填：它们只是不可见，不是不需要缩略图与元数据

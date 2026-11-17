@@ -16,12 +16,14 @@ import { useI18n } from '@/composables/useI18n'
 import type { MediaItem } from '@/api/types'
 
 const route = useRoute()
-const { t, formatBytes } = useI18n()
+const { t, formatBytes, formatDate } = useI18n()
 
 const token = computed(() => String(route.params.token ?? ''))
 const items = ref<MediaItem[]>([])
 const linkTitle = ref('')
 const linkMessage = ref('')
+/** 选片链接到期时间（0 = 永久有效） */
+const linkExpiresAt = ref(0)
 const loading = ref(true)
 const error = ref('')
 const index = ref(0)
@@ -89,6 +91,7 @@ async function load() {
     const data = await res.json()
     linkTitle.value = data.link?.title || ''
     linkMessage.value = data.link?.message || ''
+    linkExpiresAt.value = Number(data.link?.expires_at || 0)
     items.value = data.items ?? []
     const next: Record<string, Mark> = {}
     for (const it of items.value) {
@@ -249,9 +252,17 @@ const spec = computed(() => {
   if (!it) return ''
   const parts: string[] = []
   if (it.width && it.height) parts.push(`${it.width}×${it.height}`)
-  if (it.ext) parts.push(it.ext.toUpperCase())
+  if (it.ext) parts.push(it.ext.replace(/^\./, '').toUpperCase())
   if (it.size) parts.push(formatBytes(it.size))
   return parts.join(' · ')
+})
+
+// 同一组件实例内切换 token（例如粘贴不同选片链接）时重新加载
+watch(token, () => {
+  index.value = 0
+  marks.value = {}
+  savedAt.value = 0
+  void load()
 })
 
 onMounted(() => {
@@ -266,6 +277,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <header class="review__head">
       <h1 class="review__title">{{ linkTitle || t('review.title') }}</h1>
       <p v-if="linkMessage" class="review__msg">{{ linkMessage }}</p>
+      <p v-if="linkExpiresAt" class="review__msg mono">
+        {{ t('review.expires', { date: formatDate(linkExpiresAt) }) }}
+      </p>
       <p class="review__hint">{{ t('review.hint') }}</p>
       <label class="review__who">
         <span>{{ t('review.reviewer') }}</span>
@@ -359,6 +373,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <img
             :src="`/t/${it.id}_sm.webp`"
             alt=""
+            loading="lazy"
+            decoding="async"
             @error="onFilmError($event, it)"
           />
           <span v-if="markOf(it.id)" :class="['film__dot', `film__dot--${markOf(it.id)!.state}`]" />

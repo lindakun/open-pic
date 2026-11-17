@@ -13,6 +13,7 @@ import { useRouter } from 'vue-router'
 import { useMediaStore } from '@/stores/media'
 import { useFilterStore } from '@/stores/filters'
 import { useI18n } from '@/composables/useI18n'
+import { track, useEventFlush } from '@/composables/useAnalytics'
 import MasonryGrid from '@/components/MasonryGrid.vue'
 import LightboxViewer from '@/components/LightboxViewer.vue'
 import MLButton from '@/components/MLButton.vue'
@@ -87,7 +88,13 @@ onBeforeUnmount(() => {
 
 function openLightbox(index: number) {
   store.openLightbox(index)
+  const it = store.items[index]
+  // 首页此前没有任何浏览埋点：补上与浏览页一致的 view 事件
+  if (it) track('view', { itemId: it.id })
 }
+
+// 组合式函数必须在 setup 同步作用域调用，页面隐藏时才会自动上报
+useEventFlush()
 
 function goSearch() {
   void router.push('/browse')

@@ -19,6 +19,7 @@ import type { MediaItem } from '@/api/types'
 import { useI18n } from '@/composables/useI18n'
 import { copyText } from '@/composables/useClipboard'
 import { useZoomPan } from '@/composables/useZoomPan'
+import { track } from '@/composables/useAnalytics'
 
 const props = defineProps<{
   item: MediaItem
@@ -99,7 +100,7 @@ const spec = computed(() => {
   if (props.item.width && props.item.height) {
     parts.push(`${props.item.width}×${props.item.height}`)
   }
-  if (props.item.ext) parts.push(props.item.ext.toUpperCase())
+  if (props.item.ext) parts.push(props.item.ext.replace(/^\./, '').toUpperCase())
   if (props.item.size) parts.push(formatBytes(props.item.size))
   if (props.item.duration) parts.push(`${formatNumber(props.item.duration)}s`)
   return parts.join(' · ')
@@ -243,9 +244,22 @@ async function flash(key: string) {
   }, 1600)
 }
 
+/**
+ * 复制分享链接而非裸文件地址。
+ *
+ * 语义页 /a/{slug}-{shortId} 带标题、下载与 OG 信息，
+ * 比 /f/ 直链更适合对外分享；没有 slug 的存量资产回退到 /s/{id}。
+ */
+const shareUrl = computed(() => {
+  const it = props.item
+  const path = it.slug
+    ? `/a/${it.slug}-${it.id.slice(0, 8)}`
+    : `/s/${it.id}`
+  return new URL(path, window.location.origin).toString()
+})
+
 async function copyLink() {
-  const url = new URL(mediaUrl.value, window.location.origin).toString()
-  if (await copyText(url)) await flash('link')
+  if (await copyText(shareUrl.value)) await flash('link')
   else await flash('copy-failed')
 }
 
@@ -265,6 +279,7 @@ function filterByTag(tag: string) {
 }
 
 function download() {
+  track('download', { itemId: props.item.id })
   const a = document.createElement('a')
   a.href = downloadUrl.value
   a.download = props.item.name || ''
@@ -466,7 +481,7 @@ onUnmounted(() => {
             @error="onImgError($event, it)"
           />
           <figcaption v-if="compareOn" class="lightbox__cap mono">
-            {{ it.width }}×{{ it.height }} · {{ it.ext.toUpperCase() }}
+            {{ it.width }}×{{ it.height }} · {{ it.ext.replace(/^\./, '').toUpperCase() }}
           </figcaption>
         </figure>
       </template>
@@ -641,7 +656,7 @@ onUnmounted(() => {
         >
           i
         </button>
-        <button type="button" class="lb-btn" :aria-label="t('lightbox.copyLink')" @click="copyLink">
+        <button type="button" class="lb-btn" :aria-label="t('lightbox.copyShare')" @click="copyLink">
           {{ copied === 'link' ? '✓' : '⧉' }}
         </button>
         <button type="button" class="lb-btn" :aria-label="t('lightbox.help')" @click="openHelp">?</button>
@@ -667,7 +682,13 @@ onUnmounted(() => {
         >
           →
         </button>
-        <a :href="downloadUrl" download class="lb-btn" :aria-label="t('lightbox.download')">↓</a>
+        <a
+          :href="downloadUrl"
+          download
+          class="lb-btn"
+          :aria-label="t('lightbox.download')"
+          @click="track('download', { itemId: item.id })"
+        >↓</a>
         <button type="button" class="lb-btn" :aria-label="t('lightbox.close')" @click="close">✕</button>
       </div>
     </div>
