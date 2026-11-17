@@ -518,6 +518,7 @@ watch(
       @close="onCloseLightbox"
       @prev="store.stepLightbox(-1)"
       @next="store.stepLightbox(1)"
+      @slideshow-end="store.stepToFirst()"
       @filter-color="onFilterColor"
     />
 

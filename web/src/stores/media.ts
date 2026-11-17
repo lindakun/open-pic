@@ -137,6 +137,11 @@ export const useMediaStore = defineStore('media', () => {
     lightboxIndex.value = -1
   }
 
+  /** 连播放映到末尾后回到首张继续（A-04 连播回环） */
+  function stepToFirst() {
+    if (items.value.length) lightboxIndex.value = 0
+  }
+
   function stepLightbox(delta: number) {
     const next = lightboxIndex.value + delta
     if (next >= 0 && next < items.value.length) {
@@ -164,5 +169,6 @@ export const useMediaStore = defineStore('media', () => {
     openLightbox,
     closeLightbox,
     stepLightbox,
+    stepToFirst,
   }
 })

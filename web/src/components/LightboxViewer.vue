@@ -32,6 +32,7 @@ const emit = defineEmits<{
   (e: 'close'): void
   (e: 'prev'): void
   (e: 'next'): void
+  (e: 'slideshow-end'): void
   /** 按主色筛选（对接 B-10 的 color 参数） */
   (e: 'filter-color', color: string): void
 }>()
@@ -153,6 +154,8 @@ const compareChoices = computed(() =>
 )
 
 function toggleCompare(id: string) {
+  // 连播与对比互斥：连播会自动切图，对比却要固定住图片，二者同时开会互相打架
+  if (slideshow.value.on) stopSlideshow()
   if (compareIds.value.includes(id)) {
     compareIds.value = compareIds.value.filter((x) => x !== id)
     return
@@ -181,10 +184,17 @@ function stopSlideshow() {
 
 function startSlideshow() {
   stopSlideshow()
+  // 连播时退出对比，避免自动切图与固定对比冲突
+  compareIds.value = []
   slideshow.value = { ...slideshow.value, on: true }
   slideshowTimer = window.setInterval(() => {
-    if (props.hasNext) emit('next')
-    else stopSlideshow()
+    if (props.hasNext) {
+      emit('next')
+    } else {
+      // 到底后回到首张继续，符合"连播放映"的语义；
+      // 父组件若不回到首张则停止，避免空转。
+      emit('slideshow-end')
+    }
   }, slideshow.value.ms)
 }
 
@@ -210,10 +220,12 @@ async function flash(key: string) {
 async function copyLink() {
   const url = new URL(mediaUrl.value, window.location.origin).toString()
   if (await copyText(url)) await flash('link')
+  else await flash('copy-failed')
 }
 
 async function copyColor(color: string) {
   if (await copyText(color.toUpperCase())) await flash(`hex:${color}`)
+  else await flash('copy-failed')
 }
 
 function filterByColor(color: string) {
@@ -239,16 +251,20 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  // 帮助浮层打开时只保留 Esc 关闭，其余快捷键不作用于背后的灯箱
+  if (helpOpen.value) {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      closeHelp()
+    }
+    return
+  }
   // 输入态与输入法组字期间不拦截（A-04 验收）
   if (isTypingTarget(e.target)) return
   if (e.isComposing) return
 
   switch (e.key) {
     case 'Escape':
-      if (helpOpen.value) {
-        closeHelp()
-        return
-      }
       close()
       break
     case 'ArrowLeft':
@@ -294,14 +310,24 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+let helpTrigger: HTMLElement | null = null
+
 function openHelp() {
+  helpTrigger = document.activeElement as HTMLElement | null
   helpOpen.value = true
-  nextTick(() => helpRef.value?.showModal())
+  nextTick(() => {
+    helpRef.value?.showModal()
+    // 焦点落在首个可交互元素（关闭按钮），键盘可直接 Esc/回车退出
+    helpRef.value?.querySelector<HTMLButtonElement>('.help__close')?.focus()
+  })
 }
 
 function closeHelp() {
   helpRef.value?.close()
   helpOpen.value = false
+  if (helpTrigger && document.contains(helpTrigger)) {
+    helpTrigger.focus({ preventScroll: true })
+  }
 }
 
 const shortcuts = computed(() => [
@@ -427,6 +453,14 @@ onUnmounted(() => {
 
     <!-- 信息面板：默认收起，纯图优先 -->
     <aside v-if="infoOpen" class="lightbox__panel" :aria-label="t('lightbox.info')">
+      <button
+        type="button"
+        class="panel__close"
+        :aria-label="t('common.close')"
+        @click="infoOpen = false"
+      >
+        ×
+      </button>
       <h2 class="panel__title">{{ item.title || item.name }}</h2>
       <dl class="panel__rows">
         <div v-if="spec" class="panel__row">
@@ -570,7 +604,7 @@ onUnmounted(() => {
 
     <!-- 复制反馈：aria-live 让屏幕阅读器也能听到 -->
     <p class="sr-only" aria-live="polite">
-      {{ copied ? t('lightbox.copiedToast') : '' }}
+      {{ copied === 'copy-failed' ? t('lightbox.copyFailed') : copied ? t('lightbox.copiedToast') : '' }}
     </p>
 
     <!-- 快捷键帮助浮层 -->
@@ -749,6 +783,22 @@ onUnmounted(() => {
   .lightbox__panel {
     animation: none;
   }
+}
+
+.panel__close {
+  position: absolute;
+  top: var(--p-space-3);
+  right: var(--p-space-3);
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: var(--p-radius-full);
+  color: inherit;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.panel__close:hover {
+  background: rgba(250, 248, 245, 0.14);
 }
 
 .panel__title {

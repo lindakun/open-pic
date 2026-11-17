@@ -74,6 +74,16 @@ function onDrop(e: DragEvent) {
   addFiles(e.dataTransfer?.files)
 }
 
+/**
+ * 拖放高亮不应在「从父元素移到子元素」时熄灭：
+ * dragleave 会在经过每个子节点时触发，直接置 false 会造成闪烁。
+ */
+function onDragLeave(e: DragEvent) {
+  const next = e.relatedTarget as Node | null
+  if (next && (e.currentTarget as HTMLElement).contains(next)) return
+  dragActive.value = false
+}
+
 function onPaste(e: ClipboardEvent) {
   const files = Array.from(e.clipboardData?.files ?? [])
   if (!files.length) return
@@ -191,7 +201,7 @@ onBeforeUnmount(() => window.removeEventListener('paste', onPaste))
         <div
           :class="['up__drop', { 'up__drop--active': dragActive }]"
           @dragover.prevent="dragActive = true"
-          @dragleave.prevent="dragActive = false"
+          @dragleave.prevent="onDragLeave"
           @drop.prevent="onDrop"
           @click="fileInput?.click()"
           @keydown.enter.prevent="fileInput?.click()"

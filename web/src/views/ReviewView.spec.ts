@@ -169,3 +169,54 @@ describe('ReviewView 交互', () => {
     wrapper.unmount()
   })
 })
+
+describe('ReviewView 快速连点（交互修复）', () => {
+  it('saving 锁期间的最后一次操作在写完后补发，不被丢弃', async () => {
+    let release: (v: unknown) => void = () => {}
+    const pending = new Promise((r) => { release = r })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ link: { title: '' }, items }) })
+      // 第一次写入挂起，模拟网络慢
+      .mockImplementationOnce(() => pending.then(() => ({ ok: true, json: async () => ({ ok: true }) })))
+      .mockResolvedValue({ ok: true, json: async () => ({ ok: true }) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = await mountReview()
+    await flushPromises()
+
+    const btns = wrapper.findAll('.review__actions .rv-btn')
+    await btns[0].trigger('click') // selected，开始写入（挂起）
+    await btns[2].trigger('click') // rejected，应进入 pendingMark
+    await flushPromises()
+
+    release({})
+    await flushPromises()
+    await new Promise((r) => setTimeout(r, 50))
+    await flushPromises()
+
+    const markCalls = fetchMock.mock.calls.filter((c) => String(c[0]).endsWith('/mark'))
+    expect(markCalls.length).toBeGreaterThanOrEqual(2)
+    const states = markCalls.map((c) => JSON.parse(c[1].body).state)
+    expect(states).toContain('rejected')
+    vi.unstubAllGlobals()
+    wrapper.unmount()
+  })
+
+  it('首次加载时批注框填入当前项已存批注', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        link: { title: '' },
+        items: [
+          items[1], // 第一项预置 review_note
+          items[0],
+        ],
+      }),
+    }))
+    const wrapper = await mountReview()
+    await flushPromises()
+    expect((wrapper.find('#note').element as HTMLTextAreaElement).value).toBe('做封面')
+    vi.unstubAllGlobals()
+    wrapper.unmount()
+  })
+})

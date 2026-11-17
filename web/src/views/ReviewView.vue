@@ -37,6 +37,8 @@ interface Mark {
 }
 const marks = ref<Record<string, Mark>>({})
 const noteDraft = ref('')
+/** 上一次因 saving 锁而未提交的标记，写入完成后补发 */
+const pendingMark = ref<{ itemId: string; state: MarkState; note?: string } | null>(null)
 const reviewer = ref('')
 
 const current = computed(() => items.value[index.value] ?? null)
@@ -84,6 +86,8 @@ async function load() {
       }
     }
     marks.value = next
+    // 首次进入时也要把批注框填成当前项的已存批注
+    noteDraft.value = items.value[0] ? (marks.value[items.value[0].id]?.note ?? '') : ''
   } catch (e) {
     error.value = (e as Error).message
   } finally {
@@ -94,7 +98,12 @@ async function load() {
 /** 写入标记；乐观更新 + 失败回滚（C-15 同款约定） */
 async function setMark(state: MarkState, note?: string) {
   const it = current.value
-  if (!it || saving.value) return
+  // 快速连点时不应丢弃最后一次操作：用队列记录待提交状态
+  if (!it) return
+  if (saving.value) {
+    pendingMark.value = { itemId: it.id, state, note }
+    return
+  }
   const prev = marks.value[it.id]
   const next: Mark = {
     state,
@@ -126,6 +135,14 @@ async function setMark(state: MarkState, note?: string) {
     }
   } finally {
     saving.value = false
+    const next = pendingMark.value
+    pendingMark.value = null
+    if (next) {
+      // 只在仍停留在同一资产时补发，避免把 A 的标记写到 B
+      if (current.value?.id === next.itemId) {
+        void setMark(next.state, next.note)
+      }
+    }
   }
 }
 
