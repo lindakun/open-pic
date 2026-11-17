@@ -11,7 +11,6 @@ import { useMediaStore } from '@/stores/media'
 import { useFilterStore } from '@/stores/filters'
 import { useToast } from '@/composables/useToast'
 import { useI18n } from '@/composables/useI18n'
-import { withViewTransition } from '@/composables/useViewTransition'
 import MasonryGrid from '@/components/MasonryGrid.vue'
 import LightboxViewer from '@/components/LightboxViewer.vue'
 import FacetPanel from '@/components/FacetPanel.vue'
@@ -60,9 +59,15 @@ function applyAndRefresh() {
   store.refresh()
 }
 
-/** 打开灯箱：用共享元素转场让卡片"长成"大图（A-03） */
+/**
+ * 打开灯箱。
+ *
+ * 不使用 View Transitions：灯箱是 `<dialog>`，处于浏览器 top layer，
+ * 与共享元素快照机制不兼容（实测报 "Transition was aborted because of
+ * invalid state"）。改由灯箱自身的进入动画承担过渡，功能一致且无报错。
+ */
 function openLightbox(index: number) {
-  void withViewTransition(() => store.openLightbox(index))
+  store.openLightbox(index)
 }
 
 // 从 URL 还原筛选，然后加载

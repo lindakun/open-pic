@@ -55,7 +55,7 @@ def _upload(client, name: str = "shot.png", seed: int = 0) -> str:
     resp = client.post(
         "/api/upload",
         files={"file": (name, _png_bytes(seed=seed), "image/png")},
-        data={"title": "测试图", "tags": "风景,城市"},
+        data={"title": "测试图", "tags": "风景,城市", "synchronous": "1"},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()

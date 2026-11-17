@@ -93,6 +93,8 @@ const messages: Record<Locale, Dict> = {
     'lightbox.close': '关闭',
     'lightbox.preview': '媒体预览',
     'lightbox.video': '视频',
+    'license.personalOnly': '仅限个人使用',
+    'license.commercial': '可商用',
 
     // Toast
     'toast.close': '关闭提示',
@@ -176,6 +178,8 @@ const messages: Record<Locale, Dict> = {
     'lightbox.close': 'Close',
     'lightbox.preview': 'Media preview',
     'lightbox.video': 'Video',
+    'license.personalOnly': 'Personal use only',
+    'license.commercial': 'Commercial use',
 
     'toast.close': 'Dismiss notification',
 

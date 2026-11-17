@@ -114,6 +114,8 @@ class TaskManager:
             self._handle_ingest_url(job_id, payload)
         elif jtype == "video_postprocess":
             self._handle_video_postprocess(job_id, payload)
+        elif jtype == "media_process":
+            self._handle_media_process(job_id, payload)
         elif jtype == "backfill_metadata":
             self._handle_backfill(job_id)
         else:
@@ -149,6 +151,68 @@ class TaskManager:
             self._update(job_id, "failed", 100, "抓取超时（>300s）")
         except Exception as e:
             self._update(job_id, "failed", 100, f"执行失败: {e}")
+
+    def _handle_media_process(self, job_id: int, payload: Dict[str, Any]):
+        """异步补齐媒体处理结果（REQ-V2-20 D-16）。
+
+        上传接口只落盘 + 建记录后立即返回，元数据提取、缩略图生成、
+        近重复检测这些重活在此完成。失败不影响资产可用性，
+        仅标记 failed 并保留原图可访问。
+        """
+        import media_proc
+
+        item_id = payload.get("item_id", "")
+        if not item_id:
+            self._update(job_id, "failed", 100, "缺少 item_id")
+            return
+
+        item = self.db.get_item(item_id)
+        if not item:
+            self._update(job_id, "failed", 100, "资产不存在")
+            return
+
+        data_dir = self.data_dir
+        files_dir = os.path.join(data_dir, "files")
+        thumbs_dir = os.path.join(data_dir, "thumbs")
+        src = os.path.join(files_dir, item["file"])
+        if not os.path.isfile(src):
+            self._update(job_id, "failed", 100, "源文件缺失")
+            return
+
+        try:
+            self._update(job_id, "running", 10, "提取元数据")
+            meta = media_proc.extract_metadata(src, item["ext"])
+
+            self._update(job_id, "running", 50, "生成缩略图")
+            thumb_rel = media_proc.make_thumbnails(src, thumbs_dir, item_id, item["ext"])
+
+            self._update(job_id, "running", 80, "检测近似重复")
+            near_dup = None
+            if item["ext"] in media_proc.IMAGE_EXT and meta.get("phash"):
+                near_dup = self.db.find_near_duplicate(meta.get("phash", ""), exclude_id=item_id)
+
+            self.db.update_media_fields(
+                item_id,
+                width=meta["width"],
+                height=meta["height"],
+                aspect_ratio=meta["aspect_ratio"],
+                duration=meta["duration"],
+                fps=meta["fps"],
+                codec=meta["codec"],
+                dominant_color=meta["dominant_color"],
+                palette_json=json.dumps(meta["palette"], ensure_ascii=False),
+                exif_json=json.dumps(meta["exif"], ensure_ascii=False),
+                phash=meta["phash"],
+                thumb=thumb_rel,
+            )
+
+            result = {"item_id": item_id}
+            if near_dup:
+                result["near_duplicate_id"] = near_dup["id"]
+            self._update(job_id, "done", 100, "处理完成", result)
+            self.broadcast("media_ready", {"item_id": item_id, **result})
+        except Exception as e:
+            self._update(job_id, "failed", 100, f"处理失败: {e}")
 
     def _handle_video_postprocess(self, job_id: int, payload: Dict[str, Any]):
         item_id = payload.get("item_id")

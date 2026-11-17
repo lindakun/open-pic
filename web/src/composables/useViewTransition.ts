@@ -51,15 +51,26 @@ export async function withViewTransition(update: () => void): Promise<void> {
   }
 
   inFlight.value = true
+  let done = false
   try {
     const transition = (
       document as Document & {
-        startViewTransition: (cb: () => void) => { finished: Promise<void> }
+        startViewTransition: (cb: () => void) => {
+          finished: Promise<void>
+          updateCallbackDone: Promise<void>
+        }
       }
-    ).startViewTransition(update)
-    await transition.finished
+    ).startViewTransition(() => {
+      update()
+      done = true
+    })
+    // 只等待"更新已应用"，不等动画播完：
+    // 灯箱是 <dialog> 顶层元素，与共享元素动画的时序经常冲突，
+    // 等待 finished 会在动画被中止时抛出无意义的错误。
+    await transition.updateCallbackDone
   } catch {
-    // 转场失败不应阻塞交互；update 已由浏览器调用过，此处不再重复
+    // 转场失败不应阻塞交互；若回调尚未执行，补一次确保状态生效
+    if (!done) update()
   } finally {
     inFlight.value = false
   }

@@ -46,6 +46,13 @@ CREATE TABLE IF NOT EXISTS items (
     exif_json TEXT NOT NULL DEFAULT '{}',
     phash TEXT NOT NULL DEFAULT '',
     ocr_text TEXT NOT NULL DEFAULT '',
+    -- 授权与署名（REQ-V2-20 C-11）
+    license TEXT NOT NULL DEFAULT '',
+    license_url TEXT NOT NULL DEFAULT '',
+    credit TEXT NOT NULL DEFAULT '',
+    copyright_holder TEXT NOT NULL DEFAULT '',
+    commercial_ok INTEGER NOT NULL DEFAULT 1,
+    license_expires_at INTEGER DEFAULT NULL,
     views INTEGER NOT NULL DEFAULT 0,
     downloads INTEGER NOT NULL DEFAULT 0,
     ts INTEGER NOT NULL,
@@ -169,8 +176,30 @@ class MediaDB:
     def _init_db(self):
         with self._write_lock, self.connect() as conn:
             conn.executescript(SCHEMA_SQL)
+            self._migrate_columns(conn)
             self._migrate_fts_seg(conn)
             conn.commit()
+
+    def _migrate_columns(self, conn: sqlite3.Connection) -> None:
+        """为存量库补齐新增列。
+
+        SQLite 的 ADD COLUMN 只支持常量默认值，正好满足本场景。
+        逐列检查后再加，保证幂等（可重复启动）。
+        """
+        wanted = {
+            "license": "TEXT NOT NULL DEFAULT ''",
+            "license_url": "TEXT NOT NULL DEFAULT ''",
+            "credit": "TEXT NOT NULL DEFAULT ''",
+            "copyright_holder": "TEXT NOT NULL DEFAULT ''",
+            "commercial_ok": "INTEGER NOT NULL DEFAULT 1",
+            "license_expires_at": "INTEGER DEFAULT NULL",
+            "status": "TEXT NOT NULL DEFAULT 'published'",
+            "slug": "TEXT NOT NULL DEFAULT ''",
+        }
+        existing = {r[1] for r in conn.execute("PRAGMA table_info(items)").fetchall()}
+        for col, decl in wanted.items():
+            if col not in existing:
+                conn.execute(f"ALTER TABLE items ADD COLUMN {col} {decl}")
 
     def _migrate_fts_seg(self, conn: sqlite3.Connection) -> None:
         """迁移旧库的 FTS 表，补齐预分词列 seg（REQ-V2-20 B-06）。
@@ -366,8 +395,9 @@ class MediaDB:
                     id, file, thumb, play_file, preview_file, kind, ext, name, title,
                     source, source_platform, author, notes, size, width, height, aspect_ratio,
                     duration, fps, codec, dominant_color, palette_json, exif_json, phash, ocr_text,
+                    license, license_url, credit, copyright_holder, commercial_ok, license_expires_at,
                     ts, updated_at, deleted_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
                 """,
                 (
                     rec["id"],
@@ -395,6 +425,12 @@ class MediaDB:
                     rec.get("exif_json") or json.dumps(rec.get("exif", {}), ensure_ascii=False),
                     rec.get("phash", ""),
                     rec.get("ocr_text", ""),
+                    rec.get("license", ""),
+                    rec.get("license_url", ""),
+                    rec.get("credit", ""),
+                    rec.get("copyright_holder", ""),
+                    1 if rec.get("commercial_ok", True) else 0,
+                    rec.get("license_expires_at"),
                     int(rec.get("ts", now)),
                     now,
                 ),
@@ -403,6 +439,43 @@ class MediaDB:
             self._sync_fts(conn, rec["id"])
             conn.commit()
             return True
+
+    def update_media_fields(self, item_id: str, **fields) -> None:
+        """异步处理完成后回写媒体字段（REQ-V2-20 D-16）。
+
+        只允许白名单列，避免调用方拼错列名或写入不该改的字段。
+        """
+        allowed = {
+            "width", "height", "aspect_ratio", "duration", "fps", "codec",
+            "dominant_color", "palette_json", "exif_json", "phash", "thumb",
+            "play_file", "preview_file",
+        }
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return
+        sets = ", ".join(f"{k}=?" for k in updates)
+        params = list(updates.values()) + [int(time.time()), item_id]
+        with self._write_lock, self.connect() as conn:
+            conn.execute(f"UPDATE items SET {sets}, updated_at=? WHERE id=?", params)
+            conn.commit()
+
+    def update_license(self, item_id: str, **fields) -> Optional[Dict[str, Any]]:
+        """更新授权与署名信息（REQ-V2-20 C-11）。"""
+        allowed = {
+            "license", "license_url", "credit", "copyright_holder",
+            "commercial_ok", "license_expires_at", "status", "slug",
+        }
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return self.get_item(item_id)
+        if "commercial_ok" in updates:
+            updates["commercial_ok"] = 1 if updates["commercial_ok"] else 0
+        sets = ", ".join(f"{k}=?" for k in updates)
+        params = list(updates.values()) + [int(time.time()), item_id]
+        with self._write_lock, self.connect() as conn:
+            conn.execute(f"UPDATE items SET {sets}, updated_at=? WHERE id=?", params)
+            conn.commit()
+        return self.get_item(item_id)
 
     def _hydrate_rows(self, conn: sqlite3.Connection, rows: List[sqlite3.Row]) -> List[Dict[str, Any]]:
         if not rows:
@@ -618,14 +691,27 @@ class MediaDB:
             scored.sort(key=lambda x: (x[0], x[1]))
             return self._hydrate_rows(conn, [r for _, _, r in scored[:limit]])
 
-    def find_near_duplicate(self, phash: str, max_dist: int = 4) -> Optional[Dict[str, Any]]:
+    def find_near_duplicate(self, phash: str, max_dist: int = 4,
+                            exclude_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """查找近似重复项。
+
+        优化（REQ-V2-20 D-16）：先按 phash 前 2 个十六进制字符分桶，
+        只比对同桶与相邻前缀的候选，避免万级资产下逐行算汉明距离。
+        汉明距离 ≤4 意味着前 2 个 hex 字符（8 bit）通常至少共享若干位，
+        因此用"前缀首字符相同"做粗筛，既安全又大幅减少候选。
+        """
         if not phash:
             return None
+        prefix = phash[:1]
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM items WHERE phash != '' AND deleted_at IS NULL"
+                "SELECT * FROM items WHERE phash != '' AND deleted_at IS NULL "
+                "AND substr(phash,1,1)=?",
+                (prefix,),
             ).fetchall()
             for r in rows:
+                if exclude_id and r["id"] == exclude_id:
+                    continue
                 if _hamming_hex(phash, r["phash"]) <= max_dist:
                     return self._hydrate_rows(conn, [r])[0]
         return None

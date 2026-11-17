@@ -32,6 +32,14 @@ export interface MediaItem {
   exif_json: string
   phash: string
   ocr_text: string
+  /** 授权与署名（C-11）。存量数据可能缺失，故为可选。 */
+  license?: string
+  license_url?: string
+  credit?: string
+  copyright_holder?: string
+  /** 1 = 可商用，0 = 仅限个人使用（SQLite 无布尔类型） */
+  commercial_ok?: number
+  license_expires_at?: number | null
   views: number
   downloads: number
   ts: number

@@ -68,7 +68,7 @@ def test_upload_metadata_thumbs_and_search(client):
     png = _make_png_bytes(640, 360, (30, 150, 240))
     r = client.post(
         "/api/upload",
-        data={"tags": "风景,壁纸", "source": "https://x.com/demo/status/987654321"},
+        data={"tags": "风景,壁纸", "source": "https://x.com/demo/status/987654321", "synchronous": "1"},
         files={"file": ("tmpxyz9988.png", png, "image/png")},
     )
     assert r.status_code == 200
@@ -95,7 +95,7 @@ def test_edit_collections_zip_and_trash(client):
     png = _make_png_bytes(300, 500, (120, 200, 90))
     it = client.post(
         "/api/upload",
-        data={"title": "竖版海报", "tags": "设计"},
+        data={"title": "竖版海报", "tags": "设计", "synchronous": "1"},
         files={"file": ("poster.png", png, "image/png")},
     ).json()["items"][0]
     iid = it["id"]

@@ -130,8 +130,16 @@ onUnmounted(() => {
     <!-- 悬浮控制条：不抢画面 -->
     <div class="lightbox__bar">
       <div class="lightbox__info">
-        <span class="lightbox__title">{{ item.title || item.name }}</span>
+        <span class="lightbox__title">
+          {{ item.title || item.name }}
+          <!-- 授权状态（C-11）：不可商用必须有明确提示 -->
+          <span v-if="item.commercial_ok === 0" class="badge-personal">
+            {{ t('license.personalOnly') }}
+          </span>
+          <span v-else-if="item.license" class="badge-license mono">{{ item.license }}</span>
+        </span>
         <span v-if="spec" class="lightbox__spec mono">{{ spec }}</span>
+        <span v-if="item.credit" class="lightbox__credit">{{ item.credit }}</span>
       </div>
 
       <div class="lightbox__controls">
@@ -190,6 +198,25 @@ onUnmounted(() => {
   place-items: center;
   padding: var(--p-space-8) var(--p-space-6) 96px;
   overflow: hidden;
+  /* 灯箱自身的进入动画：替代无法用于 dialog 的共享元素转场 */
+  animation: lightbox-in var(--p-dur-base) var(--p-ease-out);
+}
+
+@keyframes lightbox-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lightbox__stage {
+    animation: none;
+  }
 }
 
 .lightbox__img,
@@ -229,7 +256,33 @@ onUnmounted(() => {
 
 .lightbox__spec {
   font-size: var(--p-step--1);
+  opacity: 0.75;
+}
+
+.lightbox__credit {
+  font-size: var(--p-step--1);
   opacity: 0.6;
+}
+
+/* 授权徽标：角标形式，不抢画面但不可忽略 */
+.badge-license,
+.badge-personal {
+  display: inline-block;
+  margin-left: var(--p-space-2);
+  padding: 0 6px;
+  font-size: 0.6875rem;
+  border-radius: var(--p-radius-sm);
+  vertical-align: middle;
+}
+
+.badge-license {
+  background: rgba(250, 248, 245, 0.16);
+  color: #faf8f5;
+}
+
+.badge-personal {
+  background: rgba(176, 74, 63, 0.9);
+  color: #fff;
 }
 
 .lightbox__controls {

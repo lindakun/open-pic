@@ -237,3 +237,79 @@ def cache_stats(cache_dir: str) -> dict:
                 except OSError:
                     continue
     return {"bytes": total, "files": count, "limit_bytes": CACHE_LIMIT_BYTES}
+
+
+# ---------- 导出前的 EXIF 隐私清洗（REQ-V2-20 C-11） ----------
+
+# 需要剥离的敏感标签：GPS 位置与设备唯一标识
+_SENSITIVE_EXIF = {
+    34853,  # GPSInfo
+    42033,  # BodySerialNumber
+    42034,  # CameraOwnerName
+    272,    # Model（机型，常与设备指纹关联）
+}
+
+
+def sanitize_copy(src_path: str, dest_path: str, fmt: str = "jpeg",
+                  quality: int = 90) -> bool:
+    """生成剥离隐私信息的导出副本，原图不做任何修改。
+
+    清洗范围：
+      - GPS 全部标签（拍摄地点）
+      - 机身序列号 / 相机所有者
+      - 机型字段
+
+    保留：拍摄时间、光圈/快门/ISO 等无隐私风险的参数。
+
+    实现说明：Pillow 写文件时默认不携带 EXIF，因此"重新编码"本身
+    即完成了清洗；此处额外显式过滤，防止将来引入 EXIF 透传逻辑时回归。
+    """
+    try:
+        from PIL import Image, ImageOps
+    except ImportError:
+        return False
+
+    try:
+        with Image.open(src_path) as raw:
+            im = ImageOps.exif_transpose(raw)
+            if im.mode in ("RGBA", "LA", "P"):
+                im = im.convert("RGBA")
+                bg = Image.new("RGB", im.size, (250, 248, 245))
+                bg.paste(im, mask=im.split()[-1])
+                im = bg
+            else:
+                im = im.convert("RGB")
+
+            # 显式构造干净的 EXIF：只保留无隐私风险的标签
+            clean_exif = _clean_exif(raw)
+
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            save_kwargs = {}
+            if clean_exif is not None:
+                save_kwargs["exif"] = clean_exif
+
+            if fmt == "png":
+                im.save(dest_path, "PNG", optimize=True)
+            elif fmt == "webp":
+                im.save(dest_path, "WEBP", quality=quality, method=4, **save_kwargs)
+            else:
+                im.save(dest_path, "JPEG", quality=quality, optimize=True,
+                        progressive=True, **save_kwargs)
+            return os.path.getsize(dest_path) > 0
+    except Exception:
+        return False
+
+
+def _clean_exif(raw_image):
+    """从原图 EXIF 中剔除敏感项，返回可用于保存的 exif 字节。"""
+    try:
+        exif = raw_image.getexif()
+        if not exif:
+            return None
+        for tag in list(exif.keys()):
+            if tag in _SENSITIVE_EXIF:
+                del exif[tag]
+        return exif.tobytes()
+    except Exception:
+        # 读取失败时返回 None：不带 EXIF 保存，等同全量清洗
+        return None

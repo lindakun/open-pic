@@ -199,7 +199,10 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
 
     # ---------- 辅助函数 ----------
 
-    def store_file(tmp_path: str, filename: str, title: str = "", tags: Optional[List[str]] = None, source: str = "") -> tuple[Dict[str, Any], bool, Optional[Dict[str, Any]]]:
+    def store_file(tmp_path: str, filename: str, title: str = "", tags: Optional[List[str]] = None, source: str = "",
+                   synchronous: bool = False, license_name: str = "", license_url: str = "",
+                   credit: str = "", copyright_holder: str = "", commercial_ok: bool = True
+                   ) -> tuple[Dict[str, Any], bool, Optional[Dict[str, Any]]]:
         ext = os.path.splitext(filename)[1].lower()
         if ext not in media_proc.IMAGE_EXT and ext not in media_proc.VIDEO_EXT:
             raise ValueError(f"不支持的文件类型: {ext or '(无扩展名)'}")
@@ -234,9 +237,16 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
             except Exception:
                 pass
 
-            meta = media_proc.extract_metadata(dest, ext)
-            thumb_rel = media_proc.make_thumbnails(dest, THUMBS, item_id, ext)
-            near_dup = db.find_near_duplicate(meta.get("phash", "")) if ext in media_proc.IMAGE_EXT else None
+            # 快速路径（REQ-V2-20 D-16）：只落盘 + 建记录，立即返回。
+            # 元数据提取（ffprobe/Pillow）、缩略图生成、近重复检测
+            # 全部下沉到 TaskManager，避免上传请求被重活占住。
+            fast = synchronous == False
+            meta = {}
+            thumb_rel = None
+
+            if not fast:
+                meta = media_proc.extract_metadata(dest, ext)
+                thumb_rel = media_proc.make_thumbnails(dest, THUMBS, item_id, ext)
 
             rec = {
                 "id": item_id,
@@ -250,19 +260,34 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
                 "source": source or "",
                 "source_platform": db.detect_platform(source or ""),
                 "size": size,
-                "width": meta["width"],
-                "height": meta["height"],
-                "aspect_ratio": meta["aspect_ratio"],
-                "duration": meta["duration"],
-                "fps": meta["fps"],
-                "codec": meta["codec"],
-                "dominant_color": meta["dominant_color"],
-                "palette_json": json.dumps(meta["palette"], ensure_ascii=False),
-                "exif_json": json.dumps(meta["exif"], ensure_ascii=False),
-                "phash": meta["phash"],
+                "width": meta.get("width", 0),
+                "height": meta.get("height", 0),
+                "aspect_ratio": meta.get("aspect_ratio", 1.0),
+                "duration": meta.get("duration", 0.0),
+                "fps": meta.get("fps", 0.0),
+                "codec": meta.get("codec", ""),
+                "dominant_color": meta.get("dominant_color", "#1a1d24"),
+                "palette_json": json.dumps(meta.get("palette", []), ensure_ascii=False),
+                "exif_json": json.dumps(meta.get("exif", {}), ensure_ascii=False),
+                "phash": meta.get("phash", ""),
+                # 授权字段（C-11）：可在上传时指定，默认保留一切权利
+                "license": license_name or "",
+                "license_url": license_url or "",
+                "credit": credit or "",
+                "copyright_holder": copyright_holder or "",
+                "commercial_ok": commercial_ok,
                 "ts": int(time.time()),
             }
             db.upsert_item(rec)
+
+            if fast:
+                # 提交异步处理任务；失败不影响入库（资产仍可通过原图访问）
+                try:
+                    job_id = tasks.enqueue("media_process", {"item_id": item_id})
+                    rec["_job_id"] = job_id
+                    rec["_processing"] = True
+                except Exception as e:
+                    print(f"[upload] 入队失败 {item_id}: {e}", file=sys.stderr)
             saved = db.get_item(item_id) or rec
 
             # 视频入库后异步生成悬停预览与兼容播放副本
@@ -270,7 +295,8 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
                 tasks.enqueue("video_postprocess", {"item_id": item_id})
             if start_workers:
                 tasks.broadcast("library_updated", {"reason": "upload", "item_id": item_id})
-            return saved, True, near_dup
+            # 同步模式下才可能已算好近似重复；异步模式由任务完成后回传
+            return saved, True, None
 
     def _serve_range_file(request: Request, path: str, download_name: Optional[str] = None, ctype: Optional[str] = None, immutable: bool = True) -> Response:
         if not os.path.isfile(path):
@@ -593,6 +619,25 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
     def api_similar_items(item_id: str, limit: int = Query(12, ge=1, le=30)):
         return {"items": db.find_similar(item_id, limit=limit)}
 
+    class LicenseReq(BaseModel):
+        license: Optional[str] = None
+        license_url: Optional[str] = None
+        credit: Optional[str] = None
+        copyright_holder: Optional[str] = None
+        commercial_ok: Optional[bool] = None
+        license_expires_at: Optional[int] = None
+
+    @app.patch("/api/item/{item_id}/license")
+    def api_update_license(item_id: str, req: LicenseReq):
+        """更新授权与可商用信息（REQ-V2-20 C-11）。"""
+        if not re.match(r"^[0-9a-f]{6,32}$", item_id):
+            raise HTTPException(status_code=404, detail="not found")
+        if not db.get_item(item_id):
+            raise HTTPException(status_code=404, detail="not found")
+        fields = {k: v for k, v in req.model_dump().items() if v is not None}
+        updated = db.update_license(item_id, **fields)
+        return updated
+
     @app.patch("/api/item/{item_id}")
     def api_update_item(item_id: str, req: UpdateItemReq):
         fields = req.model_dump(exclude_none=True)
@@ -614,6 +659,17 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
         source = str(form.get("source", "") or "")
         tags_raw = str(form.get("tags", "") or "")
         tags = [t.strip() for t in re.split(r"[,，\s]+", tags_raw) if t.strip()]
+
+        # 授权与署名（REQ-V2-20 C-11）：可在上传时一并指定
+        license_name = str(form.get("license", "") or "")
+        license_url = str(form.get("license_url", "") or "")
+        credit = str(form.get("credit", "") or "")
+        copyright_holder = str(form.get("copyright_holder", "") or "")
+        commercial_raw = str(form.get("commercial_ok", "1") or "1").lower()
+        commercial_ok = commercial_raw not in ("0", "false", "no")
+        # 兼容 CLI 入库脚本：需要同步拿到元数据时传 synchronous=1
+        sync_raw = str(form.get("synchronous", "") or "").lower()
+        synchronous = sync_raw in ("1", "true", "yes")
 
         files_to_save: List[tuple[str, str]] = []
         tmpdir = tempfile.mkdtemp(prefix="mlib-", dir=DATA)
@@ -638,7 +694,12 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
 
             out = []
             for tp, fname in files_to_save:
-                rec, is_new, near_dup = store_file(tp, fname, title=title, tags=tags, source=source)
+                rec, is_new, near_dup = store_file(
+                    tp, fname, title=title, tags=tags, source=source,
+                    synchronous=synchronous, license_name=license_name,
+                    license_url=license_url, credit=credit,
+                    copyright_holder=copyright_holder, commercial_ok=commercial_ok,
+                )
                 rec = dict(rec)
                 rec["duplicate"] = not is_new
                 if near_dup and near_dup["id"] != rec["id"]:
