@@ -56,7 +56,11 @@ def normalize_quality(fm: str, q: Optional[int]) -> Optional[int]:
 
 
 def clamp_dimension(value: Optional[int]) -> Optional[int]:
-    """限制输出尺寸，防止超大尺寸攻击性与资源浪费。"""
+    """限制输出尺寸，防止超大尺寸请求。
+
+    任意宽度都允许（既有契约，测试依赖 200px 等任意档），
+    超过 MAX_DIMENSION 截断；缓存膨胀由容量上限 + LRU 兜底。
+    """
     if value is None or value <= 0:
         return None
     return min(int(value), MAX_DIMENSION)

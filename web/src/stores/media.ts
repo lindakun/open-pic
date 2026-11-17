@@ -49,7 +49,7 @@ export const useMediaStore = defineStore('media', () => {
   /** 分面请求的独立序号：与列表请求节奏不同，需单独防竞态 */
   let facetsSeq = 0
 
-  async function load(reset = false) {
+  async function load(reset = false, keepCount?: number) {
     if (!reset && loading.value) return
     if (!reset && !hasMore.value && items.value.length > 0) return
 
@@ -59,9 +59,14 @@ export const useMediaStore = defineStore('media', () => {
 
     try {
       const offset = reset ? 0 : items.value.length
+      // 刷新时保留已加载条数（上限 500 防爆）：翻了几页后上传/SSE
+      // 触发刷新，不应把列表重置回第一页丢失滚动位置
+      const limit = reset
+        ? Math.min(Math.max(keepCount ?? PAGE_SIZE, PAGE_SIZE), 500)
+        : PAGE_SIZE
       const res = await api.items({
         ...filters.queryParams,
-        limit: PAGE_SIZE,
+        limit,
         offset,
       })
       // 过期响应直接丢弃
@@ -78,9 +83,9 @@ export const useMediaStore = defineStore('media', () => {
     }
   }
 
-  /** 重新加载列表与分面计数 */
+  /** 重新加载列表与分面计数（保留已加载条数，见 load 的 keepCount） */
   async function refresh() {
-    await Promise.all([load(true), loadFacets()])
+    await Promise.all([load(true, items.value.length || undefined), loadFacets()])
   }
 
   /** 拉取分面统计 */

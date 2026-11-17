@@ -253,11 +253,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <template v-else>
       <main class="review__stage">
         <figure v-if="current" class="review__figure">
+          <!-- 快速上传路径下缩略图可能尚未生成：失败时回退原图，不留破图 -->
           <img
             v-if="current.kind === 'image'"
             :src="`/t/${current.id}_lg.webp`"
             :alt="current.title || current.name"
             class="review__img"
+            @error="($event.target as HTMLImageElement).src = `/f/${current.file}`"
           />
           <video
             v-else
@@ -322,7 +324,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           :aria-label="it.title || it.name"
           @click="jump(i)"
         >
-          <img :src="`/t/${it.id}_sm.webp`" alt="" />
+          <img
+            :src="`/t/${it.id}_sm.webp`"
+            alt=""
+            @error="($event.target as HTMLImageElement).src = `/t/${it.id}.jpg`"
+          />
           <span v-if="markOf(it.id)" :class="['film__dot', `film__dot--${markOf(it.id)!.state}`]" />
         </button>
       </nav>

@@ -99,15 +99,24 @@ async function submit() {
   let ok = 0
   const failed: string[] = []
 
-  for (const file of [...queue.value]) {
-    try {
-      await api.upload(file, { title: title.value, tags: tags.value })
-      ok++
-    } catch (e) {
-      failed.push(`${file.name}: ${(e as Error).message}`)
+  // 三个一批并发上传：串行传 10 个文件要等 10 倍时间，
+  // 并发过高又容易在弱网下集体超时
+  const CONCURRENCY = 3
+  const pending = [...queue.value]
+  async function worker() {
+    while (pending.length) {
+      const file = pending.shift()
+      if (!file) return
+      try {
+        await api.upload(file, { title: title.value, tags: tags.value })
+        ok++
+      } catch (e) {
+        failed.push(`${file.name}: ${(e as Error).message}`)
+      }
+      progress.value.done++
     }
-    progress.value.done++
   }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.value.length) }, worker))
 
   uploading.value = false
   if (failed.length) errors.value = failed

@@ -479,6 +479,18 @@ class MediaDB:
         )
 
     def _set_tags_tx(self, conn: sqlite3.Connection, item_id: str, tags: List[str], source: str = "manual"):
+        """整体替换资产标签。
+
+        保留各标签的既有来源（如 ai）：保存标签时把 ai 一律重置成 manual
+        会让 UI 上的虚线标识失真。只有新挂的标签才用传入的 source。
+        """
+        prev: Dict[str, str] = {}
+        for r in conn.execute(
+            "SELECT t.name, it.source FROM item_tags it JOIN tags t ON t.id=it.tag_id"
+            " WHERE it.item_id=?",
+            (item_id,),
+        ).fetchall():
+            prev[r["name"]] = r["source"]
         conn.execute("DELETE FROM item_tags WHERE item_id=?", (item_id,))
         seen = set()
         for raw in tags:
@@ -490,7 +502,7 @@ class MediaDB:
             tid = conn.execute("SELECT id FROM tags WHERE name=?", (t,)).fetchone()["id"]
             conn.execute(
                 "INSERT OR IGNORE INTO item_tags(item_id, tag_id, source) VALUES (?,?,?)",
-                (item_id, tid, source),
+                (item_id, tid, prev.get(t) or source),
             )
 
     def upsert_item(self, rec: Dict[str, Any]) -> bool:
@@ -931,10 +943,9 @@ class MediaDB:
                             exclude_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """查找近似重复项。
 
-        优化（REQ-V2-20 D-16）：先按 phash 前 2 个十六进制字符分桶，
-        只比对同桶与相邻前缀的候选，避免万级资产下逐行算汉明距离。
-        汉明距离 ≤4 意味着前 2 个 hex 字符（8 bit）通常至少共享若干位，
-        因此用"前缀首字符相同"做粗筛，既安全又大幅减少候选。
+        粗筛：只比对首字符（4 bit）相同的候选，避免万级资产逐行算汉明距离。
+        注意这是有漏报的权衡——距离 ≤4 时差异可以全部落在首字符里，
+        此时会被粗筛排除。近似重复检测是辅助功能，宁漏勿慢。
         """
         if not phash:
             return None
@@ -988,6 +999,22 @@ class MediaDB:
             removed = [dict(r) for r in rows]
             conn.execute(f"DELETE FROM items WHERE id IN ({placeholders})", item_ids)
             conn.execute(f"DELETE FROM items_fts WHERE item_id IN ({placeholders})", item_ids)
+            conn.commit()
+            return removed
+
+    def permanent_delete_all_trashed(self) -> List[Dict[str, Any]]:
+        """清空回收站：直接按 deleted_at 物理删除，不受分页查询上限约束。"""
+        with self._write_lock, self.connect() as conn:
+            rows = conn.execute("SELECT * FROM items WHERE deleted_at IS NOT NULL").fetchall()
+            if not rows:
+                return []
+            removed = [dict(r) for r in rows]
+            conn.execute("DELETE FROM items WHERE deleted_at IS NOT NULL")
+            conn.execute(
+                "DELETE FROM items_fts WHERE item_id IN"
+                " (SELECT value FROM json_each(?))",
+                (json.dumps([r["id"] for r in rows]),),
+            )
             conn.commit()
             return removed
 

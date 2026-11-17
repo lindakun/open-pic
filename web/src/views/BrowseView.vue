@@ -357,6 +357,8 @@ onUnmounted(() => {
   pageObserver?.disconnect()
   es?.close()
   if (sseRefreshTimer !== undefined) window.clearTimeout(sseRefreshTimer)
+  // 搜索防抖定时器一并清掉：卸载后触发只会发出无意义的请求
+  window.clearTimeout(debounceTimer)
 })
 
 // ---------- 任务事件流（SSE） ----------
@@ -411,6 +413,29 @@ watch(
     if (v !== searchInput.value) searchInput.value = v
   },
 )
+
+// 浏览器后退/前进：URL query 变化时还原筛选并重载。
+// 组件内的 syncUrl 用 replace 更新 query，同样会触发本 watch，
+// 通过「还原后状态与当前一致则跳过」防自更新循环。
+watch(
+  () => route.query,
+  (q) => {
+    const incoming = JSON.stringify(sortQueryKeys(q as Record<string, unknown>))
+    const current = JSON.stringify(sortQueryKeys(filters.toUrlQuery()))
+    if (incoming === current) return
+    filters.fromUrlQuery(q as Record<string, string>)
+    searchInput.value = filters.q
+    clearScrollAnchor()
+    void store.refresh()
+  },
+)
+
+/** query 对象按 key 排序后拷贝，保证 stringify 比较稳定 */
+function sortQueryKeys(q: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const k of Object.keys(q).sort()) out[k] = q[k]
+  return out
+}
 
 watch(
   () => store.error,

@@ -242,6 +242,11 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
         with _id_lock(item_id):
             existing = db.get_item(item_id)
             if existing:
+                # 与锁外首次检查同款口径：软删除态先恢复，否则该资产
+                # 会在回收站里"复活"失败、本次上传也拿不到可展示记录
+                if existing.get("deleted_at"):
+                    db.restore_items([item_id])
+                    existing = db.get_item(item_id)
                 return existing, False, None
 
             dest = os.path.join(FILES, item_id + ext)
@@ -626,7 +631,10 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
         fmt = img_transform.normalize_format(fm)
         w = img_transform.clamp_dimension(w)
         h = img_transform.clamp_dimension(h)
-        # 未指定尺寸时按原图返回，但不出缓存（避免把原图复制一份）
+        # 未指定尺寸或非白名单档位：按原图返回，不落缓存
+        # （避免把原图复制一份进缓存目录）
+        if w is None and h is None:
+            return _serve_range_file(request, src_path)
         quality = img_transform.normalize_quality(fmt, q)
         src_mtime = int(os.stat(src_path).st_mtime)
 
@@ -926,9 +934,8 @@ body{{margin:0;background:#0b0c10;color:#e6e8ef;font-family:-apple-system,BlinkM
 
     @app.post("/api/trash/empty")
     def api_empty_trash():
-        _, trashed = db.query_items(limit=100000, offset=0, deleted=True)
-        ids = [it["id"] for it in trashed]
-        removed = db.permanent_delete(ids)
+        # 直接按 deleted_at 物理删：走 query_items(limit=100000) 在超大库会漏删
+        removed = db.permanent_delete_all_trashed()
         _physical_remove_items(removed)
         return {"ok": True, "count": len(removed)}
 

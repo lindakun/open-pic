@@ -163,8 +163,6 @@ let observer: ResizeObserver | null = null
 /** 当前滚动位置与视口高度：驱动可见区间计算 */
 const scrollY = ref(0)
 const viewportH = ref(0)
-/** 弱网/省流量模式：批量降为 24（D-17） */
-const saveData = ref(false)
 
 function measure() {
   if (containerRef.value) {
@@ -225,11 +223,6 @@ onMounted(() => {
   observer = new ResizeObserver(measure)
   if (containerRef.value) observer.observe(containerRef.value)
 
-  const conn = (navigator as Navigator & {
-    connection?: { saveData?: boolean; effectiveType?: string }
-  }).connection
-  saveData.value = Boolean(conn?.saveData)
-
   window.addEventListener('scroll', onScroll, { passive: true })
   window.addEventListener('resize', measure, { passive: true })
   onScroll()
@@ -248,7 +241,7 @@ watch(() => props.items.length, () => {
   onScroll()
 })
 
-defineExpose({ renderedCount, isVisible, visibleRange, saveData })
+defineExpose({ renderedCount, isVisible, visibleRange })
 </script>
 
 <template>
