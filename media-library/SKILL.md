@@ -105,37 +105,45 @@ python3 $S/server.py --stop
 
 ```
 /vol1/picoclaw/.picoclaw/workspace/media-library/
-├── files/      # 原文件，文件名 = <sha1前16位>.<ext>
-├── thumbs/     # 缩略图 640px JPEG
-├── index.json  # 元数据索引（原子写入）
+├── files/       # 原文件，文件名 = <sha1前16位>.<ext>
+├── thumbs/      # 多规格缩略图（<id>.jpg + <id>_{sm,md,lg}.webp）
+├── previews/    # 视频 3 秒悬停动态 WebP 预览
+├── play/        # 视频浏览器兼容播放副本（H.264 + AAC + faststart）
+├── media.db     # SQLite 主库（WAL + FTS5 全文索引 + 画板 + 任务表）
+├── index.json.migrated.bak  # 旧版索引自动迁移备份
 ├── server.pid
 └── server.log
 ```
 
-- 缩略图：图片用 Pillow（EXIF 旋转校正、透明底填深色），视频用 ffmpeg 截 0.5s 帧
+- 缩略图：图片用 Pillow（EXIF 旋转校正、透明底填深色），视频用 ffmpeg 截 0.5s 帧并压制多规格 WebP
 - 缩略图生成失败不影响入库，前端会 fallback 到原图
 
 ## REST API
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/items?limit=&offset=&tag=&kind=` | 列表（时间倒序） |
-| GET | `/api/stats` | 统计（总数/图/视频/字节/标签分布） |
-| GET | `/api/item/<id>` | 单条详情 |
+| GET | `/api/items?limit=&offset=&q=&tag=&kind=&sort=` | 多维组合检索与分页列表 |
+| GET | `/api/stats` | 统计（总数/图/视频/字节/标签/平台分布/回收站） |
+| GET | `/api/item/<id>` & `/api/item/<id>/similar` | 单条详情 & 视觉相似推荐 |
+| PATCH | `/api/item/<id>` | 行内编辑标题、标签、备注 |
 | POST | `/api/upload` | multipart：`file`/`title`/`tags`/`source` |
-| POST | `/api/delete` | `{"id": "..."}` |
-| GET | `/f/<id>.<ext>` | 原文件（支持 Range，视频可拖动） |
-| GET | `/f/<id>.<ext>?dl=1` | 强制下载 |
-| GET | `/t/<id>.jpg` | 缩略图 |
-| GET | `/` | 瀑布流界面 |
+| POST | `/api/ingest-url` | Web 端异步抓取链接入库 |
+| POST | `/api/delete` / `/api/restore` | 软删除（默认）与回收站恢复 |
+| POST | `/api/items/batch` / `/api/items/download-zip` | 批量打标/画板/删除 & ZIP 打包下载 |
+| GET/POST | `/api/collections` | 画板/专辑管理 |
+| GET | `/api/jobs` & `/api/jobs/stream` | 后台任务队列与 SSE 实时推送 |
+| GET | `/f/<id>.<ext>` | 原文件（支持 Range、ETag/304、`?play=1` 兼容流、`?dl=1` 下载） |
+| GET | `/t/<id>_md.webp` / `/t/<id>.jpg` | 多规格 WebP / 兼容 JPEG 缩略图 |
+| GET | `/p/<id>.webp` | 视频悬停动态预览 |
+| GET | `/s/<id>` | 独立分享页（带 OpenGraph / Twitter Card 卡片） |
+| GET | `/` | 商业级瀑布流/网格/列表界面 |
 
 ## 界面特性
 
-- 瀑布流（CSS multi-column，自适应 5/4/3/2 列）
-- 无限滚动 + 图片懒加载
-- 顶部筛选：全部 / 图片 / 视频，标题标签搜索（前端过滤已加载部分）
-- 点开大图：左右键切换、Esc 关闭、下载 / 原图 / 来源链接
-- 视频支持 Range 请求，可拖动进度条
+- 无抖动 JS Masonry 瀑布流 + 等高网格 + 列表视图，暗黑/浅色双主题
+- 左侧边栏：全部资产、回收站、统计与存储看板、画板/专辑、方向/平台/主色调筛选、热门标签云
+- 全库后端检索（标题/标签/来源/OCR）、全屏拖拽与剪贴板贴图上传、URL 异步投递
+- 专业灯箱：图片滚轮/双击缩放与拖拽平移、视频倍速/循环/画中画、右侧元数据编辑抽屉与相似图推荐
 
 ## 故障排查
 
