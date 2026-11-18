@@ -61,6 +61,8 @@ describe('BatchBar 批量操作', () => {
     const wrapper = mountBar()
     const trashBtn = wrapper.findAll('.batch__actions button').find((b) => b.text().includes('移入回收站'))!
     await trashBtn.trigger('click')
+    expect(trashBtn.text()).toContain('确认移入回收站')
+    await trashBtn.trigger('click')
     await flushPromises()
 
     const [url, init] = fetchMock.mock.calls[0]
@@ -82,6 +84,8 @@ describe('BatchBar 批量操作', () => {
 
     const wrapper = mountBar()
     const trashBtn = wrapper.findAll('.batch__actions button').find((b) => b.text().includes('移入回收站'))!
+    await trashBtn.trigger('click')
+    expect(trashBtn.text()).toContain('确认移入回收站')
     await trashBtn.trigger('click')
     await flushPromises()
 

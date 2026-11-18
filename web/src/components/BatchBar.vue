@@ -28,6 +28,8 @@ const { t } = useI18n()
 const toast = useToast()
 
 const busy = ref(false)
+const trashConfirm = ref(false)
+let trashTimer: number | undefined
 const tagOpen = ref(false)
 /** 标签操作模式：新增或移除（后端 batch 接口两种都支持） */
 const tagMode = ref<'add' | 'remove'>('add')
@@ -47,9 +49,16 @@ function syncBatchOffset(visible: boolean) {
   else root.style.removeProperty('--batch-bar-offset')
 }
 
-watch(count, (n) => syncBatchOffset(n > 0))
+watch(count, (n) => {
+  syncBatchOffset(n > 0)
+  trashConfirm.value = false
+  if (trashTimer !== undefined) window.clearTimeout(trashTimer)
+})
 onMounted(() => syncBatchOffset(count.value > 0))
-onBeforeUnmount(() => syncBatchOffset(false))
+onBeforeUnmount(() => {
+  syncBatchOffset(false)
+  if (trashTimer !== undefined) window.clearTimeout(trashTimer)
+})
 
 async function run(action: string, extra: Record<string, unknown> = {}) {
   if (!count.value || busy.value) return
@@ -118,6 +127,16 @@ async function setFeatured() {
 }
 
 async function trash() {
+  if (!trashConfirm.value) {
+    trashConfirm.value = true
+    if (trashTimer !== undefined) window.clearTimeout(trashTimer)
+    trashTimer = window.setTimeout(() => {
+      trashConfirm.value = false
+    }, 3000)
+    return
+  }
+  trashConfirm.value = false
+  if (trashTimer !== undefined) window.clearTimeout(trashTimer)
   const ok = await run('delete')
   if (ok) emit('clear')
 }
@@ -178,8 +197,12 @@ async function exportZip() {
       <MLButton variant="quiet" :disabled="busy" @click="setFeatured">
         {{ t('batch.featuredSet') }}
       </MLButton>
-      <MLButton variant="quiet" :disabled="busy" @click="trash">
-        {{ t('batch.trash') }}
+      <MLButton
+        :variant="trashConfirm ? 'danger' : 'quiet'"
+        :disabled="busy"
+        @click="trash"
+      >
+        {{ trashConfirm ? t('batch.trashConfirm', { count }) : t('batch.trash') }}
       </MLButton>
       <button type="button" class="batch__clear" :aria-label="t('batch.clear')" @click="emit('clear')">
         ✕
@@ -267,13 +290,20 @@ async function exportZip() {
   font-size: var(--p-step--1);
   font-weight: 600;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .batch__actions {
   display: flex;
   align-items: center;
   gap: var(--p-space-1);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.batch__actions::-webkit-scrollbar {
+  display: none;
 }
 
 .batch__clear {
@@ -281,6 +311,7 @@ async function exportZip() {
   min-height: 28px;
   color: var(--ink-muted);
   border-radius: var(--p-radius-full);
+  flex-shrink: 0;
 }
 
 .batch__clear:hover {

@@ -639,10 +639,14 @@ watch(
         >
           ×
         </button>
-        <!-- AI 检索未启用时只给说明，不显示入口（B-08 验收 4）。
-             有搜索词时隐藏右侧标识，避免与「清除」按钮在同一位置重叠。 -->
         <span
-          v-if="!searchInput && aiStatus && !aiStatus.available"
+          v-if="aiBusy"
+          class="browse__ai-on browse__ai-busy"
+        >
+          {{ t('ai.searching') }}
+        </span>
+        <span
+          v-else-if="!searchInput && aiStatus && !aiStatus.available"
           class="browse__ai-off"
           :title="aiStatus.hint"
         >
@@ -655,6 +659,7 @@ watch(
         >
           {{ t('ai.byImage') }}
         </span>
+        <kbd v-if="!searchInput && !aiBusy && !aiStatus" class="browse__search-kbd mono" aria-hidden="true">/</kbd>
       </div>
 
       <div class="browse__sorts" role="group" :aria-label="t('sort.label')">
@@ -712,7 +717,9 @@ watch(
         {{
           store.loading && !store.items.length
             ? t('site.loading')
-            : t('site.total', { count: store.total })
+            : onlyLiked
+              ? `${visibleItems.length} / ${store.total}`
+              : t('site.total', { count: store.total })
         }}
       </span>
     </div>
@@ -776,13 +783,19 @@ watch(
         active
         @remove="filters.setPlatform(''); applyAndRefresh()"
       />
-      <MLChip
-        v-if="filters.color"
-        :label="t('browse.colorFilter', { value: filters.color })"
-        removable
-        active
-        @remove="filters.setColor(''); applyAndRefresh()"
-      />
+      <span v-if="filters.color" class="browse__color-chip">
+        <span
+          class="browse__color-dot"
+          :style="{ backgroundColor: filters.color }"
+          aria-hidden="true"
+        />
+        <MLChip
+          :label="t('browse.colorFilter', { value: filters.color })"
+          removable
+          active
+          @remove="filters.setColor(''); applyAndRefresh()"
+        />
+      </span>
       <MLChip
         v-if="filters.collectionId !== null"
         :label="t('browse.collectionFilter', { value: activeCollectionName })"
@@ -1002,6 +1015,25 @@ watch(
   font-weight: 500;
 }
 
+.browse__ai-busy {
+  animation: browse-pulse 1.2s var(--p-ease-in-out) infinite;
+}
+
+.browse__search-kbd {
+  position: absolute;
+  right: var(--p-space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.6875rem;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--p-radius-sm);
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink-muted);
+  pointer-events: none;
+}
+
 .browse__search-icon {
   position: absolute;
   left: var(--p-space-3);
@@ -1111,6 +1143,20 @@ watch(
   margin-bottom: var(--p-space-5);
 }
 
+.browse__color-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--p-space-1);
+}
+
+.browse__color-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--p-radius-full);
+  border: 1px solid var(--rule-strong);
+  flex-shrink: 0;
+}
+
 .browse__clear {
   font-size: var(--p-step--1);
   color: var(--ink-muted);
@@ -1131,7 +1177,10 @@ watch(
 
 .browse__facets {
   position: sticky;
-  top: var(--p-space-6);
+  top: calc(var(--header-offset, 0px) + var(--p-space-4));
+  max-height: calc(100vh - var(--header-offset, 0px) - var(--p-space-6));
+  overflow-y: auto;
+  padding-right: var(--p-space-1);
 }
 
 .browse__main {

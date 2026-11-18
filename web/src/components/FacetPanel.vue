@@ -106,6 +106,17 @@ const groups = computed(() => {
 function canToggle(option: FacetOption): boolean {
   return option.count > 0
 }
+
+/** 某分面维度当前已激活的条件数（含排除标签） */
+function groupActiveCount(key: string): number {
+  if (key === 'kind') return filters.kind ? 1 : 0
+  if (key === 'orientation') return filters.orientation ? 1 : 0
+  if (key === 'size_class') return filters.sizeClass ? 1 : 0
+  if (key === 'ext') return filters.ext ? 1 : 0
+  if (key === 'platform') return filters.platform ? 1 : 0
+  if (key === 'tag') return filters.tags.length + filters.excludeTags.length
+  return 0
+}
 </script>
 
 <template>
@@ -149,10 +160,15 @@ function canToggle(option: FacetOption): boolean {
       v-for="group in groups"
       :key="group.key"
       class="facet"
-      :open="group.key === 'kind' || group.key === 'orientation'"
+      :open="group.key === 'kind' || group.key === 'orientation' || (group.key === 'tag' && groupActiveCount('tag') > 0)"
     >
       <summary class="facet__summary">
-        <span class="facet__name">{{ group.title }}</span>
+        <span class="facet__name">
+          {{ group.title }}
+          <span v-if="groupActiveCount(group.key)" class="facet__active-dot mono">
+            {{ groupActiveCount(group.key) }}
+          </span>
+        </span>
         <span class="facet__chevon" aria-hidden="true">›</span>
       </summary>
       <div class="facet__body">
@@ -277,7 +293,23 @@ function canToggle(option: FacetOption): boolean {
 }
 
 .facet__name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--p-space-2);
   font-size: var(--p-step--1);
+}
+
+.facet__active-dot {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--p-radius-full);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-size: 0.6875rem;
+  font-weight: 600;
 }
 
 .facet__chevon {
@@ -322,6 +354,12 @@ function canToggle(option: FacetOption): boolean {
 .facet__item:focus-within .facet__exclude,
 .facet__exclude--on {
   opacity: 1;
+}
+
+@media (hover: none) {
+  .facet__exclude {
+    opacity: 0.72;
+  }
 }
 
 .facet__exclude:hover {

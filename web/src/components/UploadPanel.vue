@@ -43,6 +43,32 @@ const urlBusy = ref(false)
 /** 待上传队列（拖入或选择后先入列，便于确认） */
 const queue = ref<File[]>([])
 const canSubmit = computed(() => queue.value.length > 0 && !uploading.value)
+const totalQueueBytes = computed(() => queue.value.reduce((acc, f) => acc + f.size, 0))
+
+const previewUrls = new Map<File, string>()
+
+function thumbOf(file: File): string {
+  if (!file.type.startsWith('image/')) return ''
+  const cached = previewUrls.get(file)
+  if (cached) return cached
+  if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') return ''
+  const url = URL.createObjectURL(file)
+  previewUrls.set(file, url)
+  return url
+}
+
+function revokeFileUrl(file: File) {
+  const url = previewUrls.get(file)
+  if (url && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+    URL.revokeObjectURL(url)
+  }
+  previewUrls.delete(file)
+}
+
+function clearQueue() {
+  for (const f of queue.value) revokeFileUrl(f)
+  queue.value = []
+}
 
 /** 部分容器格式（如 .mkv）浏览器给不出 MIME，需按扩展名兜底 */
 const MEDIA_EXT = /\.(jpe?g|png|gif|webp|bmp|avif|heic|mp4|webm|mov|m4v|mkv|avi)$/i
@@ -87,7 +113,8 @@ function addFiles(files: FileList | File[] | null | undefined) {
 }
 
 function removeAt(index: number) {
-  queue.value.splice(index, 1)
+  const [removed] = queue.value.splice(index, 1)
+  if (removed) revokeFileUrl(removed)
 }
 
 function onDrop(e: DragEvent) {
@@ -200,7 +227,15 @@ watch(
   { immediate: true },
 )
 
-onBeforeUnmount(() => window.removeEventListener('paste', onPaste))
+onBeforeUnmount(() => {
+  window.removeEventListener('paste', onPaste)
+  for (const url of previewUrls.values()) {
+    if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+      URL.revokeObjectURL(url)
+    }
+  }
+  previewUrls.clear()
+})
 </script>
 
 <template>
@@ -236,7 +271,7 @@ onBeforeUnmount(() => window.removeEventListener('paste', onPaste))
       <!-- 文件上传 -->
       <div v-if="tab === 'file'" class="up__pane">
         <div
-          :class="['up__drop', { 'up__drop--active': dragActive }]"
+          :class="['up__drop', { 'up__drop--active': dragActive, 'up__drop--compact': queue.length > 0 }]"
           @dragover.prevent="dragActive = true"
           @dragleave.prevent="onDragLeave"
           @drop.prevent="onDrop"
@@ -261,8 +296,19 @@ onBeforeUnmount(() => window.removeEventListener('paste', onPaste))
           @change="addFiles(($event.target as HTMLInputElement).files); ($event.target as HTMLInputElement).value = ''"
         />
 
+        <div v-if="queue.length" class="up__queue-head">
+          <span class="up__queue-summary mono">
+            {{ t('upload.queueSummary', { count: queue.length, size: formatBytes(totalQueueBytes) }) }}
+          </span>
+          <button type="button" class="up__queue-clear" :disabled="uploading" @click="clearQueue">
+            {{ t('upload.clearQueue') }}
+          </button>
+        </div>
+
         <ul v-if="queue.length" class="up__queue">
           <li v-for="(f, i) in queue" :key="`${f.name}-${i}`" class="up__item">
+            <img v-if="thumbOf(f)" :src="thumbOf(f)" alt="" class="up__item-thumb" />
+            <span v-else class="up__item-thumb up__item-thumb--vid mono" aria-hidden="true">▶</span>
             <span class="up__item-name">{{ f.name }}</span>
             <span class="up__item-size mono">{{ formatBytes(f.size) }}</span>
             <button
@@ -387,6 +433,20 @@ onBeforeUnmount(() => window.removeEventListener('paste', onPaste))
   background: var(--accent-soft);
 }
 
+.up__drop--compact {
+  flex-direction: row;
+  padding: var(--p-space-2) var(--p-space-3);
+  gap: var(--p-space-2);
+}
+
+.up__drop--compact .up__drop-icon {
+  font-size: 1rem;
+}
+
+.up__drop--compact .up__drop-sub {
+  display: none;
+}
+
 .up__drop-icon {
   font-size: 1.5rem;
   color: var(--ink-muted);
@@ -402,15 +462,37 @@ onBeforeUnmount(() => window.removeEventListener('paste', onPaste))
   color: var(--ink-muted);
 }
 
+.up__queue-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--p-space-2);
+  font-size: var(--p-step--1);
+}
+
+.up__queue-summary {
+  color: var(--ink-muted);
+}
+
+.up__queue-clear {
+  color: var(--ink-muted);
+  font-size: var(--p-step--1);
+}
+
+.up__queue-clear:hover:not(:disabled) {
+  color: var(--danger);
+  text-decoration: underline;
+}
+
 .up__queue {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 160px;
+  max-height: 180px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .up__item {
@@ -418,9 +500,25 @@ onBeforeUnmount(() => window.removeEventListener('paste', onPaste))
   align-items: center;
   gap: var(--p-space-2);
   font-size: var(--p-step--1);
-  padding: 2px var(--p-space-2);
+  padding: 4px var(--p-space-2);
   border-radius: var(--p-radius-sm);
   background: var(--surface-sunken);
+}
+
+.up__item-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--p-radius-sm);
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--paper);
+}
+
+.up__item-thumb--vid {
+  display: grid;
+  place-items: center;
+  font-size: 0.6875rem;
+  color: var(--ink-muted);
 }
 
 .up__item-name {
