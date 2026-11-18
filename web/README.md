@@ -1,7 +1,5 @@
 # web/ —— MediaLib 前端（Vite + Vue 3 + TypeScript）
 
-对应需求：[docs/REQ-V2-20.md](../docs/REQ-V2-20.md) 拍板决策 2「一次性重构到位」。
-
 ## 技术栈
 
 | 项 | 选择 |
@@ -29,27 +27,42 @@ web/
     ├── api/
     │   ├── types.ts        # 与后端 items 表对齐的类型
     │   └── client.ts       # 统一请求、错误处理、查询序列化
-    ├── components/         # S0 基础组件库（6 个）
+    ├── components/         # 基础与业务组件（13 个）
     │   ├── MLButton.vue
     │   ├── MLChip.vue
     │   ├── MLField.vue
     │   ├── MLMediaCard.vue
     │   ├── MLSheet.vue
     │   ├── MLToast.vue
-    │   ├── AppShell.vue    # 顶栏外壳
-    │   ├── MasonryGrid.vue # 瀑布流
-    │   └── LightboxViewer.vue
+    │   ├── AppShell.vue    # 顶栏外壳与最近浏览抽屉
+    │   ├── BatchBar.vue    # 批量操作条
+    │   ├── FacetPanel.vue  # 粘性分面筛选侧栏
+    │   ├── LightboxViewer.vue # 灯箱（缩放/对比/连播/行内编辑/相似推荐）
+    │   ├── MasonryGrid.vue # 瀑布流 / 等高网格 / 紧凑列表视图
+    │   ├── SmartImage.vue  # AVIF/WebP 响应式图片与微光骨架
+    │   └── UploadPanel.vue # 拖拽/粘贴上传与队列缩略图预览
     ├── composables/
+    │   ├── useAiStatus.ts
+    │   ├── useAnalytics.ts
+    │   ├── useClipboard.ts
+    │   ├── useI18n.ts      # 中英文切换与本地化格式化
+    │   ├── useRecent.ts    # 最近浏览历史（localStorage）
+    │   ├── useScrollRestore.ts
     │   ├── useTheme.ts     # 浅色为主、深色等价映射
-    │   └── useToast.ts
+    │   ├── useToast.ts
+    │   ├── useViewTransition.ts
+    │   └── useZoomPan.ts
     ├── router/index.ts
-    ├── stores/media.ts
+    ├── stores/
+    │   ├── filters.ts      # URL 同步筛选与排序状态
+    │   └── media.ts        # 列表分页与灯箱状态
     ├── styles/
     │   ├── tokens.css      # 三层 Token：primitive → semantic
     │   └── base.css
     └── views/
-        ├── HomeView.vue
-        ├── BrowseView.vue
+        ├── HomeView.vue    # 整屏瀑布流图片墙
+        ├── BrowseView.vue  # 分面检索与多视图浏览页
+        ├── ReviewView.vue  # 客户独立选片与批注页
         └── NotFoundView.vue
 ```
 
@@ -92,8 +105,11 @@ bash scripts/build-web.sh
 4. **留白即叙事**：区块间距用 48/64/96px，不用 16/24px。
 5. **组件层禁止硬编码颜色**：只能消费 `var(--semantic-*)`，Token 在 `tokens.css`。
 
-## S0 完成范围
+## 迭代状态（2026-11-18）
 
-已完成：脚手架、路由、Pinia、API 客户端、设计 Token、6 个基础组件、双前端切换、`列表 + 灯箱` 最小闭环、8 个单元测试。
-
-未开始（按 §5.1 排期）：A-01 完整 Token 体系与组件库扩充、A-02 编辑化首页、A-03 动效、A-05 响应式图片管线、B-10 分面筛选。
+已完成全站 V2 重构与 7 轮（R1-R7）UI/UX 深度精修：
+- **导航与视觉质感**：顶栏滚动进度发丝线与阴影、最近浏览抽屉（角标 + 元信息 + 单条移除）、全站骨架屏、列表尽头提示与标准细滚动条。
+- **卡片与多视图**：瀑布流/等高网格/紧凑列表三视图、悬停呼吸与主色圆点快筛、视频悬停动态预览、SmartImage 加载失败单卡重试。
+- **检索与批量/上传**：`/` 键直达搜索、粘性分面侧栏与维度计数徽标、移动端排除按钮可见性、颜色筛选真色块、批量回收站二次确认、上传图片队列缩略图预览与一键清空。
+- **灯箱与选片页**：1:1 原图查看、2-4 图同步缩放对比、连播倒计时进度条、视频倍速/循环/PiP、信息面板行内编辑与原地跳转相似推荐；选片页语义化三态配色、审阅进度条、统计快捷跳转与手势切图。
+- **测试**：`pnpm test`（或 `npm test`）覆盖 17 个测试文件共 129 条单元测试全部通过，`vue-tsc --noEmit && vite build` 0 错误通过。

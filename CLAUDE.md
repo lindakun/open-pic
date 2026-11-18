@@ -17,15 +17,11 @@
 ```text
 open-pic/
 ├── CLAUDE.md                        # 项目开发与部署规范（本文件）
-├── REQUIREMENTS.md                  # 商业化 20 点优化需求及落地状态
 ├── requirements.txt                 # Python 依赖（FastAPI/Uvicorn/Pillow/Pytest）
-├── docs/
-│   ├── REQ-V2-20.md                 # 商业化 20 点需求文档（v3.0 已拍板）
-│   └── reviews/                     # 两轮三方交叉审核报告归档
 ├── web/                             # 新前端（Vite + Vue 3 + TypeScript）
-│   ├── src/components/              # 基础组件库 MLButton/MLMediaCard 等
+│   ├── src/components/              # 基础与业务组件（MLButton/MLMediaCard/LightboxViewer 等）
 │   ├── src/styles/tokens.css        # 三层设计 Token（浅色编辑纸感）
-│   └── README.md                    # 前端开发与构建说明
+│   └── README.md                    # 前端开发、架构与迭代状态说明
 ├── scripts/build-web.sh             # 前端构建脚本（产物纳入版本库）
 └── media-library/
     ├── SKILL.md                     # picoclaw 技能说明文档
