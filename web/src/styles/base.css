@@ -283,3 +283,24 @@ html.theme-transitioning select {
     background: var(--surface-sunken);
   }
 }
+
+/* ---------- 悬浮控件进出场过渡 ---------- */
+.ml-fade-up-enter-active,
+.ml-fade-up-leave-active {
+  transition:
+    opacity var(--p-dur-base) var(--p-ease-out),
+    transform var(--p-dur-base) var(--p-ease-out);
+}
+
+.ml-fade-up-enter-from,
+.ml-fade-up-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ml-fade-up-enter-active,
+  .ml-fade-up-leave-active {
+    transition: none;
+  }
+}

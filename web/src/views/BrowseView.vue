@@ -10,6 +10,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useMediaStore } from '@/stores/media'
 import { useFilterStore } from '@/stores/filters'
 import { useToast } from '@/composables/useToast'
+import { copyText } from '@/composables/useClipboard'
 import { useAiStatus } from '@/composables/useAiStatus'
 import { pushRecent } from '@/composables/useRecent'
 import { track, useEventFlush, useImpressionTracker } from '@/composables/useAnalytics'
@@ -239,15 +240,42 @@ function onPaste(e: ClipboardEvent) {
   if (file && file.type.startsWith('image/')) void searchByImage(file)
 }
 
-/** 勾选/取消勾选单项（REQ-05 批量操作） */
-function toggleSelect(id: string) {
+/** 勾选/取消勾选单项（REQ-05 批量操作）；按住 Shift 支持区间连选 */
+const lastSelectedId = ref<string | null>(null)
+
+function toggleSelect(id: string, shiftKey = false) {
+  if (shiftKey && lastSelectedId.value && lastSelectedId.value !== id) {
+    const ids = visibleItems.value.map((x) => x.id)
+    const a = ids.indexOf(lastSelectedId.value)
+    const b = ids.indexOf(id)
+    if (a >= 0 && b >= 0) {
+      const [lo, hi] = a < b ? [a, b] : [b, a]
+      const targetState = !selectedIds.value.includes(id)
+      const set = new Set(selectedIds.value)
+      for (let k = lo; k <= hi; k++) {
+        if (targetState) set.add(ids[k])
+        else set.delete(ids[k])
+      }
+      selectedIds.value = Array.from(set)
+      lastSelectedId.value = id
+      return
+    }
+  }
   const i = selectedIds.value.indexOf(id)
   if (i >= 0) selectedIds.value.splice(i, 1)
   else selectedIds.value.push(id)
+  lastSelectedId.value = id
 }
 
 function clearSelection() {
   selectedIds.value = []
+  lastSelectedId.value = null
+}
+
+async function copyFilterLink() {
+  const ok = await copyText(window.location.href)
+  if (ok) toast.success(t('browse.filterLinkCopied'))
+  else toast.error(t('lightbox.copyFailed'))
 }
 
 /** 是否已全选当前可见项 */
@@ -744,9 +772,11 @@ watch(
 
       <MLButton
         variant="quiet"
+        :class="{ 'browse__liked-btn--on': onlyLiked }"
         :aria-pressed="onlyLiked"
         @click="toggleOnlyLiked"
       >
+        <span aria-hidden="true">{{ onlyLiked ? '♥' : '♡' }}</span>
         {{ onlyLiked ? t('like.showAll') : t('like.onlyLiked') }}<template v-if="likedIds.length"> {{ likedIds.length }}</template>
       </MLButton>
       <MLButton variant="quiet" @click="uploadOpen = true">{{ t('upload.open') }}</MLButton>
@@ -858,6 +888,13 @@ watch(
       <button type="button" class="browse__clear" @click="filters.reset(); applyAndRefresh()">
         {{ t('browse.clearAll') }}
       </button>
+      <button type="button" class="browse__copy-link" @click="copyFilterLink">
+        {{ t('browse.copyFilterLink') }}
+      </button>
+    </div>
+
+    <div v-if="selectMode && visibleItems.length > 1" class="browse__select-hint muted">
+      {{ t('browse.shiftRangeHint') }}
     </div>
 
     <div class="browse__layout">
@@ -956,6 +993,14 @@ watch(
         <p v-else-if="!store.hasMore && visibleItems.length && !store.loading" class="browse__end mono muted">
           {{ t('browse.endOfList', { count: visibleItems.length }) }}
         </p>
+        <div v-if="onlyLiked && store.hasMore && !store.loading" class="browse__liked-more">
+          <span class="muted">
+            {{ t('browse.likedLoadMoreHint', { loaded: store.items.length, total: store.total }) }}
+          </span>
+          <MLButton variant="ghost" size="sm" @click="store.load()">
+            {{ t('browse.loadMoreToFindLikes') }}
+          </MLButton>
+        </div>
       </div>
     </div>
 
@@ -980,18 +1025,26 @@ watch(
     />
 
     <!-- 回到顶部悬浮钮 -->
-    <button
-      v-if="showBackTop"
-      type="button"
-      class="browse__top"
-      :aria-label="t('wall.backToTop')"
-      :title="t('wall.backToTop')"
-      @click="scrollToTop"
-    >
-      ↑
-    </button>
+    <Transition name="ml-fade-up">
+      <button
+        v-if="showBackTop"
+        type="button"
+        class="browse__top"
+        :aria-label="t('wall.backToTop')"
+        :title="t('wall.backToTop')"
+        @click="scrollToTop"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
+        </svg>
+      </button>
+    </Transition>
 
-    <UploadPanel v-model:open="uploadOpen" @uploaded="onUploaded" />
+    <UploadPanel
+      v-model:open="uploadOpen"
+      :suggested-tags="(store.facets?.tag ?? []).filter((x) => x.count > 0).slice(0, 8).map((x) => x.value)"
+      @uploaded="onUploaded"
+    />
 
     <BatchBar
       :selected="selectedIds"
@@ -1281,6 +1334,40 @@ watch(
 
 .browse__clear:hover {
   color: var(--danger);
+}
+
+.browse__copy-link {
+  margin-left: auto;
+  font-size: var(--p-step--1);
+  color: var(--ink-muted);
+  padding: var(--p-space-1) var(--p-space-2);
+  border-radius: var(--p-radius-sm);
+  transition: color var(--p-dur-fast) var(--p-ease-out), background-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.browse__copy-link:hover {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.browse__select-hint {
+  font-size: 0.75rem;
+  margin-bottom: var(--p-space-3);
+}
+
+.browse__liked-btn--on {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.browse__liked-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--p-space-3);
+  padding: var(--p-space-4) 0;
+  font-size: var(--p-step--1);
 }
 
 /* 两栏布局 */

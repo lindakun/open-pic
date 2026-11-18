@@ -40,8 +40,8 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'open', item: MediaItem): void
-  /** 选择模式下点击卡片是勾选而非打开 */
-  (e: 'toggle', id: string): void
+  /** 选择模式下点击卡片是勾选而非打开，透传 shiftKey 支持区间连选 */
+  (e: 'toggle', id: string, shiftKey?: boolean): void
   /** 喜欢/取消喜欢 */
   (e: 'toggle-like', id: string): void
   /** 按主色筛选 */
@@ -56,9 +56,13 @@ const previewSrc = computed(() =>
   props.item.preview_file ? `/p/${props.item.preview_file}` : '',
 )
 
-function onClick() {
-  if (props.selectable) emit('toggle', props.item.id)
-  else emit('open', props.item)
+function onClick(e: MouseEvent) {
+  if (!props.selectable) {
+    emit('open', props.item)
+    return
+  }
+  if (e.shiftKey) emit('toggle', props.item.id, true)
+  else emit('toggle', props.item.id)
 }
 
 const { t, formatNumber } = useI18n()
@@ -99,6 +103,21 @@ const cornerBadge = computed(() => {
   if (ext === 'GIF') return 'GIF'
   if (Math.max(props.item.width || 0, props.item.height || 0) >= 3840) return '4K'
   return ext
+})
+
+/** 底部主胶囊：有标签显示首标签，无标签时回退作者或外链平台，让卡片底栏左右均衡 */
+const primaryPill = computed(() => {
+  if (props.item.tags?.length) return props.item.tags[0]
+  if (props.item.author) return props.item.author
+  if (props.item.source_platform && props.item.source_platform !== 'local') {
+    return props.item.source_platform
+  }
+  return ''
+})
+
+const extraTagCount = computed(() => {
+  const len = props.item.tags?.length ?? 0
+  return len > 1 ? len - 1 : 0
 })
 </script>
 
@@ -165,7 +184,8 @@ const cornerBadge = computed(() => {
       <div class="ml-card__meta">
         <span class="ml-card__title">{{ displayTitle }}</span>
         <span class="ml-card__foot">
-          <span v-if="item.tags?.length" class="ml-card__tag">{{ item.tags[0] }}</span>
+          <span v-if="primaryPill" class="ml-card__tag">{{ primaryPill }}</span>
+          <span v-if="extraTagCount > 0" class="ml-card__tag-more mono">+{{ extraTagCount }}</span>
           <span v-if="meta" class="ml-card__spec mono">{{ meta }}</span>
         </span>
       </div>
@@ -483,10 +503,16 @@ const cornerBadge = computed(() => {
   border-radius: var(--p-radius-full);
   padding: 0 7px;
   flex-shrink: 0;
-  max-width: 60%;
+  max-width: 55%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ml-card__tag-more {
+  font-size: 0.625rem;
+  color: var(--ink-faint);
+  flex-shrink: 0;
 }
 
 .ml-card__spec {

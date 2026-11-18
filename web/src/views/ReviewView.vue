@@ -13,10 +13,12 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from '@/composables/useI18n'
+import { useTheme } from '@/composables/useTheme'
 import type { MediaItem } from '@/api/types'
 
 const route = useRoute()
 const { t, formatBytes, formatDate } = useI18n()
+const { mode: themeMode, cycle: cycleTheme } = useTheme()
 
 const token = computed(() => String(route.params.token ?? ''))
 const items = ref<MediaItem[]>([])
@@ -353,6 +355,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 <template>
   <div class="review">
     <header class="review__head">
+      <button
+        type="button"
+        class="review__theme mono"
+        :aria-label="t('site.toggleTheme')"
+        :title="t('site.toggleTheme')"
+        @click="cycleTheme"
+      >
+        {{ themeMode === 'light' ? '☀' : themeMode === 'dark' ? '☾' : '◐' }}
+      </button>
       <h1 class="review__title">{{ linkTitle || t('review.title') }}</h1>
       <p v-if="linkMessage" class="review__msg">{{ linkMessage }}</p>
       <p v-if="linkExpiresAt" class="review__msg mono">
@@ -381,8 +392,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <p v-else-if="!items.length" class="review__state">{{ t('review.empty') }}</p>
 
     <template v-else>
-      <div class="review__progress" aria-hidden="true">
-        <div class="review__progress-fill" :style="{ transform: `scaleX(${markedRatio})` }" />
+      <div class="review__progress-wrap">
+        <div class="review__progress" aria-hidden="true">
+          <div class="review__progress-fill" :style="{ transform: `scaleX(${markedRatio})` }" />
+        </div>
+        <span class="review__progress-text mono">
+          {{ t('review.progressText', { done: items.length - counts.unmarked, total: items.length }) }}
+        </span>
       </div>
 
       <main class="review__stage">
@@ -470,8 +486,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <textarea
             id="note"
             v-model="noteDraft"
-            :placeholder="t('review.notePlaceholder')"
+            :placeholder="`${t('review.notePlaceholder')} (${t('review.noteShortcutHint')})`"
             rows="2"
+            @keydown.ctrl.enter.prevent="saveNote"
+            @keydown.meta.enter.prevent="saveNote"
           />
           <button type="button" class="rv-btn" @click="saveNote">{{ t('review.saveNote') }}</button>
         </div>
@@ -547,11 +565,48 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .review__head {
+  position: relative;
   padding: var(--p-space-4) var(--p-space-5) var(--p-space-2);
   max-width: 900px;
   margin: 0 auto;
   width: 100%;
   text-align: center;
+}
+
+.review__theme {
+  position: absolute;
+  top: var(--p-space-4);
+  right: var(--p-space-4);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--p-radius-full);
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  color: var(--ink-muted);
+  display: grid;
+  place-items: center;
+  font-size: 0.9375rem;
+}
+
+.review__theme:hover {
+  color: var(--ink);
+  border-color: var(--rule-strong);
+}
+
+.review__progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--p-space-3);
+  padding: 0 var(--p-space-4) var(--p-space-2);
+  max-width: 1080px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.review__progress-text {
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  white-space: nowrap;
 }
 
 .review__title {

@@ -45,7 +45,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'open', index: number): void
-  (e: 'toggle', id: string): void
+  (e: 'toggle', id: string, shiftKey?: boolean): void
   (e: 'toggle-like', id: string): void
   (e: 'filter-color', color: string): void
 }>()
@@ -288,7 +288,7 @@ defineExpose({ renderedCount, isVisible, visibleRange })
         :selected="selectedSet.has(item.id)"
         :liked="likedSet.has(item.id)"
         @open="emit('open', index)"
-        @toggle="emit('toggle', $event)"
+        @toggle="(id, shift) => emit('toggle', id, shift)"
         @toggle-like="emit('toggle-like', $event)"
         @filter-color="emit('filter-color', $event)"
       />
@@ -318,7 +318,7 @@ defineExpose({ renderedCount, isVisible, visibleRange })
         :selected="selectedSet.has(item.id)"
         :liked="likedSet.has(item.id)"
         @open="emit('open', index)"
-        @toggle="emit('toggle', $event)"
+        @toggle="(id, shift) => emit('toggle', id, shift)"
         @toggle-like="emit('toggle-like', $event)"
         @filter-color="emit('filter-color', $event)"
       />
@@ -337,7 +337,7 @@ defineExpose({ renderedCount, isVisible, visibleRange })
         type="button"
         class="list-row__main"
         :aria-pressed="selectable ? selectedSet.has(item.id) : undefined"
-        @click="selectable ? emit('toggle', item.id) : emit('open', index)"
+        @click="selectable ? emit('toggle', item.id, $event.shiftKey) : emit('open', index)"
       >
         <div class="list-row__thumb">
           <SmartImage

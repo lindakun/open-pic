@@ -17,7 +17,15 @@ import MLSheet from './MLSheet.vue'
 import MLField from './MLField.vue'
 import MLButton from './MLButton.vue'
 
-const props = defineProps<{ open: boolean }>()
+const props = withDefaults(
+  defineProps<{
+    open: boolean
+    suggestedTags?: string[]
+  }>(),
+  {
+    suggestedTags: () => [],
+  },
+)
 const emit = defineEmits<{
   (e: 'update:open', value: boolean): void
   /** 有文件入库成功后触发，父组件据此刷新列表 */
@@ -46,6 +54,25 @@ const canSubmit = computed(() => queue.value.length > 0 && !uploading.value)
 const totalQueueBytes = computed(() => queue.value.reduce((acc, f) => acc + f.size, 0))
 
 const previewUrls = new Map<File, string>()
+
+function hasTag(tag: string): boolean {
+  return tags.value
+    .split(/[,，\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .includes(tag)
+}
+
+function toggleSuggestedTag(tag: string) {
+  const list = tags.value
+    .split(/[,，\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const idx = list.indexOf(tag)
+  if (idx >= 0) list.splice(idx, 1)
+  else list.push(tag)
+  tags.value = list.join(' ')
+}
 
 function thumbOf(file: File): string {
   if (!file.type.startsWith('image/')) return ''
@@ -341,6 +368,18 @@ onBeforeUnmount(() => {
         <div class="up__meta">
           <MLField v-model="title" :label="t('upload.fieldTitle')" :placeholder="t('upload.titlePlaceholder')" />
           <MLField v-model="tags" :label="t('upload.fieldTags')" :placeholder="t('upload.tagsPlaceholder')" />
+          <div v-if="suggestedTags.length" class="up__suggested">
+            <span class="up__suggested-label">{{ t('upload.suggestedTags') }}</span>
+            <button
+              v-for="tag in suggestedTags"
+              :key="tag"
+              type="button"
+              :class="['up__tag-pill', { 'up__tag-pill--on': hasTag(tag) }]"
+              @click="toggleSuggestedTag(tag)"
+            >
+              {{ tag }}
+            </button>
+          </div>
         </div>
 
         <div v-if="uploading" class="up__progress" aria-hidden="true">
@@ -377,6 +416,18 @@ onBeforeUnmount(() => {
         <div class="up__meta">
           <MLField v-model="title" :label="t('upload.fieldTitle')" :placeholder="t('upload.titlePlaceholder')" />
           <MLField v-model="tags" :label="t('upload.fieldTags')" :placeholder="t('upload.tagsPlaceholder')" />
+          <div v-if="suggestedTags.length" class="up__suggested">
+            <span class="up__suggested-label">{{ t('upload.suggestedTags') }}</span>
+            <button
+              v-for="tag in suggestedTags"
+              :key="tag"
+              type="button"
+              :class="['up__tag-pill', { 'up__tag-pill--on': hasTag(tag) }]"
+              @click="toggleSuggestedTag(tag)"
+            >
+              {{ tag }}
+            </button>
+          </div>
         </div>
         <div class="up__actions">
           <MLButton variant="quiet" @click="emit('update:open', false)">
@@ -581,6 +632,39 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: var(--p-space-2);
+}
+
+.up__suggested {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.up__suggested-label {
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+}
+
+.up__tag-pill {
+  padding: 1px 8px;
+  border-radius: var(--p-radius-full);
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  background: var(--surface-sunken);
+  border: 1px solid transparent;
+  transition: background-color var(--p-dur-fast) var(--p-ease-out), color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.up__tag-pill:hover {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+
+.up__tag-pill--on {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  border-color: var(--accent);
 }
 
 .up__progress {

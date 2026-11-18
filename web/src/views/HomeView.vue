@@ -326,16 +326,20 @@ async function setHomeKind(kind: '' | 'image' | 'video') {
     </p>
 
     <!-- 回到顶部悬浮钮 -->
-    <button
-      v-if="showBackTop"
-      type="button"
-      class="wall__top"
-      :aria-label="t('wall.backToTop')"
-      :title="t('wall.backToTop')"
-      @click="scrollToTop"
-    >
-      ↑
-    </button>
+    <Transition name="ml-fade-up">
+      <button
+        v-if="showBackTop"
+        type="button"
+        class="wall__top"
+        :aria-label="t('wall.backToTop')"
+        :title="t('wall.backToTop')"
+        @click="scrollToTop"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
+        </svg>
+      </button>
+    </Transition>
 
     <LightboxViewer
       v-if="store.currentItem"

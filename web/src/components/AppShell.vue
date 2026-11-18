@@ -19,6 +19,14 @@ const { t, locale, toggleLocale, formatDate } = useI18n()
 const { recent, removeRecent, clearRecent } = useRecent()
 const router = useRouter()
 const recentOpen = ref(false)
+const brokenThumbs = ref<Set<string>>(new Set())
+
+function markThumbBroken(id: string) {
+  if (brokenThumbs.value.has(id)) return
+  const next = new Set(brokenThumbs.value)
+  next.add(id)
+  brokenThumbs.value = next
+}
 
 function openRecentItem(id: string) {
   recentOpen.value = false
@@ -104,6 +112,7 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
       </RouterLink>
 
       <nav class="site-nav" aria-label="Main">
+        <RouterLink to="/" exact-active-class="router-link-active" class="site-nav__link">{{ t('site.wall') }}</RouterLink>
         <RouterLink to="/browse" class="site-nav__link">{{ t('site.browse') }}</RouterLink>
       </nav>
 
@@ -149,35 +158,43 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
 
   <MLSheet v-model:open="recentOpen" :title="t('recent.title')" variant="drawer" width="340px">
     <div v-if="!recent.length" class="recent-empty muted">{{ t('recent.empty') }}</div>
-    <ul v-else class="recent-list">
-      <li v-for="entry in recent" :key="entry.id" class="recent-row">
-        <button type="button" class="recent-item" @click="openRecentItem(entry.id)">
-          <img
-            :src="entry.kind === 'video' ? `/t/${entry.id}.jpg` : `/t/${entry.id}_sm.webp`"
-            alt=""
-            class="recent-item__thumb"
-            loading="lazy"
-          />
-          <span class="recent-item__body">
-            <span class="recent-item__title">{{ entry.title }}</span>
-            <span class="recent-item__meta mono">
-              <span>{{ entry.kind === 'video' ? t('facet.kindVideo') : t('facet.kindImage') }}</span>
-              <span aria-hidden="true">·</span>
-              <span>{{ formatDate(Math.floor(entry.ts / 1000)) }}</span>
+    <template v-else>
+      <p class="recent-summary mono muted">{{ t('recent.count', { count: recent.length }) }}</p>
+      <ul class="recent-list">
+        <li v-for="entry in recent" :key="entry.id" class="recent-row">
+          <button type="button" class="recent-item" @click="openRecentItem(entry.id)">
+            <span v-if="brokenThumbs.has(entry.id)" class="recent-item__thumb recent-item__thumb--fallback mono" aria-hidden="true">
+              {{ entry.kind === 'video' ? '▶' : '◻' }}
             </span>
-          </span>
-        </button>
-        <button
-          type="button"
-          class="recent-row__remove"
-          :aria-label="t('recent.remove')"
-          :title="t('recent.remove')"
-          @click.stop="removeRecent(entry.id)"
-        >
-          ×
-        </button>
-      </li>
-    </ul>
+            <img
+              v-else
+              :src="entry.kind === 'video' ? `/t/${entry.id}.jpg` : `/t/${entry.id}_sm.webp`"
+              alt=""
+              class="recent-item__thumb"
+              loading="lazy"
+              @error="markThumbBroken(entry.id)"
+            />
+            <span class="recent-item__body">
+              <span class="recent-item__title">{{ entry.title }}</span>
+              <span class="recent-item__meta mono">
+                <span>{{ entry.kind === 'video' ? t('facet.kindVideo') : t('facet.kindImage') }}</span>
+                <span aria-hidden="true">·</span>
+                <span>{{ formatDate(Math.floor(entry.ts / 1000)) }}</span>
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="recent-row__remove"
+            :aria-label="t('recent.remove')"
+            :title="t('recent.remove')"
+            @click.stop="removeRecent(entry.id)"
+          >
+            ×
+          </button>
+        </li>
+      </ul>
+    </template>
     <template v-if="recent.length" #footer>
       <MLButton variant="quiet" size="sm" @click="clearRecent">{{ t('recent.clear') }}</MLButton>
     </template>
@@ -353,6 +370,19 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
   padding: var(--p-space-6) 0;
   text-align: center;
   font-size: var(--p-step--1);
+}
+
+.recent-summary {
+  font-size: 0.75rem;
+  margin: 0 0 var(--p-space-3);
+}
+
+.recent-item__thumb--fallback {
+  display: grid;
+  place-items: center;
+  color: var(--ink-faint);
+  border: 1px solid var(--rule);
+  font-size: 0.875rem;
 }
 
 .recent-list {

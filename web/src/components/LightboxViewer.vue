@@ -162,8 +162,12 @@ const infoOpen = ref(false)
 const helpOpen = ref(false)
 /** 胶片快速跳转条：长列表下快速跨项跳转，快捷键 F 显隐 */
 const filmstripOpen = ref(false)
+/** 纯净看图模式：隐藏悬浮控制条与顶部对比条，仅留角落恢复按钮（快捷键 H） */
+const chromeHidden = ref(false)
 /** 当前主图解码完成标记：切换大图时显示柔和加载环 */
 const imgLoaded = ref(false)
+/** 放大 >1.2x 升级加载原图时的状态标记 */
+const upgradingOriginal = ref(false)
 /** 复制反馈：'link' | 'hex:<color>' | null，1.6s 后自动清除 */
 const copied = ref<string | null>(null)
 /** 对比模式：从候选里选出的 2–4 项 id（含当前项） */
@@ -351,6 +355,13 @@ const compareItems = computed<MediaItem[]>(() => {
 const compareOn = computed(() => compareIds.value.length >= 1)
 const COMPARE_EXTRA_MAX = 3
 
+watch(
+  () => !compareOn.value && props.item.kind === 'image' && Boolean(props.item.thumb) && scale.value > 1.2,
+  (isOriginal) => {
+    upgradingOriginal.value = isOriginal
+  },
+)
+
 /** 对比候选：限额 8 个，覆盖当前列表附近即可，避免长列表渲染开销。
  *  当前项不进候选条——它已恒定参与对比，点自己的圆点只会产生
  *  单图"对比"的挤压布局（实测发现）。
@@ -523,6 +534,10 @@ function onKeydown(e: KeyboardEvent) {
 
   switch (e.key) {
     case 'Escape':
+      if (chromeHidden.value) {
+        chromeHidden.value = false
+        break
+      }
       close()
       break
     case 'ArrowLeft':
@@ -576,6 +591,10 @@ function onKeydown(e: KeyboardEvent) {
       if ((props.candidates?.length ?? 0) > 1 && !compareOn.value) {
         filmstripOpen.value = !filmstripOpen.value
       }
+      break
+    case 'h':
+    case 'H':
+      chromeHidden.value = !chromeHidden.value
       break
     case 'd':
     case 'D':
@@ -636,6 +655,7 @@ const shortcuts = computed(() => [
   { key: 'L', desc: t('shortcut.like') },
   { key: 'I', desc: t('shortcut.info') },
   { key: 'F', desc: t('shortcut.filmstrip') },
+  { key: 'H', desc: t('shortcut.hideChrome') },
   { key: 'D', desc: t('shortcut.download') },
   { key: 'C', desc: t('shortcut.copy') },
   { key: 'Space', desc: t('shortcut.slideshow') },
@@ -648,6 +668,7 @@ watch(
   () => props.item.id,
   () => {
     imgLoaded.value = false
+    upgradingOriginal.value = false
     resetZoom()
     compareIds.value = []
     editing.value = false
@@ -755,9 +776,9 @@ onUnmounted(() => {
             :style="compareOn
               ? { transform: `translate3d(${zoomX}px, ${zoomY}px, 0) scale(${priceScale})` }
               : { ...zoomStyle, viewTransitionName: `media-${item.id}` }"
-            @load="it.id === item.id && (imgLoaded = true)"
+            @load="it.id === item.id && (imgLoaded = true, upgradingOriginal = false)"
             @dblclick="onImgDblClick($event)"
-            @error="it.id === item.id && (imgLoaded = true); onImgError($event, it)"
+            @error="it.id === item.id && (imgLoaded = true, upgradingOriginal = false); onImgError($event, it)"
           />
           <figcaption v-if="compareOn" class="lightbox__cap mono">
             {{ it.title || it.name }} · {{ it.width }}×{{ it.height }} · {{ it.ext.replace(/^\./, '').toUpperCase() }}<template v-if="it.size"> · {{ formatBytes(it.size) }}</template>
@@ -804,17 +825,17 @@ onUnmounted(() => {
 
       <!-- 缩放倍率浮标 -->
       <button
-        v-if="item.kind === 'image' && !compareOn && scale > 1.05"
+        v-if="item.kind === 'image' && !compareOn && scale > 1.05 && !chromeHidden"
         type="button"
         class="lightbox__zoom-pill mono"
         :title="t('lightbox.fit')"
         @click="resetZoom"
       >
-        {{ Math.round(scale * 100) }}% · {{ t('lightbox.resetZoomHint') }}
+        {{ upgradingOriginal ? t('lightbox.loadingOriginal') : `${Math.round(scale * 100)}% · ${t('lightbox.resetZoomHint')}` }}
       </button>
 
       <!-- 对比选择条：只在候选足够时出现 -->
-      <div v-if="item.kind === 'image' && compareChoices.length >= 1" class="lightbox__compare">
+      <div v-if="item.kind === 'image' && compareChoices.length >= 1 && !chromeHidden" class="lightbox__compare">
         <span class="lightbox__compare-label">
           {{ compareOn ? t('lightbox.compareCount', { count: compareItems.length }) : t('lightbox.compare') }}
         </span>
@@ -1002,7 +1023,7 @@ onUnmounted(() => {
 
     <!-- 胶片快速跳转条（快捷键 F 显隐） -->
     <nav
-      v-if="filmstripOpen && (candidates?.length ?? 0) > 1 && !compareOn"
+      v-if="filmstripOpen && (candidates?.length ?? 0) > 1 && !compareOn && !chromeHidden"
       :class="['lightbox__filmstrip', { 'lightbox__filmstrip--shifted': infoOpen }]"
       :aria-label="t('lightbox.filmstrip')"
     >
@@ -1023,8 +1044,20 @@ onUnmounted(() => {
       </button>
     </nav>
 
+    <!-- 纯净看图恢复角标 -->
+    <button
+      v-if="chromeHidden"
+      type="button"
+      class="lightbox__restore"
+      :aria-label="t('lightbox.showChrome')"
+      :title="`${t('lightbox.showChrome')} (H)`"
+      @click="chromeHidden = false"
+    >
+      ◎ {{ t('lightbox.showChrome') }}
+    </button>
+
     <!-- 悬浮控制条 -->
-    <div class="lightbox__bar">
+    <div v-show="!chromeHidden" class="lightbox__bar">
       <div class="lightbox__info">
         <span class="lightbox__title">
           {{ item.title || item.name }}
@@ -1144,6 +1177,15 @@ onUnmounted(() => {
           @click="copyLink"
         >
           {{ copied === 'link' ? '✓' : '⧉' }}
+        </button>
+        <button
+          type="button"
+          class="lb-btn"
+          :aria-label="t('lightbox.hideChrome')"
+          :title="`${t('lightbox.hideChrome')} (H)`"
+          @click="chromeHidden = true"
+        >
+          ◎
         </button>
         <button
           type="button"
@@ -1857,6 +1899,26 @@ onUnmounted(() => {
   object-fit: cover;
 }
 
+.lightbox__restore {
+  position: absolute;
+  right: var(--p-space-4);
+  bottom: var(--p-space-4);
+  z-index: 4;
+  padding: 4px var(--p-space-3);
+  border-radius: var(--p-radius-full);
+  background: rgba(18, 16, 13, 0.56);
+  border: 1px solid rgba(250, 248, 245, 0.22);
+  color: rgba(250, 248, 245, 0.85);
+  font-size: var(--p-step--1);
+  backdrop-filter: blur(6px);
+  opacity: 0.55;
+  transition: opacity var(--p-dur-fast) var(--p-ease-out);
+}
+
+.lightbox__restore:hover {
+  opacity: 1;
+}
+
 .lightbox__bar {
   position: absolute;
   left: 0;
@@ -2073,6 +2135,26 @@ onUnmounted(() => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.lightbox__restore {
+  position: absolute;
+  right: var(--p-space-4);
+  bottom: var(--p-space-4);
+  z-index: 4;
+  padding: 4px var(--p-space-3);
+  border-radius: var(--p-radius-full);
+  background: rgba(18, 16, 13, 0.56);
+  border: 1px solid rgba(250, 248, 245, 0.22);
+  color: rgba(250, 248, 245, 0.85);
+  font-size: var(--p-step--1);
+  backdrop-filter: blur(6px);
+  opacity: 0.55;
+  transition: opacity var(--p-dur-fast) var(--p-ease-out);
+}
+
+.lightbox__restore:hover {
+  opacity: 1;
 }
 
 .lightbox__bar {
