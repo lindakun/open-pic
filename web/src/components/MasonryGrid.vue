@@ -52,7 +52,7 @@ const emit = defineEmits<{
 
 const selectedSet = computed(() => new Set(props.selectedIds))
 const likedSet = computed(() => new Set(props.likedIds))
-const { t, formatBytes, formatNumber } = useI18n()
+const { t, formatBytes, formatDate, formatNumber } = useI18n()
 
 /**
  * 虚拟化的目的（D-17）：DOM 随滚动无限增长会拖慢合成与内存。
@@ -371,8 +371,18 @@ defineExpose({ renderedCount, isVisible, visibleRange })
           <template v-if="item.width && item.height">{{ formatNumber(item.width) }}×{{ formatNumber(item.height) }}</template>
           <template v-if="item.ext"> · {{ item.ext.replace(/^\./, '').toUpperCase() }}</template>
           <template v-if="item.size"> · {{ formatBytes(item.size) }}</template>
+          <template v-if="item.ts"> · {{ formatDate(item.ts) }}</template>
         </span>
       </button>
+      <button
+        v-if="!selectable && item.dominant_color"
+        type="button"
+        class="list-row__swatch"
+        :style="{ backgroundColor: item.dominant_color }"
+        :aria-label="t('card.filterColor', { color: item.dominant_color })"
+        :title="t('card.filterColor', { color: item.dominant_color })"
+        @click.stop="emit('filter-color', item.dominant_color)"
+      />
       <button
         v-if="!selectable"
         type="button"
@@ -468,7 +478,7 @@ defineExpose({ renderedCount, isVisible, visibleRange })
 
 .list-row__thumb {
   position: relative;
-  width: 64px;
+  width: 72px;
   flex-shrink: 0;
   border-radius: var(--p-radius-sm);
   overflow: hidden;
@@ -556,6 +566,19 @@ defineExpose({ renderedCount, isVisible, visibleRange })
 
 .list-row__like--on {
   color: var(--danger);
+}
+
+.list-row__swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--p-radius-full);
+  border: 1.5px solid var(--rule-strong);
+  flex-shrink: 0;
+  transition: transform var(--p-dur-fast) var(--p-ease-out);
+}
+
+.list-row__swatch:hover {
+  transform: scale(1.2);
 }
 
 @media (max-width: 640px) {

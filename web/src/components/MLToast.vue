@@ -6,6 +6,7 @@
  * 由 useToast 组合式函数统一驱动，挂载点唯一。
  */
 import type { ToastItem } from '@/composables/useToast'
+import { useToast } from '@/composables/useToast'
 import { useI18n } from '@/composables/useI18n'
 
 defineProps<{
@@ -17,15 +18,18 @@ defineEmits<{
 }>()
 
 const { t } = useI18n()
+const { pause, resume } = useToast()
 </script>
 
 <template>
   <!-- 容器常驻，内容变化时 aria-live 才会播报 -->
-  <div class="ml-toast-stack" role="status" aria-live="polite" aria-atomic="false">
+  <TransitionGroup tag="div" name="ml-toast" class="ml-toast-stack" role="status" aria-live="polite" aria-atomic="false">
     <div
       v-for="toast in toasts"
       :key="toast.id"
       :class="['ml-toast', `ml-toast--${toast.tone}`]"
+      @mouseenter="pause(toast.id)"
+      @mouseleave="resume(toast.id)"
     >
       <span class="ml-toast__icon mono" aria-hidden="true">
         {{ toast.tone === 'success' ? '✓' : toast.tone === 'error' ? '!' : 'i' }}
@@ -39,8 +43,13 @@ const { t } = useI18n()
       >
         ×
       </button>
+      <span
+        class="ml-toast__timer"
+        :style="{ animationDuration: `${toast.duration ?? 2600}ms` }"
+        aria-hidden="true"
+      />
     </div>
-  </div>
+  </TransitionGroup>
 </template>
 
 <style scoped>
@@ -59,6 +68,8 @@ const { t } = useI18n()
 }
 
 .ml-toast {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   gap: var(--p-space-3);
@@ -70,7 +81,48 @@ const { t } = useI18n()
   font-size: var(--p-step--1);
   pointer-events: auto;
   max-width: min(420px, 90vw);
-  animation: toast-in var(--p-dur-base) var(--p-ease-spring);
+}
+
+.ml-toast__timer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.32);
+  transform-origin: left center;
+  animation: toast-countdown linear forwards;
+  pointer-events: none;
+}
+
+.ml-toast:hover .ml-toast__timer {
+  animation-play-state: paused;
+}
+
+@keyframes toast-countdown {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+.ml-toast-enter-active,
+.ml-toast-leave-active {
+  transition:
+    opacity var(--p-dur-base) var(--p-ease-out),
+    transform var(--p-dur-base) var(--p-ease-spring);
+}
+
+.ml-toast-enter-from {
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
+}
+
+.ml-toast-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.96);
 }
 
 .ml-toast--error {
@@ -128,7 +180,10 @@ const { t } = useI18n()
 
 /* 减弱动效：仅淡入（A-03） */
 @media (prefers-reduced-motion: reduce) {
-  .ml-toast {
+  .ml-toast-enter-active,
+  .ml-toast-leave-active,
+  .ml-toast__timer {
+    transition: none;
     animation: none;
   }
 }

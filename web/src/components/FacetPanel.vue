@@ -118,6 +118,22 @@ function canToggle(option: FacetOption): boolean {
   return option.count > 0
 }
 
+/** 常用色彩预设：无需先点开图片就能按主色调筛选 */
+const PRESET_COLORS = [
+  '#b04a3f',
+  '#c97a3a',
+  '#c8a441',
+  '#4a7c59',
+  '#3f6a8a',
+  '#6a568a',
+  '#26231f',
+  '#ede8e1',
+]
+
+function togglePresetColor(hex: string) {
+  filters.setColor(filters.color.toLowerCase() === hex.toLowerCase() ? '' : hex)
+}
+
 /** 某分面维度当前已激活的条件数（含排除标签） */
 function groupActiveCount(key: string): number {
   if (key === 'kind') return filters.kind ? 1 : 0
@@ -163,6 +179,30 @@ function groupActiveCount(key: string): number {
           :interactive="true"
           @remove="filters.setCollectionId(null)"
           @click="filters.setCollectionId(filters.collectionId === col.id ? null : col.id)"
+        />
+      </div>
+    </details>
+
+    <!-- 色彩倾向快速筛选 -->
+    <details :class="['facet', { 'facet--active': Boolean(filters.color) }]" :open="Boolean(filters.color)">
+      <summary class="facet__summary">
+        <span class="facet__name">
+          {{ t('facet.color') }}
+          <span v-if="filters.color" class="facet__active-dot mono">1</span>
+        </span>
+        <span class="facet__chevon" aria-hidden="true">›</span>
+      </summary>
+      <div class="facet__body facet__colors">
+        <button
+          v-for="hex in PRESET_COLORS"
+          :key="hex"
+          type="button"
+          :class="['facet__color-dot', { 'facet__color-dot--on': filters.color.toLowerCase() === hex.toLowerCase() }]"
+          :style="{ backgroundColor: hex }"
+          :aria-pressed="filters.color.toLowerCase() === hex.toLowerCase()"
+          :aria-label="t('card.filterColor', { color: hex })"
+          :title="hex.toUpperCase()"
+          @click="togglePresetColor(hex)"
         />
       </div>
     </details>
@@ -440,5 +480,28 @@ function groupActiveCount(key: string): number {
 
 .facet__more:hover {
   text-decoration: underline;
+}
+
+.facet__colors {
+  gap: var(--p-space-2);
+}
+
+.facet__color-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--p-radius-full);
+  border: 1.5px solid var(--rule-strong);
+  transition:
+    transform var(--p-dur-fast) var(--p-ease-out),
+    box-shadow var(--p-dur-fast) var(--p-ease-out);
+}
+
+.facet__color-dot:hover {
+  transform: scale(1.14);
+}
+
+.facet__color-dot--on {
+  transform: scale(1.14);
+  box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--accent);
 }
 </style>

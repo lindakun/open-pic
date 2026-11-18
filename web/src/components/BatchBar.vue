@@ -17,6 +17,7 @@ import type { Collection } from '@/api/types'
 const props = defineProps<{
   selected: string[]
   collections?: Collection[]
+  availableTags?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -81,6 +82,25 @@ function openTags(mode: 'add' | 'remove') {
   tagMode.value = mode
   tagDraft.value = ''
   tagOpen.value = true
+}
+
+function appendAvailableTag(tag: string) {
+  const list = tagDraft.value
+    .split(/[,，\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const idx = list.indexOf(tag)
+  if (idx >= 0) list.splice(idx, 1)
+  else list.push(tag)
+  tagDraft.value = list.join(' ')
+}
+
+function hasDraftTag(tag: string): boolean {
+  return tagDraft.value
+    .split(/[,，\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .includes(tag)
 }
 
 async function applyTags() {
@@ -222,6 +242,18 @@ async function exportZip() {
           :placeholder="t('upload.tagsPlaceholder')"
           :hint="t('batch.tagsHint', { count })"
         />
+        <div v-if="availableTags?.length" class="batch__tag-picks">
+          <span class="batch__tag-picks-label">{{ t('batch.availableTags') }}</span>
+          <button
+            v-for="tag in availableTags"
+            :key="tag"
+            type="button"
+            :class="['batch__tag-pick', { 'batch__tag-pick--on': hasDraftTag(tag) }]"
+            @click="appendAvailableTag(tag)"
+          >
+            {{ tag }}
+          </button>
+        </div>
         <div class="batch__form-actions">
           <MLButton variant="quiet" @click="tagOpen = false">{{ t('common.cancel') }}</MLButton>
           <MLButton :disabled="busy || !tagDraft.trim()" @click="applyTags">
@@ -328,6 +360,34 @@ async function exportZip() {
   display: flex;
   justify-content: flex-end;
   gap: var(--p-space-2);
+}
+
+.batch__tag-picks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.batch__tag-picks-label {
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+}
+
+.batch__tag-pick {
+  padding: 1px 8px;
+  border-radius: var(--p-radius-full);
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  background: var(--surface-sunken);
+  border: 1px solid transparent;
+}
+
+.batch__tag-pick:hover,
+.batch__tag-pick--on {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  border-color: var(--accent);
 }
 
 .batch__label {

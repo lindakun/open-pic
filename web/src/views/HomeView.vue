@@ -292,6 +292,11 @@ async function setHomeKind(kind: '' | 'image' | 'video') {
 
     <!-- 空状态 -->
     <div v-else-if="store.isEmpty" class="wall__empty">
+      <svg class="wall__empty-icon" width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="6" y="10" width="36" height="28" rx="3" />
+        <circle cx="17" cy="20" r="3" />
+        <path d="m40 33-9-9-7 7-4-4-12 11" />
+      </svg>
       <h1 class="wall__empty-title">{{ t('browse.emptyTitle') }}</h1>
       <p class="muted">{{ t('home.empty') }}</p>
       <MLButton variant="ghost" @click="goBrowseAndUpload">{{ t('home.addFirst') }}</MLButton>
@@ -540,6 +545,11 @@ async function setHomeKind(kind: '' | 'image' | 'video') {
 
 .wall__empty-title {
   font-size: var(--p-step-2);
+}
+
+.wall__empty-icon {
+  color: var(--ink-faint);
+  opacity: 0.72;
 }
 
 .wall__sentinel {

@@ -8,9 +8,11 @@
  */
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRouter } from 'vue-router'
+import { getActivePinia } from 'pinia'
 import { useTheme } from '@/composables/useTheme'
 import { useI18n } from '@/composables/useI18n'
 import { useRecent } from '@/composables/useRecent'
+import { useMediaStore } from '@/stores/media'
 import MLSheet from './MLSheet.vue'
 import MLButton from './MLButton.vue'
 
@@ -18,6 +20,7 @@ const { mode, resolved, cycle } = useTheme()
 const { t, locale, toggleLocale, formatDate } = useI18n()
 const { recent, removeRecent, clearRecent } = useRecent()
 const router = useRouter()
+const mediaStore = getActivePinia() ? useMediaStore() : null
 const recentOpen = ref(false)
 const brokenThumbs = ref<Set<string>>(new Set())
 
@@ -150,8 +153,8 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
       </div>
     </div>
     <div
-      class="site-header__progress"
-      :style="{ transform: `scaleX(${scrollProgress})` }"
+      :class="['site-header__progress', { 'site-header__progress--loading': Boolean(mediaStore?.loading) }]"
+      :style="{ transform: mediaStore?.loading ? undefined : `scaleX(${scrollProgress})` }"
       aria-hidden="true"
     />
   </header>
@@ -233,6 +236,21 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
   transform-origin: left center;
   pointer-events: none;
   opacity: 0.78;
+}
+
+.site-header__progress--loading {
+  width: 36%;
+  right: auto;
+  animation: header-indeterminate 1.2s var(--p-ease-in-out) infinite;
+}
+
+@keyframes header-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
 }
 
 /* 下滚时顶栏滑出，把画面让给图片 */
@@ -477,6 +495,10 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
   }
   .brand__name {
     font-size: var(--p-step-0);
+  }
+  .icon-btn {
+    width: 36px;
+    height: 36px;
   }
 }
 </style>

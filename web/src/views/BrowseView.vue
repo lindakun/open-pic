@@ -46,6 +46,8 @@ const showBackTop = ref(false)
 const { status: aiStatus, load: loadAiStatus } = useAiStatus()
 const dragActive = ref(false)
 const aiBusy = ref(false)
+/** 当前列表是否为以图搜图一次性结果 */
+const aiSearchActive = ref(false)
 /** 上传面板与批量选择（REQ-05） */
 const uploadOpen = ref(false)
 const selectMode = ref(false)
@@ -205,6 +207,7 @@ async function searchByImage(file: File) {
     }
     const data = await res.json()
     store.replaceItems(data.items ?? [], data.total ?? 0)
+    aiSearchActive.value = true
     // 一次性检索结果替换整份列表：与筛选切换同样需要回顶并清理旧选择
     clearScrollAnchor()
     clearSelection()
@@ -212,6 +215,11 @@ async function searchByImage(file: File) {
   } finally {
     aiBusy.value = false
   }
+}
+
+function exitAiSearch() {
+  aiSearchActive.value = false
+  applyAndRefresh()
 }
 
 function onDrop(e: DragEvent) {
@@ -326,6 +334,7 @@ function onBatchDone() {
  * 同时清空批量选择，避免对已被筛掉的条目执行操作。
  */
 function applyAndRefresh() {
+  aiSearchActive.value = false
   clearScrollAnchor()
   clearSelection()
   window.scrollTo({ top: 0, behavior: 'auto' })
@@ -893,6 +902,13 @@ watch(
       </button>
     </div>
 
+    <div v-if="aiSearchActive" class="browse__ai-banner" role="status">
+      <span>{{ t('browse.aiResultBanner', { count: store.total }) }}</span>
+      <MLButton variant="quiet" size="sm" @click="exitAiSearch">
+        {{ t('browse.exitAiSearch') }}
+      </MLButton>
+    </div>
+
     <div v-if="selectMode && visibleItems.length > 1" class="browse__select-hint muted">
       {{ t('browse.shiftRangeHint') }}
     </div>
@@ -947,17 +963,30 @@ watch(
         </div>
 
         <div v-else-if="store.isEmpty" class="browse__empty">
+          <svg class="browse__empty-icon" width="44" height="44" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="6" y="10" width="36" height="28" rx="3" />
+            <circle cx="17" cy="20" r="3" />
+            <path d="m40 33-9-9-7 7-4-4-12 11" />
+          </svg>
           <h2>{{ t('browse.emptyTitle') }}</h2>
           <p class="muted">
             {{ emptyHint }}
           </p>
-          <MLButton
-            v-if="filters.hasFilters"
-            variant="ghost"
-            @click="filters.reset(); applyAndRefresh()"
-          >
-            {{ t('browse.clearAll') }}
-          </MLButton>
+          <div v-if="filters.hasFilters" class="browse__empty-actions">
+            <MLButton
+              v-if="filters.q.trim() && filters.activeCount > 1"
+              variant="ghost"
+              @click="clearSearch"
+            >
+              {{ t('browse.clearKeyword') }}
+            </MLButton>
+            <MLButton
+              variant="ghost"
+              @click="filters.reset(); applyAndRefresh()"
+            >
+              {{ t('browse.clearAll') }}
+            </MLButton>
+          </div>
         </div>
 
         <!-- 只看喜欢时若一条都没有，给出可撤销的空态，而非直接空白 -->
@@ -1049,6 +1078,7 @@ watch(
     <BatchBar
       :selected="selectedIds"
       :collections="collections"
+      :available-tags="(store.facets?.tag ?? []).filter((x) => x.count > 0).slice(0, 12).map((x) => x.value)"
       @clear="clearSelection"
       @done="onBatchDone"
     />
@@ -1353,6 +1383,31 @@ watch(
 .browse__select-hint {
   font-size: 0.75rem;
   margin-bottom: var(--p-space-3);
+}
+
+.browse__ai-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--p-space-3);
+  padding: var(--p-space-2) var(--p-space-3);
+  margin-bottom: var(--p-space-4);
+  border-radius: var(--p-radius-md);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-size: var(--p-step--1);
+}
+
+.browse__empty-icon {
+  color: var(--ink-faint);
+  opacity: 0.7;
+}
+
+.browse__empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--p-space-2);
 }
 
 .browse__liked-btn--on {

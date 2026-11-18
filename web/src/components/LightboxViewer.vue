@@ -164,6 +164,19 @@ const helpOpen = ref(false)
 const filmstripOpen = ref(false)
 /** 纯净看图模式：隐藏悬浮控制条与顶部对比条，仅留角落恢复按钮（快捷键 H） */
 const chromeHidden = ref(false)
+/** 看图背景底色：暗夜 / 纸白 / 透明棋盘格（快捷键 B） */
+type StageBg = 'dark' | 'paper' | 'grid'
+const STAGE_BGS: StageBg[] = ['dark', 'paper', 'grid']
+const stageBg = ref<StageBg>('dark')
+function cycleStageBg() {
+  const i = STAGE_BGS.indexOf(stageBg.value)
+  stageBg.value = STAGE_BGS[(i + 1) % STAGE_BGS.length]
+}
+const stageBgLabel = computed(() => {
+  if (stageBg.value === 'paper') return t('lightbox.stageBgPaper')
+  if (stageBg.value === 'grid') return t('lightbox.stageBgGrid')
+  return t('lightbox.stageBgDark')
+})
 /** 当前主图解码完成标记：切换大图时显示柔和加载环 */
 const imgLoaded = ref(false)
 /** 放大 >1.2x 升级加载原图时的状态标记 */
@@ -596,6 +609,10 @@ function onKeydown(e: KeyboardEvent) {
     case 'H':
       chromeHidden.value = !chromeHidden.value
       break
+    case 'b':
+    case 'B':
+      if (props.item.kind === 'image') cycleStageBg()
+      break
     case 'd':
     case 'D':
       download()
@@ -656,6 +673,7 @@ const shortcuts = computed(() => [
   { key: 'I', desc: t('shortcut.info') },
   { key: 'F', desc: t('shortcut.filmstrip') },
   { key: 'H', desc: t('shortcut.hideChrome') },
+  { key: 'B', desc: t('shortcut.stageBg') },
   { key: 'D', desc: t('shortcut.download') },
   { key: 'C', desc: t('shortcut.copy') },
   { key: 'Space', desc: t('shortcut.slideshow') },
@@ -738,6 +756,7 @@ onUnmounted(() => {
       ref="stageRef"
       :class="[
         'lightbox__stage',
+        `lightbox__stage--bg-${stageBg}`,
         {
           'lightbox__stage--compare': compareOn,
           'lightbox__stage--compare-grid': compareOn && compareItems.length > 2,
@@ -823,15 +842,15 @@ onUnmounted(() => {
         ›
       </button>
 
-      <!-- 缩放倍率浮标 -->
+      <!-- 缩放倍率浮标（单图与对比模式均可一键复位） -->
       <button
-        v-if="item.kind === 'image' && !compareOn && scale > 1.05 && !chromeHidden"
+        v-if="item.kind === 'image' && scale > 1.05 && !chromeHidden"
         type="button"
         class="lightbox__zoom-pill mono"
         :title="t('lightbox.fit')"
         @click="resetZoom"
       >
-        {{ upgradingOriginal ? t('lightbox.loadingOriginal') : `${Math.round(scale * 100)}% · ${t('lightbox.resetZoomHint')}` }}
+        {{ upgradingOriginal && !compareOn ? t('lightbox.loadingOriginal') : `${Math.round(scale * 100)}% · ${t('lightbox.resetZoomHint')}` }}
       </button>
 
       <!-- 对比选择条：只在候选足够时出现 -->
@@ -915,6 +934,8 @@ onUnmounted(() => {
           </button>
         </div>
       </form>
+
+      <p v-if="!editing && item.notes" class="panel__notes">{{ item.notes }}</p>
 
       <dl class="panel__rows">
         <div v-if="spec" class="panel__row">
@@ -1179,6 +1200,17 @@ onUnmounted(() => {
           {{ copied === 'link' ? '✓' : '⧉' }}
         </button>
         <button
+          v-if="item.kind === 'image'"
+          type="button"
+          class="lb-btn lb-btn--bg"
+          :class="{ 'lb-btn--on': stageBg !== 'dark' }"
+          :aria-label="`${t('lightbox.stageBg')} (${stageBgLabel})`"
+          :title="`${t('lightbox.stageBg')} · ${stageBgLabel} (B)`"
+          @click="cycleStageBg"
+        >
+          ◐
+        </button>
+        <button
           type="button"
           class="lb-btn"
           :aria-label="t('lightbox.hideChrome')"
@@ -1299,6 +1331,22 @@ onUnmounted(() => {
   transition: padding-right var(--p-dur-base) var(--p-ease-out);
   /* 灯箱自身的进入动画：替代无法用于 dialog 的共享元素转场 */
   animation: lightbox-in var(--p-dur-base) var(--p-ease-out);
+}
+
+/* 看图背景底色切换：适配透明图与浅/深线稿 */
+.lightbox__stage--bg-paper {
+  background: #faf8f5;
+}
+
+.lightbox__stage--bg-grid {
+  background-color: #d9d5ce;
+  background-image:
+    linear-gradient(45deg, #c4bfb7 25%, transparent 25%),
+    linear-gradient(-45deg, #c4bfb7 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #c4bfb7 75%),
+    linear-gradient(-45deg, transparent 75%, #c4bfb7 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0;
 }
 
 /* 有顶部对比选择条时让出安全高度，防止长竖图顶部被遮住 */
@@ -1673,6 +1721,18 @@ onUnmounted(() => {
   font-size: 0.6875rem;
   opacity: 0.55;
   margin: 0;
+}
+
+.panel__notes {
+  margin: 0 0 var(--p-space-4);
+  padding: var(--p-space-2) var(--p-space-3);
+  border-left: 2px solid var(--p-accent-500);
+  background: rgba(250, 248, 245, 0.06);
+  border-radius: 0 var(--p-radius-sm) var(--p-radius-sm) 0;
+  font-size: var(--p-step--1);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .panel__err {
