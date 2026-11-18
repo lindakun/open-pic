@@ -890,6 +890,9 @@ watch(
             {{ store.loading ? t('site.loading') : t('browse.loadMore') }}
           </MLButton>
         </div>
+        <p v-else-if="!store.hasMore && visibleItems.length && !store.loading" class="browse__end mono muted">
+          {{ t('browse.endOfList', { count: visibleItems.length }) }}
+        </p>
       </div>
     </div>
 
@@ -1293,10 +1296,16 @@ watch(
   padding: var(--p-space-7) 0;
 }
 
+.browse__end {
+  text-align: center;
+  padding: var(--p-space-6) 0 var(--p-space-2);
+  font-size: var(--p-step--1);
+}
+
 .browse__top {
   position: fixed;
   right: var(--p-space-5);
-  bottom: var(--p-space-5);
+  bottom: calc(var(--p-space-5) + var(--batch-bar-offset, 0px));
   z-index: 30;
   width: 40px;
   height: 40px;
@@ -1310,6 +1319,7 @@ watch(
   font-size: 1.125rem;
   transition:
     transform var(--p-dur-fast) var(--p-ease-out),
+    bottom var(--p-dur-base) var(--p-ease-out),
     background-color var(--p-dur-fast) var(--p-ease-out);
 }
 

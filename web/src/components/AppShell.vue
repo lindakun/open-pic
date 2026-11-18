@@ -439,4 +439,14 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
   background: var(--surface-hover);
   color: var(--ink);
 }
+
+@media (max-width: 520px) {
+  .site-header__inner {
+    gap: var(--p-space-3);
+    padding: var(--p-space-2) var(--p-space-3);
+  }
+  .brand__name {
+    font-size: var(--p-step-0);
+  }
+}
 </style>

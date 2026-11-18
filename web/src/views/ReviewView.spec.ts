@@ -219,4 +219,25 @@ describe('ReviewView 快速连点（交互修复）', () => {
     vi.unstubAllGlobals()
     wrapper.unmount()
   })
+
+  it('选中状态使用语义化类名并支持底部统计快捷跳转', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        link: { title: '' },
+        items,
+      }),
+    }))
+    const wrapper = await mountReview()
+    await flushPromises()
+
+    // 当前第一张 unmarked，第二张 selected
+    const countBtns = wrapper.findAll('.review__count-btn')
+    await countBtns[0].trigger('click') // 跳转到下一张 selected（items[1]）
+    await flushPromises()
+    expect(wrapper.find('.review__actions .rv-btn--selected').exists()).toBe(true)
+
+    vi.unstubAllGlobals()
+    wrapper.unmount()
+  })
 })

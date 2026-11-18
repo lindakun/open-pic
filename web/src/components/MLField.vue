@@ -95,6 +95,11 @@ const describedBy = computed(() => {
   border-color: var(--ink-faint);
 }
 
+.ml-field__input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
 .ml-field__input:disabled {
   background: var(--surface-sunken);
   cursor: not-allowed;

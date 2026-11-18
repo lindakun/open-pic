@@ -283,8 +283,10 @@ const altText = computed(() =>
   width: 16px;
   height: 16px;
   border-radius: var(--p-radius-full);
-  border: 1.5px solid rgba(255, 255, 255, 0.88);
-  box-shadow: 0 2px 6px rgba(26, 24, 21, 0.3);
+  border: 1.5px solid rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 0 0 1px rgba(26, 24, 21, 0.28),
+    0 2px 6px rgba(26, 24, 21, 0.3);
   opacity: 0;
   transform: scale(0.85);
   transition:

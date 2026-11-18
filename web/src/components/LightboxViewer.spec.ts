@@ -287,4 +287,18 @@ describe('LightboxViewer 色板与信息', () => {
     vi.unstubAllGlobals()
     wrapper.unmount()
   })
+
+  it('传入 index 与 total 时在底栏显示当前序号', () => {
+    const wrapper = mount(LightboxViewer, {
+      props: {
+        item: makeItem(),
+        hasPrev: true,
+        hasNext: true,
+        index: 3,
+        total: 12,
+      },
+    })
+    expect(wrapper.find('.lightbox__index').text()).toBe('3 / 12')
+    wrapper.unmount()
+  })
 })

@@ -284,7 +284,10 @@ function goBrowseAndUpload() {
         {{ store.loading ? t('site.loading') : t('browse.loadMore') }}
       </MLButton>
     </div>
-    <p v-else-if="store.loading" class="wall__more-hint muted">{{ t('site.loading') }}</p>
+    <p v-else-if="store.loading && store.items.length" class="wall__more-hint muted">{{ t('site.loading') }}</p>
+    <p v-else-if="!store.hasMore && store.items.length" class="wall__end mono muted">
+      {{ t('browse.endOfList', { count: store.items.length }) }}
+    </p>
 
     <!-- 回到顶部悬浮钮 -->
     <button
@@ -481,6 +484,13 @@ function goBrowseAndUpload() {
   display: flex;
   justify-content: center;
   padding: var(--p-space-6) 0;
+}
+
+.wall__more-hint,
+.wall__end {
+  text-align: center;
+  padding: var(--p-space-5) 0 var(--p-space-2);
+  font-size: var(--p-step--1);
 }
 
 .wall__top {

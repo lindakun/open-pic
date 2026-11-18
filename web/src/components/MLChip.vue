@@ -91,6 +91,11 @@ button.ml-chip:hover {
   text-decoration-thickness: 1px;
 }
 
+button.ml-chip--exclude:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .ml-chip__count {
   font-size: 0.6875rem;
   color: var(--ink-faint);

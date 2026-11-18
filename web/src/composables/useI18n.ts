@@ -66,6 +66,7 @@ const messages: Record<Locale, Dict> = {
     'browse.emptyHint': '试试放宽筛选条件，或清空全部筛选。',
     'browse.emptyHintNoFilter': '上传图片或通过链接抓取，开始构建你的视觉资产库。',
     'browse.loadMore': '加载更多',
+    'browse.endOfList': '已显示全部 {count} 项',
     'browse.activeFilters': '已选筛选条件',
     'browse.removeFilter': '移除筛选',
     // 卡片无标题时的读屏描述（有标题时 alt 为空，避免重复朗读）
@@ -335,6 +336,7 @@ const messages: Record<Locale, Dict> = {
     'browse.emptyHintNoFilter':
       'Upload images or fetch from a link to start building your library.',
     'browse.loadMore': 'Load more',
+    'browse.endOfList': 'All {count} items shown',
     'browse.activeFilters': 'Active filters',
     'browse.removeFilter': 'Remove filter',
     'card.mediaAlt': 'Media asset: {name}',

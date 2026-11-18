@@ -77,4 +77,13 @@ describe('MLMediaCard 显示逻辑', () => {
     expect(wrapper.emitted('toggle-like')?.[0]).toEqual(['a1'])
     expect(wrapper.emitted('open')).toBeUndefined()
   })
+
+  it('点击主色圆点发出 filter-color 且不触发 open', async () => {
+    const wrapper = mount(MLMediaCard, {
+      props: { item: makeItem({ dominant_color: '#3a7bd5' }) },
+    })
+    await wrapper.find('.ml-card__swatch').trigger('click')
+    expect(wrapper.emitted('filter-color')?.[0]).toEqual(['#3a7bd5'])
+    expect(wrapper.emitted('open')).toBeUndefined()
+  })
 })

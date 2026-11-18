@@ -4,7 +4,7 @@
  * 约束：上限 50、重复项提前不重复、存储不可用时静默降级。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { clearRecent, pushRecent, useRecent } from './useRecent'
+import { clearRecent, pushRecent, removeRecent, useRecent } from './useRecent'
 
 beforeEach(() => {
   clearRecent()
@@ -41,6 +41,13 @@ describe('useRecent', () => {
     pushRecent({ id: 'a', title: 'A', kind: 'image' })
     clearRecent()
     expect(useRecent().recent.value).toEqual([])
+  })
+
+  it('removeRecent 仅移除指定条目', () => {
+    pushRecent({ id: 'a', title: 'A', kind: 'image' })
+    pushRecent({ id: 'b', title: 'B', kind: 'image' })
+    removeRecent('a')
+    expect(useRecent().recent.value.map((e) => e.id)).toEqual(['b'])
   })
 
   it('localStorage 不可用时不影响写入内存', () => {
