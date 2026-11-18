@@ -9,7 +9,7 @@
  *
  * 无障碍：原生 <dialog>（Esc 关闭、焦点陷阱）、错误用 aria-live 播报。
  */
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import { useI18n } from '@/composables/useI18n'
 import { useToast } from '@/composables/useToast'
@@ -47,6 +47,35 @@ const title = ref('')
 const tags = ref('')
 const url = ref('')
 const urlBusy = ref(false)
+const urlPaneRef = ref<HTMLElement | null>(null)
+
+const parsedUrls = computed(() =>
+  url.value
+    .split(/[\r\n\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean),
+)
+
+function onUrlPaste(e: ClipboardEvent) {
+  const text = e.clipboardData?.getData('text/plain') ?? ''
+  if (/[\r\n]/.test(text)) {
+    e.preventDefault()
+    const clean = text
+      .split(/[\r\n\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .join(' ')
+    url.value = url.value.trim() ? `${url.value.trim()} ${clean}` : clean
+  }
+}
+
+watch(tab, (next) => {
+  if (next === 'url') {
+    void nextTick(() => {
+      urlPaneRef.value?.querySelector<HTMLInputElement>('input[type="url"]')?.focus()
+    })
+  }
+})
 
 /** 待上传队列（拖入或选择后先入列，便于确认） */
 const queue = ref<File[]>([])
@@ -218,17 +247,22 @@ async function submit() {
 }
 
 async function submitUrl() {
-  const value = url.value.trim()
-  if (!/^https?:\/\//i.test(value)) {
+  const lines = parsedUrls.value
+  if (!lines.length || lines.some((u) => !/^https?:\/\//i.test(u))) {
     errors.value = [t('upload.badUrl')]
     return
   }
   urlBusy.value = true
   errors.value = []
   try {
-    await api.ingestUrl(value, { title: title.value, tags: tags.value })
+    for (const itemUrl of lines) {
+      await api.ingestUrl(itemUrl, {
+        title: lines.length === 1 ? title.value : '',
+        tags: tags.value,
+      })
+    }
     url.value = ''
-    toast.info(t('upload.queued'))
+    toast.info(lines.length > 1 ? t('upload.queuedMulti', { count: lines.length }) : t('upload.queued'))
     emit('update:open', false)
   } catch (e) {
     errors.value = [(e as Error).message]
@@ -400,19 +434,25 @@ defineExpose({ addFiles })
           <MLButton variant="quiet" @click="emit('update:open', false)">
             {{ t('common.cancel') }}
           </MLButton>
-          <MLButton :disabled="!canSubmit" @click="submit">
+          <MLButton variant="primary" :disabled="!canSubmit" @click="submit">
             {{ uploading ? t('upload.uploading') : t('upload.submit', { count: queue.length }) }}
           </MLButton>
         </div>
       </div>
 
-      <!-- 链接采集 -->
-      <div v-else class="up__pane" @keydown.enter.prevent="submitUrl">
+      <!-- 链接采集（支持多条空格/多行粘贴批量入队与回车提交） -->
+      <div
+        v-else
+        ref="urlPaneRef"
+        class="up__pane"
+        @keydown.enter.prevent="submitUrl"
+        @paste="onUrlPaste"
+      >
         <MLField
           v-model="url"
           type="url"
-          :label="t('upload.urlLabel')"
-          placeholder="https://..."
+          :label="parsedUrls.length > 1 ? `${t('upload.urlLabel')} (${parsedUrls.length})` : t('upload.urlLabel')"
+          :placeholder="t('upload.urlPlaceholder')"
           :hint="t('upload.urlHint')"
         />
         <div class="up__meta">
@@ -435,7 +475,7 @@ defineExpose({ addFiles })
           <MLButton variant="quiet" @click="emit('update:open', false)">
             {{ t('common.cancel') }}
           </MLButton>
-          <MLButton :disabled="urlBusy || !url.trim()" @click="submitUrl">
+          <MLButton variant="primary" :disabled="urlBusy || !url.trim()" @click="submitUrl">
             {{ urlBusy ? t('upload.queueing') : t('upload.submitUrl') }}
           </MLButton>
         </div>
@@ -695,6 +735,46 @@ defineExpose({ addFiles })
   display: flex;
   justify-content: flex-end;
   gap: var(--p-space-2);
+}
+
+.up__url-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.up__url-label {
+  font-size: var(--p-step--1);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.up__url-textarea {
+  width: 100%;
+  min-height: 60px;
+  padding: var(--p-space-2) var(--p-space-3);
+  border-radius: var(--p-radius-md);
+  border: 1px solid var(--rule-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--p-step--1);
+  line-height: 1.45;
+  resize: vertical;
+  transition: border-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.up__url-textarea:focus {
+  border-color: var(--accent);
+}
+
+.up__url-textarea::placeholder {
+  color: var(--ink-faint);
+}
+
+.up__url-hint {
+  font-size: 0.75rem;
+  color: var(--ink-muted);
 }
 
 .up__errors {

@@ -484,9 +484,11 @@ onUnmounted(() => {
               v-else
               :src="current.play_file ? `/f/${current.file}?play=1` : `/f/${current.file}`"
               :poster="`/t/${current.id}.jpg`"
+              :style="current.width && current.height ? { aspectRatio: `${current.width} / ${current.height}` } : undefined"
               controls
               playsinline
-              class="review__img"
+              preload="metadata"
+              class="review__img review__video"
             />
             <figcaption class="review__cap">
               <strong>{{ current.title || current.name }}</strong>
@@ -799,6 +801,13 @@ onUnmounted(() => {
   object-fit: contain;
   background: var(--surface);
   border-radius: var(--p-radius-sm);
+}
+
+.review__video {
+  /* 防止大体积竖屏视频元数据未就绪时宽度坍缩挤掉原生音量与进度条 */
+  min-width: min(300px, 92vw);
+  background: #12100d;
+  color-scheme: dark;
 }
 
 .review__img--clickable {
@@ -1149,11 +1158,30 @@ onUnmounted(() => {
 }
 
 @media (max-width: 680px) {
+  .review__head {
+    padding: 6px var(--p-space-3);
+  }
   .review__hint {
     display: none;
   }
+  .review__stage {
+    padding: 4px var(--p-space-3) 6px;
+    gap: 6px;
+  }
   .review__img {
-    max-height: 52dvh;
+    max-height: clamp(170px, calc(100dvh - 375px), 400px);
+  }
+  .film {
+    width: 44px;
+    height: 44px;
+  }
+  .review__film,
+  .review__film-bar {
+    padding: 4px var(--p-space-3);
+  }
+  .review__counts {
+    gap: var(--p-space-2);
+    padding: 4px var(--p-space-3) 8px;
   }
 }
 </style>

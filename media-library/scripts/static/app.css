@@ -40,36 +40,37 @@ body {
   overflow-x: hidden;
 }
 
-/* 顶部栏 */
+/* 顶部栏：1440px 标准桌面稳居紧凑单行 */
 .topbar {
   position: sticky;
   top: 0;
   z-index: 40;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
-  padding: 10px 16px;
+  padding: 8px 14px;
   background: color-mix(in srgb, var(--bg-elev) 90%, transparent);
   backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--border);
 }
-.brand { display: flex; align-items: center; gap: 10px; }
-.logo { font-size: 16px; font-weight: 700; letter-spacing: .4px; }
+.brand { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.logo { font-size: 15.5px; font-weight: 700; letter-spacing: .3px; }
 .stat-pill {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--text-muted);
   background: var(--bg-card);
   border: 1px solid var(--border);
-  padding: 3px 9px;
+  padding: 2px 8px;
   border-radius: 99px;
+  white-space: nowrap;
 }
 
 .search-wrap {
   position: relative;
-  flex: 1;
-  min-width: 210px;
-  max-width: 420px;
+  flex: 1 1 180px;
+  min-width: 150px;
+  max-width: 340px;
 }
 .search-ico {
   position: absolute;
@@ -105,7 +106,7 @@ body {
 .toolbar-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
   margin-left: auto;
 }
@@ -121,10 +122,11 @@ body {
   background: none;
   border: none;
   color: var(--text-muted);
-  padding: 4px 10px;
+  padding: 4px 8px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 .seg-btn.on { background: var(--primary); color: #fff; }
 
@@ -133,24 +135,26 @@ body {
   border: 1px solid var(--border);
   color: var(--text);
   border-radius: 8px;
-  padding: 6px 10px;
-  font-size: 12.5px;
+  padding: 5px 8px;
+  font-size: 12px;
   outline: none;
 }
 .sel.full, .inp { width: 100%; }
-.inp { padding: 9px 11px; margin-top: 10px; }
+.inp { padding: 9px 11px; margin-top: 10px; font-size: 12.5px; }
 
 .btn {
   background: var(--bg-card);
   border: 1px solid var(--border);
   color: var(--text);
   border-radius: 8px;
-  padding: 6px 11px;
+  padding: 5px 9px;
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: 12px;
+  white-space: nowrap;
+  text-decoration: none;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
 }
 .btn:hover { background: var(--bg-hover); }
 .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
@@ -225,8 +229,17 @@ body {
 
 .color-swatches { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .swatch-label { font-size: 11.5px; color: var(--text-muted); }
-.swatch { width: 18px; height: 18px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
-.swatch.on { border-color: #fff; box-shadow: 0 0 0 2px var(--primary); }
+.swatch {
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, .28);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .28);
+  cursor: pointer;
+  transition: transform .15s;
+}
+.swatch:hover { transform: scale(1.12); }
+.swatch.on { border-color: #fff; box-shadow: 0 0 0 2px var(--primary); transform: scale(1.12); }
 
 .col-list { display: flex; flex-direction: column; gap: 3px; }
 .col-item {
@@ -369,23 +382,29 @@ body.select-mode .sel-check { display: grid; }
 .done { text-align: center; padding: 26px; color: var(--text-muted); font-size: 12.5px; }
 .empty { text-align: center; padding: 80px 20px; color: var(--text-muted); }
 
-/* 批量浮动栏 */
+/* 批量浮动栏：单行磨砂胶囊，窄屏内部平顺横滑不折成两排挡图 */
 .batch-bar {
   position: fixed;
-  bottom: 20px;
+  bottom: 18px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 60;
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  background: var(--bg-elev);
+  gap: 6px;
+  flex-wrap: nowrap;
+  max-width: calc(100vw - 24px);
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: color-mix(in srgb, var(--bg-elev) 92%, transparent);
+  backdrop-filter: blur(14px);
   border: 1px solid var(--border);
-  padding: 10px 14px;
-  border-radius: 12px;
+  padding: 8px 14px;
+  border-radius: 999px;
   box-shadow: var(--shadow);
 }
+.batch-bar::-webkit-scrollbar { display: none; }
+.batch-count { white-space: nowrap; font-size: 12.5px; margin-right: 4px; flex-shrink: 0; }
 
 /* 专业灯箱 */
 .lb {
@@ -541,7 +560,7 @@ body.select-mode .sel-check { display: grid; }
 .storage-row { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
 .storage-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .storage-head span { color: var(--text-muted); white-space: nowrap; }
-.storage-head b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.storage-head b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .storage-track { height: 6px; background: var(--bg-hover); border-radius: 99px; overflow: hidden; }
 .storage-fill { height: 100%; background: var(--primary); border-radius: 99px; min-width: 2px; }
 .storage-fill.ok { background: #2ecc71; }
@@ -589,7 +608,11 @@ body.select-mode .sel-check { display: grid; }
   pointer-events: none;
   transition: opacity .25s, bottom .2s ease;
 }
-body.has-batch-bar .toast { bottom: 88px; }
+body.select-mode .toast,
+body.has-batch-bar .toast {
+  bottom: auto;
+  top: 66px;
+}
 .toast.show { opacity: 1; }
 
 .sidebar-backdrop {

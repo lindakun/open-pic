@@ -22,13 +22,13 @@
     </div>
 
     <div class="toolbar-actions">
-      <div class="seg" id="kindTabs">
+      <div class="seg" id="kindTabs" data-gallery-only="1">
         <button class="seg-btn on" data-k="">全部</button>
         <button class="seg-btn" data-k="image">图片</button>
         <button class="seg-btn" data-k="video">视频</button>
       </div>
 
-      <select id="sortSelect" class="sel" title="排序方式">
+      <select id="sortSelect" class="sel" title="排序方式" data-gallery-only="1">
         <option value="newest">最新入库</option>
         <option value="oldest">最早入库</option>
         <option value="pixels">最高像素</option>
@@ -37,7 +37,7 @@
         <option value="random">随机漫步</option>
       </select>
 
-      <div class="seg" id="viewTabs" title="视图模式">
+      <div class="seg" id="viewTabs" title="视图模式" data-gallery-only="1">
         <button class="seg-btn on" data-v="masonry">瀑布流</button>
         <button class="seg-btn" data-v="grid">网格</button>
         <button class="seg-btn" data-v="list">列表</button>
@@ -45,7 +45,7 @@
 
       <button class="btn primary" id="btnUpload">+ 上传</button>
       <button class="btn" id="btnIngestUrl">🔗 抓链接</button>
-      <button class="btn" id="btnSelectMode">☑ 多选</button>
+      <button class="btn" id="btnSelectMode" data-gallery-only="1">☑ 多选</button>
       <button class="icon-btn" id="btnJobs" title="任务中心">⚡<span class="dot" id="jobDot" hidden></span></button>
       <button class="icon-btn" id="btnTheme" title="切换明暗主题">◐</button>
       <a class="btn" href="/app/" title="打开前台沉浸浏览页">↗ 前台</a>
@@ -144,7 +144,8 @@
 
   <!-- 批量操作浮动栏 -->
   <div class="batch-bar" id="batchBar" hidden>
-    <span>已选 <b id="batchCount">0</b> 项</span>
+    <span class="batch-count">已选 <b id="batchCount">0</b> 项</span>
+    <button class="btn" id="bSelectAll">全选</button>
     <button class="btn" id="bAddTag">+ 打标签</button>
     <button class="btn" id="bRemTag">− 移除标签</button>
     <button class="btn" id="bAddCol">+ 加入画板</button>

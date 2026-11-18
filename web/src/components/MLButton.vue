@@ -79,14 +79,22 @@ withDefaults(
 }
 
 .ml-btn:disabled {
-  opacity: 0.45;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
 /* 主操作：低饱和赭石实底，全站唯一的高权重色块 */
 .ml-btn--primary {
   background: var(--accent);
+  border-color: var(--accent);
   color: var(--on-accent);
+}
+
+.ml-btn--primary:disabled {
+  background: var(--surface-sunken);
+  border-color: var(--rule-strong);
+  color: var(--ink-muted);
+  opacity: 0.72;
 }
 
 .ml-btn--primary:hover:not(:disabled) {

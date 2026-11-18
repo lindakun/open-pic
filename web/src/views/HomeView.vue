@@ -50,6 +50,7 @@ const facetsOpen = ref(false)
 
 /** 滚动后工具条轻微降透，把视觉焦点让给图片；深滚时显示回到顶部按钮 */
 const toolbarDim = ref(false)
+const toolbarScrolled = ref(false)
 const showBackTop = ref(false)
 
 // ---------- 搜索与历史 ----------
@@ -58,6 +59,7 @@ const searchInputEl = ref<HTMLInputElement | null>(null)
 const aiImageInputEl = ref<HTMLInputElement | null>(null)
 const SEARCH_HISTORY_KEY = 'medialib.searchHistory'
 const searchFocused = ref(false)
+const historyCursor = ref(-1)
 const searchHistory = ref<string[]>((() => {
   try {
     const raw = localStorage.getItem(SEARCH_HISTORY_KEY)
@@ -101,10 +103,29 @@ function removeSearchHistory(term: string) {
 }
 
 function onSearchKeydown(e: KeyboardEvent) {
+  const showHist = searchFocused.value && searchHistory.value.length > 0 && !searchInput.value
   if (e.key === 'Escape') {
     e.stopPropagation()
     searchFocused.value = false
+    historyCursor.value = -1
     searchInputEl.value?.blur()
+    return
+  }
+  if (!showHist) return
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    historyCursor.value = (historyCursor.value + 1) % searchHistory.value.length
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    historyCursor.value =
+      (historyCursor.value - 1 + searchHistory.value.length) % searchHistory.value.length
+  } else if (e.key === 'Enter' && historyCursor.value >= 0) {
+    const picked = searchHistory.value[historyCursor.value]
+    if (picked) {
+      e.preventDefault()
+      historyCursor.value = -1
+      applyHistoryTerm(picked)
+    }
   }
 }
 
@@ -140,11 +161,13 @@ function clearSearch() {
 
 function onSearchFocus() {
   searchFocused.value = true
+  historyCursor.value = -1
 }
 
 function onSearchBlur() {
   window.setTimeout(() => {
     searchFocused.value = false
+    historyCursor.value = -1
   }, 150)
 }
 
@@ -577,6 +600,48 @@ const emptyHint = computed(() => {
   return t('browse.emptyHintNoFilter')
 })
 
+/** 空结果时供一键跳出死胡同的热门标签（优先取已缓存的全库热门标签） */
+const cachedTopTags = ref<string[]>([])
+watch(
+  () => store.facets?.tag,
+  (list) => {
+    if (!list?.length || filters.hasFilters) return
+    cachedTopTags.value = list
+      .filter((x) => x.count > 0)
+      .slice(0, 6)
+      .map((x) => x.value)
+  },
+  { immediate: true },
+)
+
+const emptySuggestedTags = computed(() => {
+  if (cachedTopTags.value.length) return cachedTopTags.value
+  return (store.facets?.tag ?? [])
+    .filter((x) => x.count > 0)
+    .slice(0, 6)
+    .map((x) => x.value)
+})
+
+function jumpToSuggestedTag(tag: string) {
+  window.clearTimeout(debounceTimer)
+  suppressFilterWatch = true
+  searchInput.value = ''
+  filters.reset()
+  filters.toggleTag(tag)
+  suppressFilterWatch = false
+  void applyAndRefresh()
+}
+
+function jumpToShuffleFromEmpty() {
+  window.clearTimeout(debounceTimer)
+  suppressFilterWatch = true
+  searchInput.value = ''
+  filters.reset()
+  filters.setSort('random')
+  suppressFilterWatch = false
+  void applyAndRefresh()
+}
+
 const SKELETON_RATIOS = [1.2, 0.8, 1.0, 1.35, 0.88, 1.15, 0.75, 1.28, 0.95, 1.18]
 
 // ---------- 滚动、快捷键与顶栏联动 ----------
@@ -586,6 +651,7 @@ let pageObserver: IntersectionObserver | null = null
 
 function onScroll() {
   const y = window.scrollY
+  toolbarScrolled.value = y > 12
   toolbarDim.value = y > 120
   showBackTop.value = y > 600
 }
@@ -922,9 +988,9 @@ watch(
           </div>
           <div class="wall-search__history-list">
             <span
-              v-for="term in searchHistory"
+              v-for="(term, idx) in searchHistory"
               :key="term"
-              class="wall-search__history-chip"
+              :class="['wall-search__history-chip', { 'wall-search__history-chip--active': historyCursor === idx }]"
             >
               <button
                 type="button"
@@ -948,7 +1014,15 @@ watch(
     </Teleport>
 
     <!-- 轻量悬浮控制条：一排容纳快筛、漫步、视图密度与低频工具 -->
-    <div :class="['wall__bar', { 'wall__bar--dim': toolbarDim && !facetsOpen && !selectMode }]">
+    <div
+      :class="[
+        'wall__bar',
+        {
+          'wall__bar--scrolled': toolbarScrolled,
+          'wall__bar--dim': toolbarDim && !facetsOpen && !selectMode,
+        },
+      ]"
+    >
       <div class="wall__bar-left">
         <button
           type="button"
@@ -1253,9 +1327,24 @@ watch(
             >
               {{ t('browse.clearKeyword') }}
             </MLButton>
-            <MLButton variant="ghost" @click="clearAllFilters">
+            <MLButton variant="primary" @click="clearAllFilters">
               {{ t('browse.clearAll') }}
             </MLButton>
+            <MLButton variant="ghost" @click="jumpToShuffleFromEmpty">
+              ↻ {{ t('home.shuffle') }}
+            </MLButton>
+          </div>
+          <div v-if="filters.hasFilters && emptySuggestedTags.length" class="wall__empty-tags">
+            <span class="wall__empty-tags-label muted">{{ t('browse.emptyTryTags') }}</span>
+            <button
+              v-for="tag in emptySuggestedTags"
+              :key="tag"
+              type="button"
+              class="wall__empty-tag"
+              @click="jumpToSuggestedTag(tag)"
+            >
+              #{{ tag }}
+            </button>
           </div>
           <MLButton v-else variant="ghost" @click="uploadOpen = true">
             {{ t('home.addFirst') }}
@@ -1284,6 +1373,7 @@ watch(
           @toggle="toggleSelect"
           @toggle-like="toggleLike"
           @filter-color="onFilterColor"
+          @filter-tag="onFilterTag"
         />
 
         <!-- 无限滚动哨兵 -->
@@ -1582,9 +1672,10 @@ watch(
     border-color var(--p-dur-fast) var(--p-ease-out);
 }
 
-.wall-search__history-chip:hover {
+.wall-search__history-chip:hover,
+.wall-search__history-chip--active {
   background: var(--accent-soft);
-  border-color: var(--rule-strong);
+  border-color: var(--accent);
 }
 
 .wall-search__history-item {
@@ -1597,7 +1688,8 @@ watch(
   white-space: nowrap;
 }
 
-.wall-search__history-chip:hover .wall-search__history-item {
+.wall-search__history-chip:hover .wall-search__history-item,
+.wall-search__history-chip--active .wall-search__history-item {
   color: var(--accent-hover);
 }
 
@@ -1624,11 +1716,18 @@ watch(
   flex-wrap: wrap;
   gap: var(--p-space-2) var(--p-space-3);
   padding: var(--p-space-2) 0 var(--p-space-3);
-  background: color-mix(in srgb, var(--paper) 84%, transparent);
-  backdrop-filter: blur(10px);
+  border-bottom: 1px solid transparent;
+  background: color-mix(in srgb, var(--paper) 92%, transparent);
+  backdrop-filter: blur(12px);
   transition:
     opacity var(--p-dur-base) var(--p-ease-out),
+    border-color var(--p-dur-fast) var(--p-ease-out),
     top var(--p-dur-base) var(--p-ease-out);
+}
+
+.wall__bar--scrolled {
+  border-bottom-color: var(--rule);
+  margin-bottom: var(--p-space-2);
 }
 
 .wall__bar--dim {
@@ -2008,6 +2107,39 @@ watch(
   flex-wrap: wrap;
   justify-content: center;
   gap: var(--p-space-2);
+}
+
+.wall__empty-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: var(--p-space-1);
+  font-size: var(--p-step--1);
+}
+
+.wall__empty-tags-label {
+  font-size: 0.75rem;
+}
+
+.wall__empty-tag {
+  padding: 2px 10px;
+  border-radius: var(--p-radius-full);
+  background: var(--surface-sunken);
+  border: 1px solid var(--rule);
+  color: var(--ink-muted);
+  font-size: 0.75rem;
+  transition:
+    background-color var(--p-dur-fast) var(--p-ease-out),
+    color var(--p-dur-fast) var(--p-ease-out),
+    border-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.wall__empty-tag:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-hover);
 }
 
 .wall__sentinel {

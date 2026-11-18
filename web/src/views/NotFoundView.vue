@@ -23,25 +23,29 @@ const { t } = useI18n()
 
 <style scoped>
 .not-found {
-  max-width: 640px;
-  margin: var(--p-space-7) auto 0;
+  max-width: 560px;
+  margin: var(--p-space-8) auto 0;
   padding: var(--p-space-8) var(--p-space-6);
-  border-left: 2px solid var(--rule);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--p-radius-lg);
+  text-align: center;
 }
 
 .not-found__art {
   color: var(--ink-faint);
   opacity: 0.72;
-  margin-bottom: var(--p-space-4);
+  margin: 0 auto var(--p-space-4);
 }
 
 .not-found h1 {
-  margin: var(--p-space-3) 0 var(--p-space-3);
+  margin: var(--p-space-2) 0 var(--p-space-3);
 }
 
 .not-found__actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: var(--p-space-3);
   margin-top: var(--p-space-6);
 }

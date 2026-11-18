@@ -48,7 +48,10 @@ const emit = defineEmits<{
   (e: 'toggle', id: string, shiftKey?: boolean): void
   (e: 'toggle-like', id: string): void
   (e: 'filter-color', color: string): void
+  (e: 'filter-tag', tag: string): void
 }>()
+
+const previewingRowId = ref<string | null>(null)
 
 const selectedSet = computed(() => new Set(props.selectedIds))
 const likedSet = computed(() => new Set(props.likedIds))
@@ -340,6 +343,8 @@ defineExpose({ renderedCount, isVisible, visibleRange })
       :key="item.id"
       :data-item-id="item.id"
       :class="['list-row', { 'list-row--picked': selectable && selectedSet.has(item.id) }]"
+      @mouseenter="item.kind === 'video' && item.preview_file && (previewingRowId = item.id)"
+      @mouseleave="previewingRowId === item.id && (previewingRowId = null)"
     >
       <button
         type="button"
@@ -347,6 +352,13 @@ defineExpose({ renderedCount, isVisible, visibleRange })
         :aria-pressed="selectable ? selectedSet.has(item.id) : undefined"
         @click="selectable ? emit('toggle', item.id, $event.shiftKey) : emit('open', index)"
       >
+        <span
+          v-if="selectable"
+          :class="['list-row__check', { 'list-row__check--on': selectedSet.has(item.id) }]"
+          aria-hidden="true"
+        >
+          {{ selectedSet.has(item.id) ? '✓' : '' }}
+        </span>
         <div class="list-row__thumb">
           <SmartImage
             :id="item.id"
@@ -357,22 +369,30 @@ defineExpose({ renderedCount, isVisible, visibleRange })
             :display-width="120"
             :version="item.updated_at"
           />
+          <img
+            v-if="previewingRowId === item.id && item.preview_file"
+            :src="`/p/${item.preview_file}`"
+            alt=""
+            aria-hidden="true"
+            class="list-row__preview"
+          />
           <span v-if="item.kind === 'video'" class="list-row__vbadge mono" aria-hidden="true">
             ▶{{ item.duration ? `${Math.round(item.duration)}s` : '' }}
           </span>
         </div>
         <div class="list-row__info">
           <span class="list-row__title">
-            <span
-              v-if="item.dominant_color"
-              class="list-row__color"
-              :style="{ backgroundColor: item.dominant_color }"
-              aria-hidden="true"
-            />
-            <span class="list-row__title-text">{{ item.title || item.name }}</span>
+            <span class="list-row__title-text" :title="item.title || item.name">{{ item.title || item.name }}</span>
           </span>
           <span class="list-row__tags">
-            <span v-for="tag in (item.tags ?? []).slice(0, 4)" :key="tag" class="list-row__tag">{{ tag }}</span>
+            <span
+              v-for="tag in (item.tags ?? []).slice(0, 4)"
+              :key="tag"
+              class="list-row__tag"
+              @click.stop="!selectable && emit('filter-tag', tag)"
+            >
+              {{ tag }}
+            </span>
           </span>
         </div>
         <span class="list-row__spec mono">
@@ -484,12 +504,39 @@ defineExpose({ renderedCount, isVisible, visibleRange })
   text-align: left;
 }
 
+.list-row__check {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--p-radius-full);
+  border: 1.5px solid var(--rule-strong);
+  background: var(--surface-sunken);
+  color: var(--on-accent);
+  font-size: 0.75rem;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.list-row__check--on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
 .list-row__thumb {
   position: relative;
   width: 72px;
   flex-shrink: 0;
   border-radius: var(--p-radius-sm);
   overflow: hidden;
+}
+
+.list-row__preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
 }
 
 .list-row__vbadge {
@@ -548,6 +595,14 @@ defineExpose({ renderedCount, isVisible, visibleRange })
   background: var(--surface-sunken);
   border-radius: var(--p-radius-full);
   padding: 0 7px;
+  transition:
+    background-color var(--p-dur-fast) var(--p-ease-out),
+    color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.list-row__tag:hover {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
 }
 
 .list-row__spec {
@@ -580,7 +635,8 @@ defineExpose({ renderedCount, isVisible, visibleRange })
   width: 16px;
   height: 16px;
   border-radius: var(--p-radius-full);
-  border: 1.5px solid var(--rule-strong);
+  border: 1.5px solid var(--surface);
+  box-shadow: 0 0 0 1px var(--rule-strong);
   flex-shrink: 0;
   transition: transform var(--p-dur-fast) var(--p-ease-out);
 }

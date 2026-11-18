@@ -537,7 +537,8 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
 
         swatches_html = "".join(
             f'<button type="button" class="swatch" data-hex="{html.escape(c.upper())}" '
-            f'style="background:{html.escape(c)}" title="复制色值 {html.escape(c.upper())}">'
+            f'title="复制色值 {html.escape(c.upper())}">'
+            f'<i class="swatch__dot" style="background:{html.escape(c)}"></i>'
             f'<span>{html.escape(c.upper())}</span></button>'
             for c in palette_list
         )
@@ -601,13 +602,14 @@ body{{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-syste
 .icon-btn{{width:36px;height:36px;border-radius:8px;border:1px solid var(--rule);background:var(--surface);color:var(--muted);cursor:pointer;display:grid;place-items:center;font-size:.95rem}}
 .icon-btn:hover{{color:var(--ink);background:var(--sunken)}}
 .main{{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 332px;gap:24px;max-width:1440px;width:100%;margin:0 auto;padding:24px 20px 32px;align-items:start}}
-.stage{{background:var(--sunken);border:1px solid var(--rule);border-radius:12px;min-height:min(72dvh,760px);display:grid;place-items:center;padding:20px;overflow:hidden;position:relative;transition:background-color .2s ease}}
+.stage{{background:var(--sunken);border:1px solid var(--rule);border-radius:12px;min-height:min(72dvh,760px);display:grid;grid-template-rows:minmax(0,1fr) auto;place-items:center;gap:14px;padding:20px 20px 14px;overflow:hidden;position:relative;transition:background-color .2s ease}}
 .stage[data-bg="dark"]{{background:#12100d}}
 .stage[data-bg="grid"]{{background-color:#d9d5ce;background-image:linear-gradient(45deg,#c4bfb7 25%,transparent 25%),linear-gradient(-45deg,#c4bfb7 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#c4bfb7 75%),linear-gradient(-45deg,transparent 75%,#c4bfb7 75%);background-size:20px 20px;background-position:0 0,0 10px,10px -10px,-10px 0}}
-.stage__tools{{position:absolute;right:12px;bottom:12px;z-index:2;display:inline-flex;gap:2px;padding:3px;border-radius:999px;background:color-mix(in srgb,var(--surface) 84%,transparent);backdrop-filter:blur(8px);border:1px solid var(--rule)}}
-.stage-bg{{border:none;background:transparent;color:var(--muted);font-size:.75rem;padding:3px 9px;border-radius:999px;cursor:pointer}}
+.stage__tools{{display:inline-flex;gap:2px;padding:3px;border-radius:999px;background:color-mix(in srgb,var(--surface) 90%,transparent);backdrop-filter:blur(8px);border:1px solid var(--rule)}}
+.stage-bg{{border:none;background:transparent;color:var(--muted);font-size:.75rem;padding:3px 10px;border-radius:999px;cursor:pointer;transition:background-color .15s,color .15s}}
+.stage-bg:hover{{color:var(--ink)}}
 .stage-bg.is-on{{background:var(--accent);color:var(--on-accent);font-weight:500}}
-.stage__media{{max-width:100%;max-height:calc(100dvh - 180px);width:auto;height:auto;object-fit:contain;border-radius:6px;box-shadow:var(--shadow)}}
+.stage__media{{max-width:100%;max-height:calc(100dvh - 220px);width:auto;height:auto;object-fit:contain;border-radius:6px;box-shadow:var(--shadow)}}
 .stage__img{{cursor:zoom-in;transition:transform .2s ease}}
 .stage.is-zoomed{{position:fixed;inset:0;z-index:99;border-radius:0;border:none;background:rgba(18,16,13,.95);padding:20px;overflow:auto}}
 .stage.is-zoomed .stage__tools{{display:none}}
@@ -625,9 +627,10 @@ body{{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-syste
 .tag{{font-size:.75rem;padding:2px 10px;border-radius:999px;background:var(--sunken);color:var(--muted);text-decoration:none;border:1px solid transparent;transition:border-color .15s,color .15s}}
 .tag:hover{{color:var(--ink);border-color:var(--rule)}}
 .swatches{{display:flex;gap:8px;flex-wrap:wrap}}
-.swatch{{position:relative;width:58px;height:38px;border-radius:6px;border:1px solid var(--rule);cursor:pointer;padding:0;overflow:hidden;transition:transform .15s ease}}
-.swatch:hover{{transform:translateY(-2px)}}
-.swatch span{{position:absolute;inset:auto 0 0 0;font-size:10px;font-family:ui-monospace,monospace;background:rgba(18,16,13,.72);color:#faf8f5;padding:1px 2px}}
+.swatch{{display:inline-flex;align-items:center;gap:7px;padding:4px 10px 4px 5px;border-radius:999px;border:1px solid var(--rule);background:var(--sunken);color:var(--ink);cursor:pointer;transition:transform .15s ease,border-color .15s ease}}
+.swatch:hover{{transform:translateY(-1px);border-color:var(--accent)}}
+.swatch__dot{{width:18px;height:18px;border-radius:50%;border:1px solid rgba(255,255,255,.28);box-shadow:inset 0 0 0 1px rgba(0,0,0,.18);flex-shrink:0}}
+.swatch span{{font-size:.75rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted)}}
 .actions{{display:flex;flex-direction:column;gap:8px;margin-top:4px}}
 .btn{{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:0 16px;border-radius:8px;font-size:.875rem;font-weight:500;text-decoration:none;cursor:pointer;border:1px solid var(--rule);background:var(--surface);color:var(--ink);transition:background-color .15s ease}}
 .btn:hover{{background:var(--sunken)}}

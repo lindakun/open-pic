@@ -401,12 +401,12 @@ watch(
   },
 )
 
-/** 对比候选：限额 8 个，覆盖当前列表附近即可，避免长列表渲染开销。
+/** 对比候选：限额 8 个且仅收图片（视频不支持静态并排/卷帘对比），避免长列表渲染开销。
  *  当前项不进候选条——它已恒定参与对比，点自己的圆点只会产生
  *  单图"对比"的挤压布局（实测发现）。
  */
 const compareChoices = computed(() =>
-  (props.candidates ?? []).filter((i) => i.id !== props.item.id).slice(0, 8),
+  (props.candidates ?? []).filter((i) => i.id !== props.item.id && i.kind === 'image').slice(0, 8),
 )
 
 function toggleCompare(id: string) {
@@ -1167,6 +1167,7 @@ onUnmounted(() => {
           alt=""
           loading="lazy"
         />
+        <span v-if="c.kind === 'video'" class="lb-film__vid" aria-hidden="true">▶</span>
       </button>
     </nav>
 
@@ -2152,11 +2153,13 @@ onUnmounted(() => {
 
 @media (min-width: 760px) {
   .lightbox__filmstrip--shifted {
-    left: calc(50% - min(360px, 88vw) / 2);
+    left: calc((100vw - min(360px, 88vw)) / 2);
+    max-width: min(680px, calc(100vw - min(360px, 88vw) - var(--p-space-6) * 2));
   }
 }
 
 .lb-film {
+  position: relative;
   flex: 0 0 auto;
   width: 44px;
   height: 44px;
@@ -2168,6 +2171,19 @@ onUnmounted(() => {
     opacity var(--p-dur-fast) var(--p-ease-out),
     border-color var(--p-dur-fast) var(--p-ease-out),
     transform var(--p-dur-fast) var(--p-ease-out);
+}
+
+.lb-film__vid {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  padding: 0 3px;
+  border-radius: var(--p-radius-sm);
+  background: rgba(18, 16, 13, 0.78);
+  color: #faf8f5;
+  font-size: 0.5rem;
+  line-height: 1.3;
+  pointer-events: none;
 }
 
 .lb-film:hover {
@@ -2365,86 +2381,9 @@ onUnmounted(() => {
     padding-top: 62px;
   }
   .lightbox__filmstrip {
-  position: absolute;
-  left: 50%;
-  bottom: 74px;
-  transform: translateX(-50%);
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  gap: var(--p-space-1);
-  max-width: min(680px, 92vw);
-  padding: 5px 8px;
-  border-radius: var(--p-radius-md);
-  background: rgba(18, 16, 13, 0.76);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(250, 248, 245, 0.14);
-  overflow-x: auto;
-  scrollbar-width: none;
-  transition: left var(--p-dur-base) var(--p-ease-out);
-}
-
-.lightbox__filmstrip::-webkit-scrollbar {
-  display: none;
-}
-
-@media (min-width: 760px) {
-  .lightbox__filmstrip--shifted {
-    left: calc(50% - min(360px, 88vw) / 2);
+    bottom: 92px;
   }
-}
-
-.lb-film {
-  flex: 0 0 auto;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--p-radius-sm);
-  overflow: hidden;
-  border: 2px solid transparent;
-  opacity: 0.62;
-  transition:
-    opacity var(--p-dur-fast) var(--p-ease-out),
-    border-color var(--p-dur-fast) var(--p-ease-out),
-    transform var(--p-dur-fast) var(--p-ease-out);
-}
-
-.lb-film:hover {
-  opacity: 0.95;
-  transform: translateY(-1px);
-}
-
-.lb-film--cur {
-  border-color: var(--p-accent-500);
-  opacity: 1;
-}
-
-.lb-film img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.lightbox__restore {
-  position: absolute;
-  right: var(--p-space-4);
-  bottom: var(--p-space-4);
-  z-index: 4;
-  padding: 4px var(--p-space-3);
-  border-radius: var(--p-radius-full);
-  background: rgba(18, 16, 13, 0.56);
-  border: 1px solid rgba(250, 248, 245, 0.22);
-  color: rgba(250, 248, 245, 0.85);
-  font-size: var(--p-step--1);
-  backdrop-filter: blur(6px);
-  opacity: 0.55;
-  transition: opacity var(--p-dur-fast) var(--p-ease-out);
-}
-
-.lightbox__restore:hover {
-  opacity: 1;
-}
-
-.lightbox__bar {
+  .lightbox__bar {
     flex-direction: column;
     align-items: stretch;
     gap: var(--p-space-2);

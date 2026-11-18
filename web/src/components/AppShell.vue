@@ -175,7 +175,7 @@ function formatRelative(tsMs: number): string {
           class="icon-btn icon-btn--recent"
           :aria-label="t('recent.title')"
           :title="t('recent.title')"
-          @click="recentOpen = true"
+          @click="recentOpen = true; ($event.currentTarget as HTMLElement)?.blur()"
         >
           <span aria-hidden="true">◷</span>
           <span v-if="recent.length" class="icon-btn__badge mono">{{ recent.length > 99 ? '99+' : recent.length }}</span>
@@ -358,16 +358,17 @@ function formatRelative(tsMs: number): string {
 
 .icon-btn__badge {
   position: absolute;
-  top: 2px;
-  right: 1px;
-  min-width: 14px;
-  height: 14px;
-  padding: 0 3px;
+  top: 0;
+  right: -2px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3.5px;
   border-radius: var(--p-radius-full);
   background: var(--accent);
   color: var(--on-accent);
+  border: 1.5px solid var(--paper);
   font-size: 0.625rem;
-  line-height: 14px;
+  line-height: 12px;
   text-align: center;
   pointer-events: none;
 }

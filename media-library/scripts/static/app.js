@@ -22,6 +22,7 @@
     theme: localStorage.getItem('mlib_theme') || 'dark',
     selectMode: false,
     selected: new Set(),
+    lastSelectedIdx: -1,
     curIdx: -1,
     collections: [],
     popularTags: [],
@@ -284,9 +285,9 @@
       el.addEventListener('mouseleave', () => { img.src = thumbUrl; });
     }
 
-    el.onclick = () => {
+    el.onclick = (e) => {
       if (state.selectMode) {
-        toggleSelect(it.id, el);
+        toggleSelect(it.id, el, e.shiftKey, idx);
       } else {
         openLightbox(idx);
       }
@@ -616,22 +617,48 @@
     document.body.classList.toggle('has-batch-bar', Boolean(show));
   }
 
-  function toggleSelect(id, cardEl) {
+  function syncCardSelectionDOM() {
+    $$('#gallery .card').forEach(c => {
+      const on = state.selected.has(c.dataset.id);
+      c.classList.toggle('selected', on);
+      const ck = c.querySelector('.sel-check');
+      if (ck) ck.textContent = on ? '✓' : '';
+    });
+    $('#batchCount').textContent = state.selected.size;
+    const allSel = state.items.length > 0 && state.selected.size >= state.items.length;
+    if ($('#bSelectAll')) {
+      $('#bSelectAll').textContent = allSel ? '取消全选' : `全选 (${state.items.length})`;
+    }
+    syncBatchBarVisibility(state.selected.size > 0);
+  }
+
+  function toggleSelect(id, cardEl, shiftKey = false, idx = -1) {
+    if (shiftKey && state.lastSelectedIdx >= 0 && idx >= 0 && state.lastSelectedIdx !== idx) {
+      const lo = Math.min(state.lastSelectedIdx, idx);
+      const hi = Math.max(state.lastSelectedIdx, idx);
+      const targetOn = !state.selected.has(id);
+      for (let k = lo; k <= hi; k++) {
+        const item = state.items[k];
+        if (!item) continue;
+        if (targetOn) state.selected.add(item.id);
+        else state.selected.delete(item.id);
+      }
+      state.lastSelectedIdx = idx;
+      syncCardSelectionDOM();
+      return;
+    }
     if (state.selected.has(id)) state.selected.delete(id);
     else state.selected.add(id);
-    if (cardEl) {
-      cardEl.classList.toggle('selected', state.selected.has(id));
-      const ck = cardEl.querySelector('.sel-check');
-      if (ck) ck.textContent = state.selected.has(id) ? '✓' : '';
-    }
-    $('#batchCount').textContent = state.selected.size;
-    syncBatchBarVisibility(state.selected.size > 0);
+    state.lastSelectedIdx = idx;
+    syncCardSelectionDOM();
   }
 
   function exitSelectMode() {
     state.selectMode = false;
     state.selected.clear();
+    state.lastSelectedIdx = -1;
     document.body.classList.remove('select-mode');
+    $('#btnSelectMode').classList.remove('primary');
     syncBatchBarVisibility(false);
     $$('.card.selected').forEach(c => {
       c.classList.remove('selected');
@@ -645,13 +672,22 @@
     else {
       state.selectMode = true;
       document.body.classList.add('select-mode');
+      $('#btnSelectMode').classList.add('primary');
       $('#bRestore').hidden = state.nav !== 'trash';
       $('#bPurge').hidden = state.nav !== 'trash';
       $('#bDelete').hidden = state.nav === 'trash';
       closeMobileSidebar();
-      toast('已进入多选模式，点击卡片勾选');
+      toast('多选已开启：点击勾选，按住 Shift 可区间连选');
     }
   };
+  if ($('#bSelectAll')) {
+    $('#bSelectAll').onclick = () => {
+      const allSel = state.items.length > 0 && state.selected.size >= state.items.length;
+      if (allSel) state.selected.clear();
+      else state.items.forEach(it => state.selected.add(it.id));
+      syncCardSelectionDOM();
+    };
+  }
   $('#bCancel').onclick = exitSelectMode;
 
   async function runBatch(action, extra = {}) {
@@ -886,6 +922,7 @@
       c.classList.toggle('on', state.nav === 'collection' && col && col.id === state.collectionId);
     });
     const isAna = state.nav === 'analytics';
+    $$('[data-gallery-only]').forEach(el => { el.hidden = isAna; });
     $('#gallery').hidden = isAna;
     $('#done').hidden = isAna;
     if (isAna) $('#activeBar').hidden = true;

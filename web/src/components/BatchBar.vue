@@ -39,6 +39,18 @@ const tagMode = ref<'add' | 'remove'>('add')
 const tagDraft = ref('')
 const collectionOpen = ref(false)
 const targetCollection = ref<number | null>(null)
+const exportOpen = ref(false)
+type ExportPreset = 'original' | '2048' | '1280' | '640'
+type ExportFormat = '' | 'webp' | 'jpeg' | 'png'
+const exportPreset = ref<ExportPreset>('original')
+const exportFormat = ref<ExportFormat>('')
+
+const exportPresetBadge = computed(() => {
+  if (exportPreset.value === 'original' && !exportFormat.value) return ''
+  const p = exportPreset.value === 'original' ? '' : exportPreset.value
+  const f = exportFormat.value ? exportFormat.value.toUpperCase() : ''
+  return [p, f].filter(Boolean).join('·')
+})
 
 const count = computed(() => props.selected.length)
 
@@ -174,12 +186,16 @@ async function trash() {
 async function exportZip() {
   if (!count.value || busy.value) return
   busy.value = true
+  exportOpen.value = false
   try {
     // 后端同步/异步导出上限 200 项，超出部分静默丢弃——必须提前告知
     if (count.value > 200) {
       toast.info(t('batch.exportCapped', { count: count.value }))
     }
-    const res = await api.exportZip(props.selected, { preset: 'original' })
+    const res = await api.exportZip(props.selected, {
+      preset: exportPreset.value,
+      format: exportFormat.value || undefined,
+    })
     if (res.kind === 'job') {
       toast.info(t('batch.exportQueued', { count: res.count }))
       return
@@ -221,9 +237,22 @@ async function exportZip() {
       >
         {{ t('batch.collection') }}
       </MLButton>
-      <MLButton variant="quiet" :disabled="busy" @click="exportZip">
-        {{ t('batch.export') }}
-      </MLButton>
+      <span class="batch__export-group">
+        <MLButton variant="quiet" :disabled="busy" @click="exportZip">
+          {{ t('batch.export') }}
+          <span v-if="exportPresetBadge" class="batch__export-badge mono">{{ exportPresetBadge }}</span>
+        </MLButton>
+        <button
+          type="button"
+          class="batch__export-more"
+          :disabled="busy"
+          :aria-label="t('batch.exportOptions')"
+          :title="t('batch.exportOptions')"
+          @click="exportOpen = true"
+        >
+          ▾
+        </button>
+      </span>
       <MLButton variant="quiet" :disabled="busy" @click="setFeatured">
         {{ t('batch.featuredSet') }}
       </MLButton>
@@ -295,8 +324,49 @@ async function exportZip() {
         </select>
         <div class="batch__form-actions">
           <MLButton variant="quiet" @click="collectionOpen = false">{{ t('common.cancel') }}</MLButton>
-          <MLButton :disabled="busy || targetCollection === null" @click="applyCollection">
+          <MLButton variant="primary" :disabled="busy || targetCollection === null" @click="applyCollection">
             {{ t('common.confirm') }}
+          </MLButton>
+        </div>
+      </div>
+    </MLSheet>
+
+    <!-- 多规格导出设置 -->
+    <MLSheet v-model:open="exportOpen" :title="t('batch.exportTitle')" width="400px">
+      <div class="batch__form" @keydown.enter.prevent="exportZip">
+        <div class="batch__preset-group">
+          <span class="batch__label">{{ t('batch.exportPreset') }}</span>
+          <div class="batch__preset-list">
+            <button
+              v-for="p in (['original', '2048', '1280', '640'] as const)"
+              :key="p"
+              type="button"
+              :class="['batch__preset-item', { 'batch__preset-item--on': exportPreset === p }]"
+              @click="exportPreset = p; if (p === 'original') exportFormat = ''"
+            >
+              <span>{{ p === 'original' ? t('batch.presetOriginal') : t(`batch.preset${p}`) }}</span>
+              <span v-if="exportPreset === p" aria-hidden="true">✓</span>
+            </button>
+          </div>
+        </div>
+        <div v-if="exportPreset !== 'original'" class="batch__preset-group">
+          <span class="batch__label">{{ t('batch.exportFormat') }}</span>
+          <div class="batch__fmt-pills">
+            <button
+              v-for="fmt in (['', 'webp', 'jpeg', 'png'] as const)"
+              :key="fmt || 'keep'"
+              type="button"
+              :class="['batch__tag-pick', { 'batch__tag-pick--on': exportFormat === fmt }]"
+              @click="exportFormat = fmt"
+            >
+              {{ fmt ? fmt.toUpperCase() : t('batch.formatKeep') }}
+            </button>
+          </div>
+        </div>
+        <div class="batch__form-actions">
+          <MLButton variant="quiet" @click="exportOpen = false">{{ t('common.cancel') }}</MLButton>
+          <MLButton variant="primary" :disabled="busy" @click="exportZip">
+            {{ t('batch.exportStart') }}
           </MLButton>
         </div>
       </div>
@@ -434,6 +504,79 @@ async function exportZip() {
   background: var(--surface);
   color: var(--ink);
   font: inherit;
+}
+
+.batch__export-group {
+  display: inline-flex;
+  align-items: center;
+}
+
+.batch__export-badge {
+  font-size: 0.6875rem;
+  padding: 0 5px;
+  border-radius: var(--p-radius-full);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+
+.batch__export-more {
+  min-width: 22px;
+  min-height: 30px;
+  margin-left: -4px;
+  padding: 0 4px;
+  border-radius: var(--p-radius-md);
+  color: var(--ink-muted);
+  font-size: 0.75rem;
+}
+
+.batch__export-more:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.batch__preset-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--p-space-2);
+}
+
+.batch__preset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.batch__preset-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--p-space-2) var(--p-space-3);
+  border-radius: var(--p-radius-md);
+  border: 1px solid var(--rule);
+  background: var(--surface-sunken);
+  color: var(--ink);
+  font-size: var(--p-step--1);
+  text-align: left;
+  transition:
+    border-color var(--p-dur-fast) var(--p-ease-out),
+    background-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.batch__preset-item:hover {
+  border-color: var(--rule-strong);
+}
+
+.batch__preset-item--on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-weight: 500;
+}
+
+.batch__fmt-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 /* 移动端：操作条收窄，避免超出视口 */
