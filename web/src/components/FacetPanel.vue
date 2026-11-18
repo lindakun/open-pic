@@ -24,6 +24,17 @@ const { t } = useI18n()
 /** 标签组超过 18 个时默认折叠，避免侧栏过长 */
 const TAG_FOLD_LIMIT = 18
 const tagsExpanded = ref(false)
+/** 标签组内即时过滤关键词 */
+const tagQuery = ref('')
+
+function visibleTagOptions(options: FacetOption[]): FacetOption[] {
+  const q = tagQuery.value.trim().toLowerCase()
+  const filtered = q
+    ? options.filter((o) => o.value.toLowerCase().includes(q))
+    : options
+  if (q || tagsExpanded.value) return filtered
+  return filtered.slice(0, TAG_FOLD_LIMIT)
+}
 
 /** 方向的中文标签 */
 /** 分面值到 i18n key 的映射 */
@@ -159,7 +170,7 @@ function groupActiveCount(key: string): number {
     <details
       v-for="group in groups"
       :key="group.key"
-      class="facet"
+      :class="['facet', { 'facet--active': groupActiveCount(group.key) > 0 }]"
       :open="group.key === 'kind' || group.key === 'orientation' || (group.key === 'tag' && groupActiveCount('tag') > 0)"
     >
       <summary class="facet__summary">
@@ -172,10 +183,18 @@ function groupActiveCount(key: string): number {
         <span class="facet__chevon" aria-hidden="true">›</span>
       </summary>
       <div class="facet__body">
+        <input
+          v-if="group.key === 'tag' && group.options.length > 8"
+          v-model="tagQuery"
+          type="search"
+          class="facet__tag-search"
+          :placeholder="t('facet.filterTagsPlaceholder')"
+          :aria-label="t('facet.filterTagsPlaceholder')"
+        />
         <!-- 已选项渲染为可移除 chip（×），未选项渲染为普通 chip：
              两者都点击即切换。此前未选项也带 ×，视觉上像「移除」而非「添加」。 -->
         <template
-          v-for="opt in group.key === 'tag' && !tagsExpanded ? group.options.slice(0, TAG_FOLD_LIMIT) : group.options"
+          v-for="opt in group.key === 'tag' ? visibleTagOptions(group.options) : group.options"
           :key="opt.value"
         >
           <span class="facet__item">
@@ -204,8 +223,14 @@ function groupActiveCount(key: string): number {
             </button>
           </span>
         </template>
+        <p
+          v-if="group.key === 'tag' && tagQuery.trim() && visibleTagOptions(group.options).length === 0"
+          class="facet__empty muted"
+        >
+          {{ t('facet.noMatchingTags') }}
+        </p>
         <button
-          v-if="group.key === 'tag' && group.options.length > TAG_FOLD_LIMIT"
+          v-if="group.key === 'tag' && !tagQuery.trim() && group.options.length > TAG_FOLD_LIMIT"
           type="button"
           class="facet__more"
           @click="tagsExpanded = !tagsExpanded"
@@ -258,6 +283,38 @@ function groupActiveCount(key: string): number {
 
 .facet {
   border-bottom: 1px solid var(--rule);
+}
+
+.facet--active > .facet__summary .facet__name {
+  color: var(--accent-hover);
+}
+
+.facet__tag-search {
+  width: 100%;
+  margin-bottom: var(--p-space-1);
+  padding: 4px var(--p-space-2);
+  min-height: 28px;
+  font: inherit;
+  font-size: var(--p-step--1);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--p-radius-sm);
+  transition: border-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.facet__tag-search:focus {
+  border-color: var(--accent);
+}
+
+.facet__tag-search::placeholder {
+  color: var(--ink-faint);
+}
+
+.facet__empty {
+  width: 100%;
+  font-size: var(--p-step--1);
+  padding: var(--p-space-1) 0;
 }
 
 .facet:last-child {

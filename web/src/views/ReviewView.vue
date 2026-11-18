@@ -31,6 +31,25 @@ const saving = ref(false)
 const savedAt = ref(0)
 /** 点击图片放大检视细节 */
 const zoomed = ref(false)
+/** 标记后自动跳下一张（本地记忆，默认关闭以免打扰慢看） */
+const autoNext = ref((() => {
+  try {
+    return localStorage.getItem('medialib.reviewAutoNext') === '1'
+  } catch {
+    return false
+  }
+})())
+watch(autoNext, (v) => {
+  try {
+    localStorage.setItem('medialib.reviewAutoNext', v ? '1' : '0')
+  } catch {
+    // 忽略
+  }
+})
+
+/** 胶片条过滤态 */
+type FilmFilter = 'all' | 'unmarked' | 'selected' | 'pending' | 'rejected'
+const filmFilter = ref<FilmFilter>('all')
 
 /** 本地标记缓存：以 item_id 为键，避免每次切换都回查 */
 type MarkState = 'selected' | 'pending' | 'rejected'
@@ -112,6 +131,17 @@ function onTouchEnd(e: TouchEvent) {
   }
 }
 
+const filmEntries = computed(() =>
+  items.value
+    .map((item, idx) => ({ item, idx }))
+    .filter(({ item }) => {
+      if (filmFilter.value === 'all') return true
+      const m = marks.value[item.id]
+      if (filmFilter.value === 'unmarked') return !m
+      return m?.state === filmFilter.value
+    }),
+)
+
 function markOf(id: string): Mark | undefined {
   return marks.value[id]
 }
@@ -187,6 +217,9 @@ async function setMark(state: MarkState, note?: string) {
     })
     if (!res.ok) throw new Error(t('review.saveFailed'))
     savedAt.value = Date.now()
+    if (autoNext.value && note === undefined && current.value?.id === it.id && index.value < items.value.length - 1) {
+      step(1)
+    }
   } catch {
     // 回滚
     if (prev) marks.value = { ...marks.value, [it.id]: prev }
@@ -261,6 +294,12 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  // 放大看图时 Esc 优先还原尺寸
+  if (e.key === 'Escape' && zoomed.value) {
+    e.preventDefault()
+    zoomed.value = false
+    return
+  }
   // Esc 退出输入态（文档约定）：让快捷键重新作用于选片而非文本框
   if (e.key === 'Escape' && isTypingTarget(e.target)) {
     ;(e.target as HTMLElement).blur()
@@ -420,6 +459,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           >
             ✕ {{ t('review.rejected') }}
           </button>
+          <label class="review__auto-next">
+            <input v-model="autoNext" type="checkbox" />
+            <span>{{ t('review.autoNext') }}</span>
+          </label>
         </div>
 
         <div class="review__note">
@@ -436,10 +479,25 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <p v-else-if="savedAt" class="review__saving">{{ t('review.saved') }}</p>
       </main>
 
-      <!-- 底部胶片条 -->
+      <!-- 底部胶片条过滤与缩略图 -->
+      <div class="review__film-bar" role="group" :aria-label="t('review.filmstrip')">
+        <button
+          v-for="f in (['all', 'unmarked', 'selected', 'pending', 'rejected'] as const)"
+          :key="f"
+          type="button"
+          :class="['film-filter', { 'film-filter--on': filmFilter === f }]"
+          :aria-pressed="filmFilter === f"
+          @click="filmFilter = f"
+        >
+          {{ f === 'all' ? t('review.filterAll') : t(`review.${f}`) }}
+          <span class="mono">
+            {{ f === 'all' ? items.length : counts[f] }}
+          </span>
+        </button>
+      </div>
       <nav class="review__film" :aria-label="t('review.filmstrip')">
         <button
-          v-for="(it, i) in items"
+          v-for="{ item: it, idx: i } in filmEntries"
           :key="it.id"
           type="button"
           :class="['film', { 'film--cur': i === index }]"
@@ -489,7 +547,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .review__head {
-  padding: var(--p-space-5) var(--p-space-5) var(--p-space-3);
+  padding: var(--p-space-4) var(--p-space-5) var(--p-space-2);
   max-width: 900px;
   margin: 0 auto;
   width: 100%;
@@ -563,7 +621,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 .review__img {
   max-width: min(1280px, 100%);
-  max-height: clamp(320px, 64dvh, 820px);
+  max-height: clamp(280px, 54dvh, 740px);
   width: auto;
   height: auto;
   object-fit: contain;
@@ -755,6 +813,55 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   .review__nav {
     display: none;
   }
+}
+
+.review__auto-next {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: var(--p-space-2);
+  font-size: var(--p-step--1);
+  color: var(--ink-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.review__auto-next input {
+  accent-color: var(--accent);
+}
+
+.review__film-bar {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--p-space-1);
+  padding: var(--p-space-2) var(--p-space-4);
+  border-top: 1px solid var(--rule);
+  background: var(--paper);
+}
+
+.film-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--p-space-2);
+  border-radius: var(--p-radius-full);
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  transition:
+    background-color var(--p-dur-fast) var(--p-ease-out),
+    color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.film-filter:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.film-filter--on {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-weight: 500;
 }
 
 .review__saving {

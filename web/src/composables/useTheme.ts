@@ -60,8 +60,22 @@ watch(mode, (v) => {
   }
 })
 
+let transitionTimer: number | undefined
+
+function beginThemeTransition() {
+  if (typeof document === 'undefined') return
+  const root = document.documentElement
+  root.classList.add('theme-transitioning')
+  if (transitionTimer !== undefined) window.clearTimeout(transitionTimer)
+  transitionTimer = window.setTimeout(() => {
+    root.classList.remove('theme-transitioning')
+    transitionTimer = undefined
+  }, 280)
+}
+
 export function useTheme() {
   function cycle() {
+    beginThemeTransition()
     mode.value = mode.value === 'light' ? 'dark' : mode.value === 'dark' ? 'auto' : 'light'
   }
 
@@ -69,6 +83,9 @@ export function useTheme() {
     mode,
     resolved,
     cycle,
-    set: (m: ThemeMode) => (mode.value = m),
+    set: (m: ThemeMode) => {
+      beginThemeTransition()
+      mode.value = m
+    },
   }
 }

@@ -160,6 +160,8 @@ const {
 /** 信息面板展开状态：默认收起，纯图优先 */
 const infoOpen = ref(false)
 const helpOpen = ref(false)
+/** 胶片快速跳转条：长列表下快速跨项跳转，快捷键 F 显隐 */
+const filmstripOpen = ref(false)
 /** 当前主图解码完成标记：切换大图时显示柔和加载环 */
 const imgLoaded = ref(false)
 /** 复制反馈：'link' | 'hex:<color>' | null，1.6s 后自动清除 */
@@ -445,6 +447,24 @@ async function copyColor(color: string) {
   else await flash('copy-failed')
 }
 
+async function copyTags() {
+  const list = props.item.tags ?? []
+  if (!list.length) return
+  if (await copyText(list.join(' '))) await flash('tags')
+  else await flash('copy-failed')
+}
+
+function formatSource(raw: string): string {
+  try {
+    const u = new URL(raw)
+    const path = u.pathname === '/' ? '' : u.pathname.replace(/\/$/, '')
+    const shortPath = path.length > 24 ? `${path.slice(0, 22)}…` : path
+    return `${u.hostname.replace(/^www\./, '')}${shortPath}`
+  } catch {
+    return raw
+  }
+}
+
 function filterByColor(color: string) {
   emit('filter-color', color)
   close()
@@ -473,6 +493,14 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || Boolean(el?.isContentEditable)
 }
 
+function onDialogCancel(e: Event) {
+  if (editing.value) {
+    e.preventDefault()
+    editing.value = false
+    editError.value = ''
+  }
+}
+
 function onKeydown(e: KeyboardEvent) {
   // 帮助浮层打开时只保留 Esc 关闭，其余快捷键不作用于背后的灯箱
   if (helpOpen.value) {
@@ -480,6 +508,13 @@ function onKeydown(e: KeyboardEvent) {
       e.preventDefault()
       closeHelp()
     }
+    return
+  }
+  // 行内编辑中按 Esc 优先退出编辑，避免直接关掉灯箱丢失草稿
+  if (e.key === 'Escape' && editing.value) {
+    e.preventDefault()
+    editing.value = false
+    editError.value = ''
     return
   }
   // 输入态与输入法组字期间不拦截（A-04 验收）
@@ -535,6 +570,12 @@ function onKeydown(e: KeyboardEvent) {
     case 'I':
       infoOpen.value = !infoOpen.value
       if (infoOpen.value) focusPanel()
+      break
+    case 'f':
+    case 'F':
+      if ((props.candidates?.length ?? 0) > 1 && !compareOn.value) {
+        filmstripOpen.value = !filmstripOpen.value
+      }
       break
     case 'd':
     case 'D':
@@ -594,6 +635,7 @@ const shortcuts = computed(() => [
   { key: '0', desc: t('shortcut.reset') },
   { key: 'L', desc: t('shortcut.like') },
   { key: 'I', desc: t('shortcut.info') },
+  { key: 'F', desc: t('shortcut.filmstrip') },
   { key: 'D', desc: t('shortcut.download') },
   { key: 'C', desc: t('shortcut.copy') },
   { key: 'Space', desc: t('shortcut.slideshow') },
@@ -666,6 +708,7 @@ onUnmounted(() => {
     ref="dialogRef"
     class="lightbox"
     :aria-label="t('lightbox.preview')"
+    @cancel="onDialogCancel"
     @close="close"
     @click="($event.target as HTMLElement).tagName === 'DIALOG' && close()"
   >
@@ -678,6 +721,7 @@ onUnmounted(() => {
           'lightbox__stage--compare': compareOn,
           'lightbox__stage--compare-grid': compareOn && compareItems.length > 2,
           'lightbox__stage--with-panel': infoOpen,
+          'lightbox__stage--with-film': filmstripOpen && (candidates?.length ?? 0) > 1 && !compareOn,
           'lightbox__stage--has-compare': item.kind === 'image' && compareChoices.length >= 1,
         },
       ]"
@@ -822,7 +866,13 @@ onUnmounted(() => {
       </div>
 
       <!-- 行内编辑表单 -->
-      <form v-if="editing" class="panel__form" @submit.prevent="saveEdit">
+      <form
+        v-if="editing"
+        class="panel__form"
+        @submit.prevent="saveEdit"
+        @keydown.ctrl.enter.prevent="saveEdit"
+        @keydown.meta.enter.prevent="saveEdit"
+      >
         <label class="panel__field">
           <span>{{ t('upload.fieldTitle') }}</span>
           <input v-model="editTitle" type="text" maxlength="200" />
@@ -835,6 +885,7 @@ onUnmounted(() => {
           <span>{{ t('lightbox.notes') }}</span>
           <textarea v-model="editNotes" rows="2" :placeholder="t('lightbox.notesPlaceholder')" />
         </label>
+        <p class="panel__edit-hint">{{ t('lightbox.editHint') }}</p>
         <p v-if="editError" class="panel__err">{{ editError }}</p>
         <div class="panel__form-actions">
           <button type="button" class="panel__btn" @click="editing = false">{{ t('common.cancel') }}</button>
@@ -867,8 +918,8 @@ onUnmounted(() => {
         <div v-if="item.source" class="panel__row">
           <dt>{{ t('lightbox.source') }}</dt>
           <dd class="panel__source">
-            <a :href="item.source" target="_blank" rel="noopener noreferrer nofollow">
-              {{ item.source }}
+            <a :href="item.source" target="_blank" rel="noopener noreferrer nofollow" :title="item.source">
+              {{ formatSource(item.source) }} <span aria-hidden="true">↗</span>
             </a>
           </dd>
         </div>
@@ -882,16 +933,25 @@ onUnmounted(() => {
         </div>
       </dl>
 
-      <div v-if="item.tags?.length" class="panel__tags">
+      <div v-if="item.tags?.length" class="panel__tags-wrap">
+        <div class="panel__tags">
+          <button
+            v-for="tag in item.tags"
+            :key="tag"
+            type="button"
+            class="panel__tag"
+            :aria-label="`${t('lightbox.filterTag')} ${tag}`"
+            @click="filterByTag(tag)"
+          >
+            {{ tag }}
+          </button>
+        </div>
         <button
-          v-for="tag in item.tags"
-          :key="tag"
           type="button"
-          class="panel__tag"
-          :aria-label="`${t('lightbox.filterTag')} ${tag}`"
-          @click="filterByTag(tag)"
+          class="panel__copy-tags"
+          @click="copyTags"
         >
-          {{ tag }}
+          {{ copied === 'tags' ? t('lightbox.copied') : t('lightbox.copyTags') }}
         </button>
       </div>
 
@@ -939,6 +999,29 @@ onUnmounted(() => {
         </div>
       </div>
     </aside>
+
+    <!-- 胶片快速跳转条（快捷键 F 显隐） -->
+    <nav
+      v-if="filmstripOpen && (candidates?.length ?? 0) > 1 && !compareOn"
+      :class="['lightbox__filmstrip', { 'lightbox__filmstrip--shifted': infoOpen }]"
+      :aria-label="t('lightbox.filmstrip')"
+    >
+      <button
+        v-for="c in candidates"
+        :key="c.id"
+        type="button"
+        :class="['lb-film', { 'lb-film--cur': c.id === item.id }]"
+        :aria-current="c.id === item.id"
+        :title="c.title || c.name"
+        @click="emit('select-item', c)"
+      >
+        <img
+          :src="c.kind === 'video' ? `/t/${c.id}.jpg` : `/t/${c.id}_sm.webp`"
+          alt=""
+          loading="lazy"
+        />
+      </button>
+    </nav>
 
     <!-- 悬浮控制条 -->
     <div class="lightbox__bar">
@@ -1028,6 +1111,18 @@ onUnmounted(() => {
           @click="$emit('toggle-like', item.id)"
         >
           {{ liked ? '♥' : '♡' }}
+        </button>
+        <button
+          v-if="(candidates?.length ?? 0) > 1 && !compareOn"
+          type="button"
+          class="lb-btn"
+          :class="{ 'lb-btn--on': filmstripOpen }"
+          :aria-pressed="filmstripOpen"
+          :aria-label="t('lightbox.filmstripToggle')"
+          :title="`${t('lightbox.filmstripToggle')} (F)`"
+          @click="filmstripOpen = !filmstripOpen"
+        >
+          ▤
         </button>
         <button
           type="button"
@@ -1167,6 +1262,10 @@ onUnmounted(() => {
 /* 有顶部对比选择条时让出安全高度，防止长竖图顶部被遮住 */
 .lightbox__stage--has-compare {
   padding-top: 68px;
+}
+
+.lightbox__stage--with-film {
+  padding-bottom: 148px;
 }
 
 /* 桌面端打开信息面板时收缩舞台右侧，图片自动重新居中适配 */
@@ -1528,6 +1627,12 @@ onUnmounted(() => {
   font: inherit;
 }
 
+.panel__edit-hint {
+  font-size: 0.6875rem;
+  opacity: 0.55;
+  margin: 0;
+}
+
 .panel__err {
   color: #e87a6e;
   font-size: var(--p-step--1);
@@ -1604,11 +1709,29 @@ onUnmounted(() => {
   text-underline-offset: 2px;
 }
 
+.panel__tags-wrap {
+  margin-top: var(--p-space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--p-space-2);
+}
+
 .panel__tags {
   display: flex;
   flex-wrap: wrap;
   gap: var(--p-space-1);
-  margin-top: var(--p-space-4);
+}
+
+.panel__copy-tags {
+  font-size: 0.6875rem;
+  opacity: 0.68;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.panel__copy-tags:hover {
+  opacity: 1;
 }
 
 .panel__tag {
@@ -1646,6 +1769,14 @@ onUnmounted(() => {
   height: 40px;
   border-radius: var(--p-radius-sm);
   border: 1px solid rgba(250, 248, 245, 0.28);
+  transition:
+    transform var(--p-dur-fast) var(--p-ease-out),
+    border-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.swatch:hover {
+  transform: translateY(-2px);
+  border-color: rgba(250, 248, 245, 0.72);
 }
 
 .swatch__hex {
@@ -1664,6 +1795,66 @@ onUnmounted(() => {
   text-decoration: underline;
   text-underline-offset: 2px;
   min-height: 24px;
+}
+
+.lightbox__filmstrip {
+  position: absolute;
+  left: 50%;
+  bottom: 74px;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: var(--p-space-1);
+  max-width: min(680px, 92vw);
+  padding: 5px 8px;
+  border-radius: var(--p-radius-md);
+  background: rgba(18, 16, 13, 0.76);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(250, 248, 245, 0.14);
+  overflow-x: auto;
+  scrollbar-width: none;
+  transition: left var(--p-dur-base) var(--p-ease-out);
+}
+
+.lightbox__filmstrip::-webkit-scrollbar {
+  display: none;
+}
+
+@media (min-width: 760px) {
+  .lightbox__filmstrip--shifted {
+    left: calc(50% - min(360px, 88vw) / 2);
+  }
+}
+
+.lb-film {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--p-radius-sm);
+  overflow: hidden;
+  border: 2px solid transparent;
+  opacity: 0.62;
+  transition:
+    opacity var(--p-dur-fast) var(--p-ease-out),
+    border-color var(--p-dur-fast) var(--p-ease-out),
+    transform var(--p-dur-fast) var(--p-ease-out);
+}
+
+.lb-film:hover {
+  opacity: 0.95;
+  transform: translateY(-1px);
+}
+
+.lb-film--cur {
+  border-color: var(--p-accent-500);
+  opacity: 1;
+}
+
+.lb-film img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .lightbox__bar {
@@ -1824,7 +2015,67 @@ onUnmounted(() => {
   .lightbox__stage--has-compare {
     padding-top: 62px;
   }
-  .lightbox__bar {
+  .lightbox__filmstrip {
+  position: absolute;
+  left: 50%;
+  bottom: 74px;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: var(--p-space-1);
+  max-width: min(680px, 92vw);
+  padding: 5px 8px;
+  border-radius: var(--p-radius-md);
+  background: rgba(18, 16, 13, 0.76);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(250, 248, 245, 0.14);
+  overflow-x: auto;
+  scrollbar-width: none;
+  transition: left var(--p-dur-base) var(--p-ease-out);
+}
+
+.lightbox__filmstrip::-webkit-scrollbar {
+  display: none;
+}
+
+@media (min-width: 760px) {
+  .lightbox__filmstrip--shifted {
+    left: calc(50% - min(360px, 88vw) / 2);
+  }
+}
+
+.lb-film {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--p-radius-sm);
+  overflow: hidden;
+  border: 2px solid transparent;
+  opacity: 0.62;
+  transition:
+    opacity var(--p-dur-fast) var(--p-ease-out),
+    border-color var(--p-dur-fast) var(--p-ease-out),
+    transform var(--p-dur-fast) var(--p-ease-out);
+}
+
+.lb-film:hover {
+  opacity: 0.95;
+  transform: translateY(-1px);
+}
+
+.lb-film--cur {
+  border-color: var(--p-accent-500);
+  opacity: 1;
+}
+
+.lb-film img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.lightbox__bar {
     flex-direction: column;
     align-items: stretch;
     gap: var(--p-space-2);

@@ -240,3 +240,46 @@ html.lightbox-open body {
   /* 补偿滚动条消失造成的宽度变化，避免整页横向跳动 */
   padding-right: var(--scrollbar-comp, 0px);
 }
+
+/* ---------- 主题切换柔和过渡（仅用户主动切换时短时挂载） ---------- */
+html.theme-transitioning,
+html.theme-transitioning body,
+html.theme-transitioning header,
+html.theme-transitioning aside,
+html.theme-transitioning main,
+html.theme-transitioning button,
+html.theme-transitioning input,
+html.theme-transitioning select {
+  transition:
+    background-color var(--p-dur-base) var(--p-ease-out),
+    color var(--p-dur-base) var(--p-ease-out),
+    border-color var(--p-dur-base) var(--p-ease-out);
+}
+
+/* ---------- 纸感微光骨架公共动画 ---------- */
+@keyframes ml-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
+.ml-skel-shimmer {
+  background: linear-gradient(
+    110deg,
+    var(--surface-sunken) 25%,
+    color-mix(in srgb, var(--surface) 58%, var(--surface-sunken)) 50%,
+    var(--surface-sunken) 75%
+  );
+  background-size: 220% 100%;
+  animation: ml-shimmer 1.6s var(--p-ease-in-out) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ml-skel-shimmer {
+    animation: none;
+    background: var(--surface-sunken);
+  }
+}

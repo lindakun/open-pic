@@ -217,6 +217,15 @@ const SKELETON_RATIOS = [1.25, 0.78, 1.0, 1.4, 0.85, 1.15, 0.72, 1.32, 0.95, 1.1
 function goBrowseAndUpload() {
   void router.push({ name: 'browse', query: { upload: '1' } })
 }
+
+/** 首页轻量媒体类型切换：不离开沉浸式图墙即可速览图片或视频 */
+async function setHomeKind(kind: '' | 'image' | 'video') {
+  if (filters.kind === kind) return
+  filters.setKind(kind)
+  window.scrollTo({ top: 0, behavior: 'auto' })
+  await store.refresh()
+  if (!kind) await store.promoteFeatured()
+}
 </script>
 
 <template>
@@ -226,6 +235,33 @@ function goBrowseAndUpload() {
       <span class="wall__count mono" aria-live="polite">
         {{ store.loading && !store.items.length ? t('site.loading') : t('site.total', { count: store.total }) }}
       </span>
+
+      <div class="wall__kinds" role="group" :aria-label="t('home.typeFilter')">
+        <button
+          type="button"
+          :class="['wall__kind-btn', { 'wall__kind-btn--on': filters.kind === '' }]"
+          :aria-pressed="filters.kind === ''"
+          @click="setHomeKind('')"
+        >
+          {{ t('home.all') }}
+        </button>
+        <button
+          type="button"
+          :class="['wall__kind-btn', { 'wall__kind-btn--on': filters.kind === 'image' }]"
+          :aria-pressed="filters.kind === 'image'"
+          @click="setHomeKind('image')"
+        >
+          {{ t('home.images') }}
+        </button>
+        <button
+          type="button"
+          :class="['wall__kind-btn', { 'wall__kind-btn--on': filters.kind === 'video' }]"
+          :aria-pressed="filters.kind === 'video'"
+          @click="setHomeKind('video')"
+        >
+          {{ t('home.videos') }}
+        </button>
+      </div>
 
       <button type="button" class="wall__search" :aria-label="t('browse.searchLabel')" @click="goSearch">
         <span aria-hidden="true">⌕</span>
@@ -238,12 +274,12 @@ function goBrowseAndUpload() {
       </button>
     </div>
 
-    <!-- 首次加载骨架屏 -->
+    <!-- 首次加载骨架屏：多列错落瀑布节奏 + 纸感微光 -->
     <div v-if="store.loading && !store.items.length" class="wall__skeleton" aria-busy="true" :aria-label="t('site.loading')">
       <div v-for="(r, idx) in SKELETON_RATIOS" :key="idx" class="wall__skel-card">
-        <div class="wall__skel-media" :style="{ aspectRatio: `1 / ${r}` }" />
-        <div class="wall__skel-line" />
-        <div class="wall__skel-line wall__skel-line--short" />
+        <div class="wall__skel-media ml-skel-shimmer" :style="{ aspectRatio: `1 / ${r}` }" />
+        <div class="wall__skel-line ml-skel-shimmer" />
+        <div class="wall__skel-line wall__skel-line--short ml-skel-shimmer" />
       </div>
     </div>
 
@@ -349,11 +385,50 @@ function goBrowseAndUpload() {
 }
 
 .wall__bar--dim {
-  opacity: 0.32;
+  opacity: 0.64;
 }
 
-.wall__bar:hover {
+.wall__bar:hover,
+.wall__bar:focus-within {
   opacity: 1;
+}
+
+.wall__kinds {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--p-radius-full);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+}
+
+.wall__kind-btn {
+  padding: 2px var(--p-space-3);
+  min-height: 24px;
+  border-radius: var(--p-radius-full);
+  font-size: var(--p-step--1);
+  color: var(--ink-muted);
+  white-space: nowrap;
+  transition:
+    background-color var(--p-dur-fast) var(--p-ease-out),
+    color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.wall__kind-btn:hover {
+  color: var(--ink);
+}
+
+.wall__kind-btn--on {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-weight: 500;
+}
+
+@media (max-width: 560px) {
+  .wall__kinds {
+    display: none;
+  }
 }
 
 .wall__count {
@@ -423,44 +498,31 @@ function goBrowseAndUpload() {
 }
 
 .wall__skeleton {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: var(--p-space-4);
-  align-items: start;
+  columns: 5 240px;
+  column-gap: var(--p-space-4);
 }
 
 .wall__skel-card {
+  break-inside: avoid;
   display: flex;
   flex-direction: column;
   gap: var(--p-space-2);
+  margin-bottom: var(--p-space-4);
 }
 
 .wall__skel-media {
   width: 100%;
   border-radius: var(--p-radius-lg);
-  background: var(--surface-sunken);
-  animation: wall-pulse 1.5s var(--p-ease-in-out) infinite;
 }
 
 .wall__skel-line {
   height: 12px;
   width: 78%;
   border-radius: var(--p-radius-sm);
-  background: var(--surface-sunken);
-  animation: wall-pulse 1.5s var(--p-ease-in-out) infinite;
 }
 
 .wall__skel-line--short {
   width: 48%;
-}
-
-@keyframes wall-pulse {
-  0%, 100% {
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 0.95;
-  }
 }
 
 .wall__empty {

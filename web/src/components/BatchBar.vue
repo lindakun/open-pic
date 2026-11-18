@@ -265,7 +265,7 @@ async function exportZip() {
   border-radius: var(--p-radius-full);
   background: var(--surface);
   border: 1px solid var(--rule);
-  box-shadow: 0 8px 28px rgba(26, 24, 21, 0.16);
+  box-shadow: var(--bar-shadow);
   animation: batch-in var(--p-dur-base) var(--p-ease-out);
 }
 

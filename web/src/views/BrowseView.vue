@@ -105,6 +105,32 @@ const VIEW_MODES: { key: ViewMode; icon: string }[] = [
   { key: 'list', icon: '☰' },
 ]
 
+/** 列密度调节：紧凑 / 舒适 / 大图（持久化到 localStorage） */
+type Density = 'compact' | 'comfortable' | 'spacious'
+const DENSITY_MAP: Record<Density, { masonry: number; grid: number; short: string }> = {
+  compact: { masonry: 210, grid: 170, short: 'S' },
+  comfortable: { masonry: 280, grid: 220, short: 'M' },
+  spacious: { masonry: 360, grid: 290, short: 'L' },
+}
+const DENSITY_KEYS: Density[] = ['compact', 'comfortable', 'spacious']
+const density = ref<Density>((() => {
+  try {
+    const v = localStorage.getItem('medialib.density')
+    return v === 'compact' || v === 'comfortable' || v === 'spacious' ? v : 'comfortable'
+  } catch {
+    return 'comfortable'
+  }
+})())
+
+function changeDensity(d: Density) {
+  density.value = d
+  try {
+    localStorage.setItem('medialib.density', d)
+  } catch {
+    // 隐私模式静默忽略
+  }
+}
+
 function changeSort(value: SortKey) {
   filters.setSort(value)
   store.refresh()
@@ -701,6 +727,21 @@ watch(
         </button>
       </div>
 
+      <div v-if="filters.view !== 'list'" class="browse__density" role="group" :aria-label="t('density.label')">
+        <button
+          v-for="d in DENSITY_KEYS"
+          :key="d"
+          type="button"
+          :class="['density-btn mono', { 'density-btn--on': density === d }]"
+          :aria-pressed="density === d"
+          :aria-label="t(`density.${d}`)"
+          :title="t(`density.${d}`)"
+          @click="changeDensity(d)"
+        >
+          {{ DENSITY_MAP[d].short }}
+        </button>
+      </div>
+
       <MLButton
         variant="quiet"
         :aria-pressed="onlyLiked"
@@ -829,13 +870,33 @@ watch(
       </div>
 
       <div class="browse__main">
-        <!-- 筛选切换中：骨架屏占位，避免白屏或仅一行字 -->
-        <div v-if="store.loading && !store.items.length" class="browse__skeleton" role="status" aria-live="polite" :aria-label="t('site.loading')">
-          <div v-for="(r, idx) in [1.2, 0.8, 1.0, 1.35, 0.88, 1.15, 0.75, 1.28]" :key="idx" class="browse__skel-card">
-            <div class="browse__skel-media" :style="{ aspectRatio: `1 / ${r}` }" />
-            <div class="browse__skel-line" />
-            <div class="browse__skel-line browse__skel-line--short" />
-          </div>
+        <!-- 筛选切换中：按当前视图模式渲染对应形态的微光骨架，消除跳变感 -->
+        <div
+          v-if="store.loading && !store.items.length"
+          :class="['browse__skeleton', `browse__skeleton--${filters.view}`]"
+          role="status"
+          aria-live="polite"
+          :aria-label="t('site.loading')"
+        >
+          <template v-if="filters.view === 'list'">
+            <div v-for="idx in 6" :key="idx" class="browse__skel-row">
+              <div class="browse__skel-thumb ml-skel-shimmer" />
+              <div class="browse__skel-row-body">
+                <div class="browse__skel-line ml-skel-shimmer" />
+                <div class="browse__skel-line browse__skel-line--short ml-skel-shimmer" />
+              </div>
+            </div>
+          </template>
+          <template v-else>
+            <div v-for="(r, idx) in [1.2, 0.8, 1.0, 1.35, 0.88, 1.15, 0.75, 1.28]" :key="idx" class="browse__skel-card">
+              <div
+                class="browse__skel-media ml-skel-shimmer"
+                :style="{ aspectRatio: filters.view === 'grid' ? '4 / 3' : `1 / ${r}` }"
+              />
+              <div class="browse__skel-line ml-skel-shimmer" />
+              <div class="browse__skel-line browse__skel-line--short ml-skel-shimmer" />
+            </div>
+          </template>
         </div>
 
         <!-- 请求失败与「真的没有内容」是两件事：前者要给重试入口，
@@ -874,6 +935,8 @@ watch(
           v-else
           :items="visibleItems"
           :mode="filters.view"
+          :base-column-width="DENSITY_MAP[density].masonry"
+          :grid-min-width="DENSITY_MAP[density].grid"
           :selectable="selectMode"
           :selected-ids="selectedIds"
           :liked-ids="likedIds"
@@ -1143,6 +1206,42 @@ watch(
   color: var(--accent-hover);
 }
 
+.browse__density {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--rule);
+  border-radius: var(--p-radius-md);
+  padding: 2px;
+  gap: 2px;
+  background: var(--surface);
+}
+
+.density-btn {
+  min-width: 24px;
+  min-height: 26px;
+  padding: 0 5px;
+  border-radius: var(--p-radius-sm);
+  color: var(--ink-muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  display: grid;
+  place-items: center;
+  transition:
+    background-color var(--p-dur-fast) var(--p-ease-out),
+    color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.density-btn:hover {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.density-btn--on {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-weight: 600;
+}
+
 .browse__count {
   font-size: var(--p-step--1);
   color: var(--ink-faint);
@@ -1197,7 +1296,9 @@ watch(
   top: calc(var(--header-offset, 0px) + var(--p-space-4));
   max-height: calc(100vh - var(--header-offset, 0px) - var(--p-space-6));
   overflow-y: auto;
-  padding-right: var(--p-space-1);
+  padding-right: var(--p-space-2);
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-strong) transparent;
 }
 
 .browse__main {
@@ -1236,11 +1337,51 @@ watch(
   }
 }
 
-.browse__skeleton {
+.browse__skeleton--masonry {
+  columns: 4 220px;
+  column-gap: var(--p-space-4);
+}
+
+.browse__skeleton--masonry .browse__skel-card {
+  break-inside: avoid;
+  margin-bottom: var(--p-space-4);
+}
+
+.browse__skeleton--grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: var(--p-space-4);
   align-items: start;
+}
+
+.browse__skeleton--list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--p-space-2);
+}
+
+.browse__skel-row {
+  display: flex;
+  align-items: center;
+  gap: var(--p-space-3);
+  padding: var(--p-space-2) var(--p-space-3);
+  border-radius: var(--p-radius-md);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+}
+
+.browse__skel-thumb {
+  width: 64px;
+  height: 48px;
+  border-radius: var(--p-radius-sm);
+  flex-shrink: 0;
+}
+
+.browse__skel-row-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .browse__skel-card {
@@ -1252,29 +1393,16 @@ watch(
 .browse__skel-media {
   width: 100%;
   border-radius: var(--p-radius-lg);
-  background: var(--surface-sunken);
-  animation: browse-pulse 1.5s var(--p-ease-in-out) infinite;
 }
 
 .browse__skel-line {
   height: 12px;
   width: 76%;
   border-radius: var(--p-radius-sm);
-  background: var(--surface-sunken);
-  animation: browse-pulse 1.5s var(--p-ease-in-out) infinite;
 }
 
 .browse__skel-line--short {
   width: 46%;
-}
-
-@keyframes browse-pulse {
-  0%, 100% {
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 0.95;
-  }
 }
 
 .browse__sentinel {

@@ -10,12 +10,14 @@ withDefaults(
     variant?: 'primary' | 'ghost' | 'quiet' | 'danger'
     size?: 'sm' | 'md'
     disabled?: boolean
+    loading?: boolean
     type?: 'button' | 'submit' | 'reset'
   }>(),
   {
     variant: 'ghost',
     size: 'md',
     disabled: false,
+    loading: false,
     type: 'button',
   },
 )
@@ -24,9 +26,11 @@ withDefaults(
 <template>
   <button
     :type="type"
-    :disabled="disabled"
-    :class="['ml-btn', `ml-btn--${variant}`, `ml-btn--${size}`]"
+    :disabled="disabled || loading"
+    :aria-busy="loading || undefined"
+    :class="['ml-btn', `ml-btn--${variant}`, `ml-btn--${size}`, { 'ml-btn--loading': loading }]"
   >
+    <span v-if="loading" class="ml-btn__spin" aria-hidden="true" />
     <slot />
   </button>
 </template>
@@ -120,5 +124,27 @@ withDefaults(
 
 .ml-btn--danger:hover:not(:disabled) {
   background: var(--danger-soft);
+}
+
+.ml-btn__spin {
+  width: 13px;
+  height: 13px;
+  border-radius: var(--p-radius-full);
+  border: 1.8px solid currentColor;
+  border-top-color: transparent;
+  animation: ml-btn-spin 650ms linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes ml-btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ml-btn__spin {
+    animation: none;
+  }
 }
 </style>

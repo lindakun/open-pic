@@ -23,6 +23,8 @@ const props = withDefaults(
     artistic?: boolean
     /** 列宽基准（px），艺术墙模式下在此基础上浮动 */
     baseColumnWidth?: number
+    /** 等高网格最小列宽（px），随密度档位调整 */
+    gridMinWidth?: number
     /** 批量选择模式（REQ-05） */
     selectable?: boolean
     /** 已选中的 id 集合 */
@@ -34,6 +36,7 @@ const props = withDefaults(
     mode: 'masonry',
     artistic: false,
     baseColumnWidth: 280,
+    gridMinWidth: 220,
     selectable: false,
     selectedIds: () => [],
     likedIds: () => [],
@@ -300,7 +303,7 @@ defineExpose({ renderedCount, isVisible, visibleRange })
   </div>
 
   <!-- 等高网格模式：适合横向比对与规整浏览 -->
-  <div v-else-if="mode === 'grid'" class="grid-view">
+  <div v-else-if="mode === 'grid'" class="grid-view" :style="{ '--grid-min': `${gridMinWidth}px` }">
     <div
       v-for="(item, index) in items"
       :key="item.id"
@@ -408,7 +411,7 @@ defineExpose({ renderedCount, isVisible, visibleRange })
 /* ---------- 等高网格视图 ---------- */
 .grid-view {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(var(--grid-min, 220px), 1fr));
   gap: var(--p-space-4);
 }
 

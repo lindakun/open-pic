@@ -83,6 +83,11 @@ function isMediaFile(file: File): boolean {
   )
 }
 
+function fileExt(name: string): string {
+  const m = name.match(/\.([a-z0-9]+)$/i)
+  return m ? m[1].toUpperCase() : ''
+}
+
 function addFiles(files: FileList | File[] | null | undefined) {
   if (!files) return
   const all = Array.from(files)
@@ -244,9 +249,14 @@ onBeforeUnmount(() => {
     :title="t('upload.title')"
     variant="modal"
     width="520px"
-    @update:open="emit('update:open', $event)"
+    @update:open="!uploading && emit('update:open', $event)"
   >
-    <div class="up">
+    <div
+      class="up"
+      @dragover.prevent="tab === 'file' && (dragActive = true)"
+      @dragleave.prevent="onDragLeave"
+      @drop.prevent="tab === 'file' && onDrop($event)"
+    >
       <div class="up__tabs" role="tablist" :aria-label="t('upload.title')">
         <button
           type="button"
@@ -309,11 +319,17 @@ onBeforeUnmount(() => {
           <li v-for="(f, i) in queue" :key="`${f.name}-${i}`" class="up__item">
             <img v-if="thumbOf(f)" :src="thumbOf(f)" alt="" class="up__item-thumb" />
             <span v-else class="up__item-thumb up__item-thumb--vid mono" aria-hidden="true">▶</span>
-            <span class="up__item-name">{{ f.name }}</span>
-            <span class="up__item-size mono">{{ formatBytes(f.size) }}</span>
+            <div class="up__item-info">
+              <span class="up__item-name">{{ f.name }}</span>
+              <span class="up__item-meta mono">
+                <span v-if="fileExt(f.name)" class="up__item-ext">{{ fileExt(f.name) }}</span>
+                <span>{{ formatBytes(f.size) }}</span>
+              </span>
+            </div>
             <button
               type="button"
               class="up__remove"
+              :disabled="uploading"
               :aria-label="`${t('upload.remove')} ${f.name}`"
               @click="removeAt(i)"
             >
@@ -506,32 +522,52 @@ onBeforeUnmount(() => {
 }
 
 .up__item-thumb {
-  width: 28px;
-  height: 28px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--p-radius-sm);
   object-fit: cover;
   flex-shrink: 0;
   background: var(--paper);
+  border: 1px solid var(--rule);
 }
 
 .up__item-thumb--vid {
   display: grid;
   place-items: center;
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+}
+
+.up__item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.up__item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.up__item-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 0.6875rem;
   color: var(--ink-muted);
 }
 
-.up__item-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.up__item-size {
+.up__item-ext {
+  padding: 0 5px;
+  border-radius: var(--p-radius-sm);
+  background: var(--paper);
+  border: 1px solid var(--rule);
   color: var(--ink-muted);
-  flex-shrink: 0;
 }
 
 .up__remove {
@@ -580,8 +616,8 @@ onBeforeUnmount(() => {
   padding: var(--p-space-2) var(--p-space-3);
   list-style: none;
   font-size: var(--p-step--1);
-  color: #b04a3f;
-  background: rgba(176, 74, 63, 0.08);
+  color: var(--danger);
+  background: var(--danger-soft);
   border-radius: var(--p-radius-sm);
 }
 </style>
