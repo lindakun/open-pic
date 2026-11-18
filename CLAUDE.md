@@ -58,8 +58,9 @@ open-pic/
    - 双前端切换：环境变量 `MEDIA_LIB_FRONTEND=next|legacy`，未设置时依据产物存在性自动判定。旧前端保留至重构验收通过。
    - 样式只消费 `web/src/styles/tokens.css` 的语义变量，组件内禁止硬编码颜色（浅色编辑纸感为设计基准）。
 
-6. **部署约定：`push → NAS pull → 显式重启`**：
-   - 顺序固定：先 `git push nas main` 到远程裸仓库，再由 NAS 端 `git clone`/`rsync` 拉取代码到部署目录，**最后显式重启服务**。不要把本地未提交的改动直接拷到 NAS。
+6. **部署约定：`push GitHub → NAS pull → 显式重启`**：
+   - 唯一远程仓库为 GitHub（`origin`: `https://github.com/lindakun/open-pic.git`），**禁止推送到 NAS 裸仓库**。
+   - 顺序固定：先 `git push origin main` 推送到 GitHub，再由 NAS 端从 GitHub 拉取并 `rsync` 同步到部署目录，**最后显式重启服务**。不要把本地未提交的改动直接拷到 NAS。
    - **必须显式重启**：`ensure.sh` 只保证「有进程在跑」，不会重启已在运行的旧进程。仅 pull 后直接 `ensure.sh`，服务仍是旧代码（表现为新路由 404）。重启用 `--stop` + `ensure.sh`。
    - 部署后用 `--status`、`/healthz` 及新产物/新接口做一次线上验证，不要只凭「进程在跑」判定上线成功。
 
@@ -87,16 +88,16 @@ bash /vol1/picoclaw/.picoclaw/workspace/skills/media-library/scripts/ensure.sh
   /vol1/picoclaw/.picoclaw/workspace/skills/media-library/scripts/server.py --status
 ```
 
-### 部署（push → NAS pull → 显式重启）
+### 部署（push GitHub → NAS pull → 显式重启）
 
 ```bash
-# 1. 本地：提交后推送到远程裸仓库
-git push nas main
+# 1. 本地：提交后推送到 GitHub 远程仓库（origin）
+git push origin main
 
-# 2. NAS：从裸仓库拉取并同步到部署目录
+# 2. NAS：从 GitHub 拉取并同步到部署目录
 ssh fnos 'rm -rf /tmp/open-pic-deploy && \
   git clone --depth 1 --branch main \
-    /vol1/picoclaw/.picoclaw/workspace/skills/open-pic.git /tmp/open-pic-deploy && \
+    https://github.com/lindakun/open-pic.git /tmp/open-pic-deploy && \
   rsync -a --delete /tmp/open-pic-deploy/media-library/scripts/ \
     /vol1/picoclaw/.picoclaw/workspace/skills/media-library/scripts/'
 
