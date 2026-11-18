@@ -77,6 +77,41 @@ const counts = computed(() => {
   return c
 })
 
+const markedRatio = computed(() => {
+  const total = items.value.length
+  if (!total) return 0
+  return (total - counts.value.unmarked) / total
+})
+
+function jumpToState(target: MarkState | 'unmarked') {
+  const total = items.value.length
+  if (!total) return
+  for (let offset = 1; offset <= total; offset++) {
+    const idx = (index.value + offset) % total
+    const m = marks.value[items.value[idx].id]
+    if (target === 'unmarked' ? !m : m?.state === target) {
+      jump(idx)
+      return
+    }
+  }
+}
+
+let swipeStartX = 0
+let swipeStartY = 0
+function onTouchStart(e: TouchEvent) {
+  if (zoomed.value || e.touches.length !== 1) return
+  swipeStartX = e.touches[0].clientX
+  swipeStartY = e.touches[0].clientY
+}
+function onTouchEnd(e: TouchEvent) {
+  if (zoomed.value || e.changedTouches.length !== 1) return
+  const dx = e.changedTouches[0].clientX - swipeStartX
+  const dy = e.changedTouches[0].clientY - swipeStartY
+  if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+    step(dx > 0 ? -1 : 1)
+  }
+}
+
 function markOf(id: string): Mark | undefined {
   return marks.value[id]
 }
@@ -296,55 +331,91 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       </label>
     </header>
 
-    <p v-if="loading" class="review__state">{{ t('site.loading') }}</p>
-    <p v-else-if="error" class="review__state review__state--error">{{ error }}</p>
+    <div v-if="loading" class="review__state" role="status">
+      <span class="review__spinner" aria-hidden="true" />
+      <span>{{ t('site.loading') }}</span>
+    </div>
+    <div v-else-if="error" class="review__state review__state--error">
+      <p>{{ error }}</p>
+      <button type="button" class="rv-btn" @click="load">{{ t('common.retry') }}</button>
+    </div>
     <p v-else-if="!items.length" class="review__state">{{ t('review.empty') }}</p>
 
     <template v-else>
+      <div class="review__progress" aria-hidden="true">
+        <div class="review__progress-fill" :style="{ transform: `scaleX(${markedRatio})` }" />
+      </div>
+
       <main class="review__stage">
-        <figure v-if="current" :class="['review__figure', { 'review__figure--zoomed': zoomed }]">
-          <!-- 快速上传路径下缩略图可能尚未生成：失败时回退原图，不留破图 -->
-          <img
-            v-if="current.kind === 'image'"
-            :src="zoomed ? `/f/${current.file}` : `/t/${current.id}_lg.webp`"
-            :alt="current.title || current.name"
-            :title="zoomed ? t('review.zoomOut') : t('review.zoomIn')"
-            class="review__img review__img--clickable"
-            @click="zoomed = !zoomed"
-            @error="($event.target as HTMLImageElement).src = `/f/${current.file}`"
-          />
-          <video
-            v-else
-            :src="current.play_file ? `/f/${current.file}?play=1` : `/f/${current.file}`"
-            :poster="`/t/${current.id}.jpg`"
-            controls
-            playsinline
-            class="review__img"
-          />
-          <figcaption class="review__cap">
-            <strong>{{ current.title || current.name }}</strong>
-            <span v-if="spec" class="mono">{{ spec }}</span>
-          </figcaption>
-        </figure>
+        <div class="review__viewer">
+          <button
+            type="button"
+            class="review__nav review__nav--prev"
+            :disabled="index === 0"
+            :aria-label="t('lightbox.prev')"
+            @click="step(-1)"
+          >
+            ‹
+          </button>
+          <figure
+            v-if="current"
+            :class="['review__figure', { 'review__figure--zoomed': zoomed }]"
+            @touchstart.passive="onTouchStart"
+            @touchend.passive="onTouchEnd"
+          >
+            <!-- 快速上传路径下缩略图可能尚未生成：失败时回退原图，不留破图 -->
+            <img
+              v-if="current.kind === 'image'"
+              :src="zoomed ? `/f/${current.file}` : `/t/${current.id}_lg.webp`"
+              :alt="current.title || current.name"
+              :title="zoomed ? t('review.zoomOut') : t('review.zoomIn')"
+              class="review__img review__img--clickable"
+              @click="zoomed = !zoomed"
+              @error="($event.target as HTMLImageElement).src = `/f/${current.file}`"
+            />
+            <video
+              v-else
+              :src="current.play_file ? `/f/${current.file}?play=1` : `/f/${current.file}`"
+              :poster="`/t/${current.id}.jpg`"
+              controls
+              playsinline
+              class="review__img"
+            />
+            <figcaption class="review__cap">
+              <strong>{{ current.title || current.name }}</strong>
+              <span class="mono">{{ index + 1 }} / {{ items.length }}</span>
+              <span v-if="spec" class="mono">{{ spec }}</span>
+            </figcaption>
+          </figure>
+          <button
+            type="button"
+            class="review__nav review__nav--next"
+            :disabled="index >= items.length - 1"
+            :aria-label="t('lightbox.next')"
+            @click="step(1)"
+          >
+            ›
+          </button>
+        </div>
 
         <div class="review__actions">
           <button
             type="button"
-            :class="['rv-btn', { 'rv-btn--on': markOf(current?.id ?? '')?.state === 'selected' }]"
+            :class="['rv-btn', { 'rv-btn--selected': markOf(current?.id ?? '')?.state === 'selected' }]"
             @click="setMark('selected')"
           >
             ✓ {{ t('review.selected') }}
           </button>
           <button
             type="button"
-            :class="['rv-btn', { 'rv-btn--on': markOf(current?.id ?? '')?.state === 'pending' }]"
+            :class="['rv-btn', { 'rv-btn--pending': markOf(current?.id ?? '')?.state === 'pending' }]"
             @click="setMark('pending')"
           >
             ? {{ t('review.pending') }}
           </button>
           <button
             type="button"
-            :class="['rv-btn', { 'rv-btn--on': markOf(current?.id ?? '')?.state === 'rejected' }]"
+            :class="['rv-btn', { 'rv-btn--rejected': markOf(current?.id ?? '')?.state === 'rejected' }]"
             @click="setMark('rejected')"
           >
             ✕ {{ t('review.rejected') }}
@@ -377,21 +448,30 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           @click="jump(i)"
         >
           <img
-            :src="`/t/${it.id}_sm.webp`"
+            :src="it.kind === 'video' ? `/t/${it.id}.jpg` : `/t/${it.id}_sm.webp`"
             alt=""
             loading="lazy"
             decoding="async"
             @error="onFilmError($event, it)"
           />
+          <span v-if="it.kind === 'video'" class="film__vid" aria-hidden="true">▶</span>
           <span v-if="markOf(it.id)" :class="['film__dot', `film__dot--${markOf(it.id)!.state}`]" />
         </button>
       </nav>
 
       <footer class="review__counts mono" aria-live="polite">
-        <span>{{ t('review.selected') }} {{ counts.selected }}</span>
-        <span>{{ t('review.pending') }} {{ counts.pending }}</span>
-        <span>{{ t('review.rejected') }} {{ counts.rejected }}</span>
-        <span>{{ t('review.unmarked') }} {{ counts.unmarked }}</span>
+        <button type="button" class="review__count-btn" :disabled="!counts.selected" @click="jumpToState('selected')">
+          {{ t('review.selected') }} {{ counts.selected }}
+        </button>
+        <button type="button" class="review__count-btn" :disabled="!counts.pending" @click="jumpToState('pending')">
+          {{ t('review.pending') }} {{ counts.pending }}
+        </button>
+        <button type="button" class="review__count-btn" :disabled="!counts.rejected" @click="jumpToState('rejected')">
+          {{ t('review.rejected') }} {{ counts.rejected }}
+        </button>
+        <button type="button" class="review__count-btn" :disabled="!counts.unmarked" @click="jumpToState('unmarked')">
+          {{ t('review.unmarked') }} {{ counts.unmarked }}
+        </button>
       </footer>
     </template>
   </div>
@@ -561,9 +641,120 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   transition: border-color var(--p-dur-fast) var(--p-ease-out);
 }
 
-.rv-btn--on {
+.rv-btn--selected {
+  border-color: var(--success);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.rv-btn--pending {
   border-color: var(--accent);
   background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+
+.rv-btn--rejected {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.review__progress {
+  width: 100%;
+  height: 3px;
+  background: var(--rule);
+  overflow: hidden;
+}
+
+.review__progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left center;
+  transition: transform var(--p-dur-base) var(--p-ease-out);
+}
+
+.review__viewer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--p-space-3);
+  width: 100%;
+}
+
+.review__nav {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--p-radius-full);
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 1.25rem;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  transition: background-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.review__nav:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.review__nav:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.review__spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: var(--p-space-2);
+  border-radius: var(--p-radius-full);
+  border: 2px solid var(--rule-strong);
+  border-top-color: var(--accent);
+  animation: rv-spin 700ms linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes rv-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.film__vid {
+  position: absolute;
+  left: 3px;
+  bottom: 3px;
+  padding: 0 3px;
+  border-radius: var(--p-radius-sm);
+  background: rgba(26, 24, 21, 0.72);
+  color: #faf8f5;
+  font-size: 0.5625rem;
+  line-height: 1.4;
+}
+
+.review__count-btn {
+  padding: 2px var(--p-space-2);
+  border-radius: var(--p-radius-full);
+  color: inherit;
+  transition: background-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.review__count-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.review__count-btn:disabled {
+  cursor: default;
+}
+
+@media (max-width: 600px) {
+  .review__nav {
+    display: none;
+  }
 }
 
 .review__saving {

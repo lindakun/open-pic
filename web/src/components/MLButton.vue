@@ -44,11 +44,22 @@ withDefaults(
   transition:
     background-color var(--p-dur-fast) var(--p-ease-out),
     color var(--p-dur-fast) var(--p-ease-out),
-    border-color var(--p-dur-fast) var(--p-ease-out);
+    border-color var(--p-dur-fast) var(--p-ease-out),
+    transform var(--p-dur-fast) var(--p-ease-out);
   /* WCAG 2.2 AA：2.5.8 目标尺寸 ≥24px */
   min-height: 32px;
   white-space: nowrap;
   border: 1px solid transparent;
+}
+
+.ml-btn:active:not(:disabled) {
+  transform: scale(0.975);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ml-btn:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 .ml-btn--md {

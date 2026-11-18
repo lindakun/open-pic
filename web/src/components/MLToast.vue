@@ -27,6 +27,9 @@ const { t } = useI18n()
       :key="toast.id"
       :class="['ml-toast', `ml-toast--${toast.tone}`]"
     >
+      <span class="ml-toast__icon mono" aria-hidden="true">
+        {{ toast.tone === 'success' ? '✓' : toast.tone === 'error' ? '!' : 'i' }}
+      </span>
       <span class="ml-toast__msg">{{ toast.message }}</span>
       <button
         type="button"
@@ -78,6 +81,18 @@ const { t } = useI18n()
 .ml-toast--success {
   background: var(--success);
   color: #fff;
+}
+
+.ml-toast__icon {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--p-radius-full);
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
 }
 
 .ml-toast__msg {

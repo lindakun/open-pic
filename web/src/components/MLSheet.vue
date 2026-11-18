@@ -132,6 +132,7 @@ onBeforeUnmount(() => {
   max-width: 92vw;
   height: 100%;
   border-radius: 0;
+  animation: sheet-drawer-in var(--p-dur-base) var(--p-ease-out);
 }
 
 /* 居中弹层 */
@@ -141,6 +142,36 @@ onBeforeUnmount(() => {
   margin: 8vh auto;
   border-radius: var(--p-radius-lg);
   max-height: 84vh;
+  animation: sheet-modal-in var(--p-dur-base) var(--p-ease-out);
+}
+
+@keyframes sheet-drawer-in {
+  from {
+    transform: translateX(20px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-modal-in {
+  from {
+    transform: translateY(10px) scale(0.985);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ml-sheet--drawer .ml-sheet__panel,
+  .ml-sheet--modal .ml-sheet__panel {
+    animation: none;
+  }
 }
 
 .ml-sheet__head {
