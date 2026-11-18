@@ -150,6 +150,7 @@ const messages: Record<Locale, Dict> = {
     'lightbox.slideshowInterval': '连播间隔',
     'lightbox.help': '快捷键',
     'lightbox.fit': '适应屏幕',
+    'lightbox.resetZoomHint': '双击或按 0 复位',
     'lightbox.actualSize': '1:1 原图',
     'lightbox.like': '喜欢',
     'lightbox.unlike': '取消喜欢',
@@ -182,6 +183,7 @@ const messages: Record<Locale, Dict> = {
     'shortcut.slideshow': '连播开关（图片）',
     'shortcut.close': '关闭灯箱',
     'shortcut.help': '打开本帮助',
+    'shortcut.seekVideo': '视频快退 / 快进 5 秒',
     'license.personalOnly': '仅限个人使用',
     'license.commercial': '可商用',
 
@@ -412,6 +414,7 @@ const messages: Record<Locale, Dict> = {
     'lightbox.slideshowInterval': 'Slideshow interval',
     'lightbox.help': 'Keyboard shortcuts',
     'lightbox.fit': 'Fit to screen',
+    'lightbox.resetZoomHint': 'Double-click or press 0 to reset',
     'lightbox.actualSize': '1:1 Actual size',
     'lightbox.like': 'Like',
     'lightbox.unlike': 'Unlike',
@@ -444,6 +447,7 @@ const messages: Record<Locale, Dict> = {
     'shortcut.slideshow': 'Toggle slideshow (images)',
     'shortcut.close': 'Close lightbox',
     'shortcut.help': 'Open this help',
+    'shortcut.seekVideo': 'Seek video ±5s',
     'license.personalOnly': 'Personal use only',
     'license.commercial': 'Commercial use',
 

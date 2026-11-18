@@ -26,6 +26,9 @@ const props = defineProps<{
   item: MediaItem
   hasPrev: boolean
   hasNext: boolean
+  /** 当前序号（1-based）与总数，可选传入以展示进度 */
+  index?: number
+  total?: number
   /** 同屏可对比的候选（通常为当前列表），用于挑选 2–4 项 */
   candidates?: MediaItem[]
   /** 是否已喜欢（C-15） */
@@ -45,6 +48,8 @@ const emit = defineEmits<{
   (e: 'toggle-like', id: string): void
   /** 行内编辑保存后通知父组件原地更新列表 */
   (e: 'updated', item: MediaItem): void
+  /** 点击相似推荐时通知父组件优先原地切换 */
+  (e: 'select-item', item: MediaItem): void
 }>()
 
 const dialogRef = ref<HTMLDialogElement | null>(null)
@@ -155,6 +160,8 @@ const {
 /** 信息面板展开状态：默认收起，纯图优先 */
 const infoOpen = ref(false)
 const helpOpen = ref(false)
+/** 当前主图解码完成标记：切换大图时显示柔和加载环 */
+const imgLoaded = ref(false)
 /** 复制反馈：'link' | 'hex:<color>' | null，1.6s 后自动清除 */
 const copied = ref<string | null>(null)
 /** 对比模式：从候选里选出的 2–4 项 id（含当前项） */
@@ -581,6 +588,7 @@ function closeHelp() {
 
 const shortcuts = computed(() => [
   { key: '← / →', desc: t('shortcut.switch') },
+  { key: 'Shift + ← / →', desc: t('shortcut.seekVideo') },
   { key: '+ / -', desc: t('shortcut.zoom') },
   { key: '1', desc: t('shortcut.actualSize') },
   { key: '0', desc: t('shortcut.reset') },
@@ -597,6 +605,7 @@ const shortcuts = computed(() => [
 watch(
   () => props.item.id,
   () => {
+    imgLoaded.value = false
     resetZoom()
     compareIds.value = []
     editing.value = false
@@ -676,7 +685,17 @@ onUnmounted(() => {
       @touchstart.passive="onStageTouchStart"
       @touchend.passive="onStageTouchEnd"
     >
+      <!-- 连播倒计时进度条 -->
+      <div
+        v-if="slideshow.on && item.kind === 'image'"
+        :key="`ss-${item.id}-${slideshow.ms}`"
+        class="lightbox__ss-bar"
+        :style="{ animationDuration: `${slideshow.ms}ms` }"
+        aria-hidden="true"
+      />
+
       <template v-if="item.kind === 'image'">
+        <div v-if="!imgLoaded && !compareOn" class="lightbox__spinner" aria-hidden="true" />
         <figure v-for="it in compareOn ? compareItems : [item]" :key="it.id" class="lightbox__frame">
           <img
             :src="imgSrcFor(it)"
@@ -686,13 +705,15 @@ onUnmounted(() => {
               {
                 'lightbox__img--zoomed': scale > 1.02,
                 'lightbox__img--dragging': dragging,
+                'lightbox__img--ready': compareOn || imgLoaded,
               },
             ]"
             :style="compareOn
               ? { transform: `translate3d(${zoomX}px, ${zoomY}px, 0) scale(${priceScale})` }
               : { ...zoomStyle, viewTransitionName: `media-${item.id}` }"
+            @load="it.id === item.id && (imgLoaded = true)"
             @dblclick="onImgDblClick($event)"
-            @error="onImgError($event, it)"
+            @error="it.id === item.id && (imgLoaded = true); onImgError($event, it)"
           />
           <figcaption v-if="compareOn" class="lightbox__cap mono">
             {{ it.title || it.name }} · {{ it.width }}×{{ it.height }} · {{ it.ext.replace(/^\./, '').toUpperCase() }}<template v-if="it.size"> · {{ formatBytes(it.size) }}</template>
@@ -735,6 +756,17 @@ onUnmounted(() => {
         @click.stop="$emit('next')"
       >
         ›
+      </button>
+
+      <!-- 缩放倍率浮标 -->
+      <button
+        v-if="item.kind === 'image' && !compareOn && scale > 1.05"
+        type="button"
+        class="lightbox__zoom-pill mono"
+        :title="t('lightbox.fit')"
+        @click="resetZoom"
+      >
+        {{ Math.round(scale * 100) }}% · {{ t('lightbox.resetZoomHint') }}
       </button>
 
       <!-- 对比选择条：只在候选足够时出现 -->
@@ -896,6 +928,7 @@ onUnmounted(() => {
             :href="sim.slug ? `/a/${sim.slug}-${sim.id.slice(0, 8)}` : `/s/${sim.id}`"
             class="panel__sim-item"
             :title="sim.title || sim.name"
+            @click.prevent="emit('select-item', sim)"
           >
             <img
               :src="sim.kind === 'video' ? `/t/${sim.id}.jpg` : `/t/${sim.id}_sm.webp`"
@@ -919,6 +952,7 @@ onUnmounted(() => {
           <span v-else-if="item.license" class="badge-license mono">{{ item.license }}</span>
         </span>
         <span v-if="spec" class="lightbox__spec mono">{{ spec }}</span>
+        <span v-if="index && total" class="lightbox__index mono">{{ index }} / {{ total }}</span>
         <span v-if="item.credit" class="lightbox__credit">{{ item.credit }}</span>
       </div>
 
@@ -930,6 +964,7 @@ onUnmounted(() => {
           :class="{ 'lb-btn--on': slideshow.on }"
           :aria-pressed="slideshow.on"
           :aria-label="t('lightbox.slideshowToggle')"
+          :title="`${t('lightbox.slideshowToggle')} (Space)`"
           @click="toggleSlideshow"
         >
           ▶
@@ -1000,14 +1035,28 @@ onUnmounted(() => {
           :class="{ 'lb-btn--on': infoOpen }"
           :aria-pressed="infoOpen"
           :aria-label="t('lightbox.info')"
+          :title="`${t('lightbox.info')} (I)`"
           @click="infoOpen = !infoOpen; if (infoOpen) focusPanel()"
         >
           i
         </button>
-        <button type="button" class="lb-btn" :aria-label="t('lightbox.copyShare')" @click="copyLink">
+        <button
+          type="button"
+          class="lb-btn"
+          :class="{ 'lb-btn--ok': copied === 'link' }"
+          :aria-label="t('lightbox.copyShare')"
+          :title="`${t('lightbox.copyShare')} (C)`"
+          @click="copyLink"
+        >
           {{ copied === 'link' ? '✓' : '⧉' }}
         </button>
-        <button type="button" class="lb-btn" :aria-label="t('lightbox.help')" @click="openHelp">?</button>
+        <button
+          type="button"
+          class="lb-btn"
+          :aria-label="t('lightbox.help')"
+          :title="`${t('lightbox.help')} (?)`"
+          @click="openHelp"
+        >?</button>
 
         <span class="lightbox__divider" aria-hidden="true" />
 
@@ -1016,6 +1065,7 @@ onUnmounted(() => {
           class="lb-btn"
           :disabled="!hasPrev"
           :aria-label="t('lightbox.prev')"
+          :title="`${t('lightbox.prev')} (←)`"
           @click="$emit('prev')"
         >
           ←
@@ -1036,6 +1086,7 @@ onUnmounted(() => {
           class="lb-btn"
           :disabled="!hasNext"
           :aria-label="t('lightbox.next')"
+          :title="`${t('lightbox.next')} (→)`"
           @click="$emit('next')"
         >
           →
@@ -1045,9 +1096,16 @@ onUnmounted(() => {
           download
           class="lb-btn"
           :aria-label="t('lightbox.download')"
+          :title="`${t('lightbox.download')} (D)`"
           @click="track('download', { itemId: item.id })"
         >↓</a>
-        <button type="button" class="lb-btn" :aria-label="t('lightbox.close')" @click="close">✕</button>
+        <button
+          type="button"
+          class="lb-btn"
+          :aria-label="t('lightbox.close')"
+          :title="`${t('lightbox.close')} (Esc)`"
+          @click="close"
+        >✕</button>
       </div>
     </div>
 
@@ -1181,6 +1239,73 @@ onUnmounted(() => {
 .lightbox__img {
   cursor: zoom-in;
   user-select: none;
+  opacity: 0.45;
+  transition:
+    transform var(--p-dur-base) var(--p-ease-out),
+    opacity var(--p-dur-fast) var(--p-ease-out);
+}
+
+.lightbox__img--ready {
+  opacity: 1;
+}
+
+.lightbox__ss-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  transform-origin: left center;
+  animation: ss-progress linear forwards;
+  z-index: 4;
+  pointer-events: none;
+}
+
+@keyframes ss-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.lightbox__spinner {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--p-radius-full);
+  border: 2px solid rgba(250, 248, 245, 0.22);
+  border-top-color: var(--accent);
+  animation: lb-spin 700ms linear infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+
+@keyframes lb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.lightbox__zoom-pill {
+  position: absolute;
+  left: var(--p-space-4);
+  bottom: 84px;
+  z-index: 3;
+  padding: 4px var(--p-space-3);
+  border-radius: var(--p-radius-full);
+  background: rgba(18, 16, 13, 0.72);
+  border: 1px solid rgba(250, 248, 245, 0.2);
+  color: rgba(250, 248, 245, 0.9);
+  font-size: 0.75rem;
+  backdrop-filter: blur(6px);
+  transition: background-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.lightbox__zoom-pill:hover {
+  background: rgba(18, 16, 13, 0.9);
 }
 
 .lightbox__img--zoomed {
@@ -1244,7 +1369,11 @@ onUnmounted(() => {
 .lightbox__cap {
   margin-top: var(--p-space-2);
   font-size: var(--p-step--1);
-  opacity: 0.7;
+  opacity: 0.78;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 对比选择条：底部居中，不遮挡图片主体 */
@@ -1637,6 +1766,17 @@ onUnmounted(() => {
   background: rgba(140, 106, 74, 0.55);
 }
 
+.lb-btn--ok {
+  background: color-mix(in srgb, var(--success) 38%, transparent);
+  color: #e8f0ea;
+}
+
+.lightbox__index {
+  font-size: var(--p-step--1);
+  opacity: 0.75;
+  margin-right: var(--p-space-2);
+}
+
 .lb-btn--liked {
   color: #e87a6e;
   background: rgba(176, 74, 63, 0.22);
@@ -1692,6 +1832,9 @@ onUnmounted(() => {
   }
   .lightbox__controls {
     justify-content: center;
+  }
+  .lightbox__panel {
+    padding-bottom: 132px;
   }
   .lightbox__divider {
     display: none;

@@ -200,6 +200,16 @@ function goSearch() {
   void router.push({ name: 'browse', query: { focus: 'search' } })
 }
 
+function onSelectSimilar(sim: { id: string; slug?: string }) {
+  const idx = store.items.findIndex((x) => x.id === sim.id)
+  if (idx >= 0) {
+    store.openLightbox(idx)
+    return
+  }
+  store.closeLightbox()
+  void router.push(`/a/${sim.slug ? `${sim.slug}-` : 'asset-'}${sim.id.slice(0, 8)}`)
+}
+
 /** 首页骨架占位高度序列：与瀑布流错落节奏一致 */
 const SKELETON_RATIOS = [1.25, 0.78, 1.0, 1.4, 0.85, 1.15, 0.72, 1.32, 0.95, 1.18]
 
@@ -291,6 +301,8 @@ function goBrowseAndUpload() {
     <LightboxViewer
       v-if="store.currentItem"
       :item="store.currentItem"
+      :index="store.lightboxIndex + 1"
+      :total="store.items.length"
       :has-prev="store.lightboxIndex > 0"
       :has-next="store.lightboxIndex < store.items.length - 1"
       :candidates="compareCandidates"
@@ -303,6 +315,7 @@ function goBrowseAndUpload() {
       @filter-tag="onFilterTag"
       @toggle-like="toggleLike"
       @updated="store.patchItemInPlace($event)"
+      @select-item="onSelectSimilar"
     />
   </div>
 </template>

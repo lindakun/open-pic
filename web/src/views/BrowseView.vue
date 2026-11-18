@@ -6,7 +6,7 @@
  * URL 即状态：刷新或分享链接都能还原完整筛选视图。
  */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useMediaStore } from '@/stores/media'
 import { useFilterStore } from '@/stores/filters'
 import { useToast } from '@/composables/useToast'
@@ -35,6 +35,7 @@ const store = useMediaStore()
 const filters = useFilterStore()
 const toast = useToast()
 const route = useRoute()
+const router = useRouter()
 const { t } = useI18n()
 
 const searchInput = ref(filters.q)
@@ -398,6 +399,16 @@ const compareCandidates = computed(() => {
   const start = Math.max(0, store.lightboxIndex - 4)
   return store.items.slice(start, start + 8)
 })
+
+function onSelectSimilar(sim: { id: string; slug?: string }) {
+  const idx = store.items.findIndex((x) => x.id === sim.id)
+  if (idx >= 0) {
+    store.openLightbox(idx)
+    return
+  }
+  store.closeLightbox()
+  void router.push(`/a/${sim.slug ? `${sim.slug}-` : 'asset-'}${sim.id.slice(0, 8)}`)
+}
 
 /** 灯箱内点色板 → 按主色筛选（打通 A-04 与 B-10） */
 function onFilterColor(color: string) {
@@ -885,6 +896,8 @@ watch(
     <LightboxViewer
       v-if="store.currentItem"
       :item="store.currentItem"
+      :index="store.lightboxIndex + 1"
+      :total="store.items.length"
       :has-prev="visibleHasPrev"
       :has-next="visibleHasNext"
       :candidates="compareCandidates"
@@ -897,6 +910,7 @@ watch(
       @filter-tag="onFilterTag"
       @toggle-like="toggleLike"
       @updated="store.patchItemInPlace($event)"
+      @select-item="onSelectSimilar"
     />
 
     <!-- 回到顶部悬浮钮 -->
