@@ -44,6 +44,8 @@ const emit = defineEmits<{
   (e: 'toggle', id: string): void
   /** 喜欢/取消喜欢 */
   (e: 'toggle-like', id: string): void
+  /** 按主色筛选 */
+  (e: 'filter-color', color: string): void
 }>()
 
 /** 视频悬停动态预览（后端预生成的 3s WebP）：
@@ -164,6 +166,17 @@ const altText = computed(() =>
     >
       <span aria-hidden="true">{{ liked ? '♥' : '♡' }}</span>
     </button>
+
+    <!-- 主色点：hover 时浮现于媒体左下角，点击按此主色筛选 -->
+    <button
+      v-if="!selectable && item.dominant_color"
+      type="button"
+      class="ml-card__swatch"
+      :style="{ backgroundColor: item.dominant_color }"
+      :aria-label="t('card.filterColor', { color: item.dominant_color })"
+      :title="t('card.filterColor', { color: item.dominant_color })"
+      @click.stop="emit('filter-color', item.dominant_color)"
+    />
   </article>
 </template>
 
@@ -248,6 +261,7 @@ const altText = computed(() =>
   width: 28px;
   height: 28px;
   border-radius: var(--p-radius-full);
+  border: 1px solid rgba(255, 255, 255, 0.24);
   background: rgba(26, 24, 21, 0.56);
   color: #faf8f5;
   font-size: 0.875rem;
@@ -257,8 +271,35 @@ const altText = computed(() =>
   transform: scale(0.92);
   transition:
     opacity var(--p-dur-fast) var(--p-ease-out),
-    transform var(--p-dur-fast) var(--p-ease-out),
+    transform var(--p-dur-fast) var(--p-ease-spring),
     background-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.ml-card__swatch {
+  position: absolute;
+  left: var(--p-space-2);
+  bottom: calc(64px + var(--p-space-2));
+  z-index: 2;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--p-radius-full);
+  border: 1.5px solid rgba(255, 255, 255, 0.88);
+  box-shadow: 0 2px 6px rgba(26, 24, 21, 0.3);
+  opacity: 0;
+  transform: scale(0.85);
+  transition:
+    opacity var(--p-dur-fast) var(--p-ease-out),
+    transform var(--p-dur-fast) var(--p-ease-out);
+}
+
+.ml-card:hover .ml-card__swatch,
+.ml-card:focus-within .ml-card__swatch {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.ml-card__swatch:hover {
+  transform: scale(1.18);
 }
 
 .ml-card:hover .ml-card__like,
@@ -287,6 +328,16 @@ const altText = computed(() =>
     transform: translateY(-2px);
     box-shadow: var(--card-shadow-hover);
   }
+
+  .ml-card:hover .ml-card__media :deep(.smart-image__img) {
+    transform: scale(1.018);
+  }
+}
+
+.ml-card__media :deep(.smart-image__img) {
+  transition:
+    opacity var(--p-dur-base) var(--p-ease-out),
+    transform var(--p-dur-slow) var(--p-ease-out);
 }
 
 .ml-card:has(.ml-card__trigger:focus-visible) {
@@ -314,11 +365,13 @@ const altText = computed(() =>
   position: absolute;
   right: var(--p-space-2);
   bottom: var(--p-space-2);
-  padding: 1px var(--p-space-2);
+  padding: 2px var(--p-space-2);
   font-size: 0.6875rem;
   background: rgba(26, 24, 21, 0.72);
   color: #faf8f5;
-  border-radius: var(--p-radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--p-radius-full);
+  backdrop-filter: blur(4px);
   letter-spacing: 0.02em;
 }
 

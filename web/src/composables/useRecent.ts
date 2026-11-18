@@ -59,11 +59,17 @@ export function pushRecent(entry: Omit<RecentEntry, 'ts'>): void {
   safeSet(JSON.stringify(next))
 }
 
+export function removeRecent(id: string): void {
+  const next = recent.value.filter((e) => e.id !== id)
+  recent.value = next
+  safeSet(JSON.stringify(next))
+}
+
 export function clearRecent(): void {
   recent.value = []
   safeSet('[]')
 }
 
 export function useRecent() {
-  return { recent, pushRecent, clearRecent, LIMIT }
+  return { recent, pushRecent, removeRecent, clearRecent, LIMIT }
 }

@@ -15,8 +15,8 @@ import MLSheet from './MLSheet.vue'
 import MLButton from './MLButton.vue'
 
 const { mode, resolved, cycle } = useTheme()
-const { t, locale, toggleLocale } = useI18n()
-const { recent, clearRecent } = useRecent()
+const { t, locale, toggleLocale, formatDate } = useI18n()
+const { recent, removeRecent, clearRecent } = useRecent()
 const router = useRouter()
 const recentOpen = ref(false)
 
@@ -27,6 +27,8 @@ function openRecentItem(id: string) {
 
 const headerRef = ref<HTMLElement | null>(null)
 const headerHidden = ref(false)
+const headerScrolled = ref(false)
+const scrollProgress = ref(0)
 let ticking = false
 /** 上一次滚动位置：用于判断方向，向上滚动时必须立刻复现顶栏 */
 let lastY = 0
@@ -44,6 +46,9 @@ function onScroll() {
   ticking = true
   requestAnimationFrame(() => {
     const y = window.scrollY
+    const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
+    scrollProgress.value = maxScroll > 0 ? Math.min(1, Math.max(0, y / maxScroll)) : 0
+    headerScrolled.value = y > 20
     // 顶部 40px 内始终显示；下滚隐藏、上滚显示。
     // 仅按位置判断会在向上滚动时也保持隐藏，与「回看时顶栏复现」的预期相反。
     if (y < 40) {
@@ -88,7 +93,10 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
 <template>
   <a class="skip-link" href="#main">{{ t('site.skipToMain') }}</a>
 
-  <header ref="headerRef" :class="['site-header', { 'site-header--hidden': headerHidden }]">
+  <header
+    ref="headerRef"
+    :class="['site-header', { 'site-header--hidden': headerHidden, 'site-header--scrolled': headerScrolled }]"
+  >
     <div class="site-header__inner">
       <RouterLink to="/" class="brand" :aria-label="`${t('site.name')} ${t('site.home')}`">
         <span class="brand__mark" aria-hidden="true">◐</span>
@@ -120,23 +128,29 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
         </button>
         <button
           type="button"
-          class="icon-btn"
+          class="icon-btn icon-btn--recent"
           :aria-label="t('recent.title')"
           :title="t('recent.title')"
           @click="recentOpen = true"
         >
           <span aria-hidden="true">◷</span>
+          <span v-if="recent.length" class="icon-btn__badge mono">{{ recent.length > 99 ? '99+' : recent.length }}</span>
         </button>
         <!-- 管理后台是独立的旧版单页，用普通链接跳转，不经 SPA 路由 -->
         <a href="/admin" class="admin-link" :title="t('site.admin')">{{ t('site.admin') }}</a>
       </div>
     </div>
+    <div
+      class="site-header__progress"
+      :style="{ transform: `scaleX(${scrollProgress})` }"
+      aria-hidden="true"
+    />
   </header>
 
   <MLSheet v-model:open="recentOpen" :title="t('recent.title')" variant="drawer" width="340px">
     <div v-if="!recent.length" class="recent-empty muted">{{ t('recent.empty') }}</div>
     <ul v-else class="recent-list">
-      <li v-for="entry in recent" :key="entry.id">
+      <li v-for="entry in recent" :key="entry.id" class="recent-row">
         <button type="button" class="recent-item" @click="openRecentItem(entry.id)">
           <img
             :src="entry.kind === 'video' ? `/t/${entry.id}.jpg` : `/t/${entry.id}_sm.webp`"
@@ -144,7 +158,23 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
             class="recent-item__thumb"
             loading="lazy"
           />
-          <span class="recent-item__title">{{ entry.title }}</span>
+          <span class="recent-item__body">
+            <span class="recent-item__title">{{ entry.title }}</span>
+            <span class="recent-item__meta mono">
+              <span>{{ entry.kind === 'video' ? t('facet.kindVideo') : t('facet.kindImage') }}</span>
+              <span aria-hidden="true">·</span>
+              <span>{{ formatDate(Math.floor(entry.ts / 1000)) }}</span>
+            </span>
+          </span>
+        </button>
+        <button
+          type="button"
+          class="recent-row__remove"
+          :aria-label="t('recent.remove')"
+          :title="t('recent.remove')"
+          @click.stop="removeRecent(entry.id)"
+        >
+          ×
         </button>
       </li>
     </ul>
@@ -167,7 +197,25 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
   background: color-mix(in srgb, var(--paper) 86%, transparent);
   backdrop-filter: blur(12px) saturate(1.1);
   border-bottom: 1px solid var(--rule);
-  transition: transform var(--p-dur-base) var(--p-ease-out);
+  transition:
+    transform var(--p-dur-base) var(--p-ease-out),
+    box-shadow var(--p-dur-base) var(--p-ease-out);
+}
+
+.site-header--scrolled {
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.site-header__progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+  transform-origin: left center;
+  pointer-events: none;
+  opacity: 0.78;
 }
 
 /* 下滚时顶栏滑出，把画面让给图片 */
@@ -251,6 +299,26 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
   color: var(--ink);
 }
 
+.icon-btn--recent {
+  position: relative;
+}
+
+.icon-btn__badge {
+  position: absolute;
+  top: 2px;
+  right: 1px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: var(--p-radius-full);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 0.625rem;
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+
 /* 文字型图标按钮（语言切换）：字号略小以保持视觉重量一致 */
 .icon-btn--text {
   font-size: 0.75rem;
@@ -296,11 +364,18 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
   gap: var(--p-space-2);
 }
 
+.recent-row {
+  display: flex;
+  align-items: center;
+  gap: var(--p-space-1);
+}
+
 .recent-item {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--p-space-3);
-  width: 100%;
   padding: var(--p-space-1);
   border-radius: var(--p-radius-md);
   text-align: left;
@@ -320,11 +395,48 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
   flex-shrink: 0;
 }
 
+.recent-item__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .recent-item__title {
   font-size: var(--p-step--1);
   color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.recent-item__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.6875rem;
+  color: var(--ink-faint);
+}
+
+.recent-row__remove {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--p-radius-full);
+  color: var(--ink-faint);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  opacity: 0.65;
+  transition:
+    opacity var(--p-dur-fast) var(--p-ease-out),
+    background-color var(--p-dur-fast) var(--p-ease-out),
+    color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.recent-row__remove:hover {
+  opacity: 1;
+  background: var(--surface-hover);
+  color: var(--ink);
 }
 </style>

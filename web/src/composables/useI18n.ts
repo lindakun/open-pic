@@ -272,6 +272,10 @@ const messages: Record<Locale, Dict> = {
     'recent.title': '最近浏览',
     'recent.empty': '还没有浏览记录',
     'recent.clear': '清空记录',
+    'recent.remove': '移除此条记录',
+    'home.upload': '上传',
+    'card.filterColor': '按主色 {color} 筛选',
+    'image.retry': '点击重试加载图片',
     'common.confirm': '确定',
   },
 
@@ -524,6 +528,10 @@ const messages: Record<Locale, Dict> = {
     'recent.title': 'Recent',
     'recent.empty': 'No recently viewed items yet',
     'recent.clear': 'Clear',
+    'recent.remove': 'Remove entry',
+    'home.upload': 'Upload',
+    'card.filterColor': 'Filter by color {color}',
+    'image.retry': 'Retry loading image',
     'common.confirm': 'Confirm',
   },
 }

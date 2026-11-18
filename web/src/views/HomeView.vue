@@ -8,12 +8,13 @@
  *   - 仅保留一条极轻的悬浮工具条（搜索入口 / 计数 / 主题），
  *     滚动时淡出，把画面完全让给图片
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMediaStore } from '@/stores/media'
 import { useFilterStore } from '@/stores/filters'
 import { useI18n } from '@/composables/useI18n'
 import { useToast } from '@/composables/useToast'
+import { pushRecent } from '@/composables/useRecent'
 import { track, useEventFlush } from '@/composables/useAnalytics'
 import MasonryGrid from '@/components/MasonryGrid.vue'
 import LightboxViewer from '@/components/LightboxViewer.vue'
@@ -98,6 +99,17 @@ function scrollToTop() {
 let observer: IntersectionObserver | null = null
 const sentinel = ref<HTMLElement | null>(null)
 
+function onHomeKeydown(e: KeyboardEvent) {
+  if (store.currentItem) return
+  const el = e.target as HTMLElement | null
+  const tag = el?.tagName
+  const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || Boolean(el?.isContentEditable)
+  if (e.key === '/' && !typing && !e.isComposing) {
+    e.preventDefault()
+    void router.push({ name: 'browse', query: { focus: 'search' } })
+  }
+}
+
 onMounted(async () => {
   // 首页是"全部资产"的图墙：清掉浏览页遗留的筛选，
   // 否则从浏览页返回首页时图片墙会静默变成筛选子集
@@ -109,6 +121,7 @@ onMounted(async () => {
   await store.promoteFeatured()
   void loadLikes()
   window.addEventListener('scroll', onScroll, { passive: true })
+  window.addEventListener('keydown', onHomeKeydown)
 
   observer = new IntersectionObserver(
     (entries) => {
@@ -155,6 +168,7 @@ function scheduleLibraryRefresh() {
 
 onBeforeUnmount(() => {
   window.removeEventListener('scroll', onScroll)
+  window.removeEventListener('keydown', onHomeKeydown)
   observer?.disconnect()
   es?.close()
   if (sseRefreshTimer !== undefined) window.clearTimeout(sseRefreshTimer)
@@ -167,12 +181,27 @@ function openLightbox(index: number) {
   if (it) track('view', { itemId: it.id })
 }
 
+watch(
+  () => store.currentItem,
+  (it) => {
+    if (!it) return
+    pushRecent({
+      id: it.id,
+      title: it.title || it.name,
+      kind: it.kind,
+    })
+  },
+)
+
 // 组合式函数必须在 setup 同步作用域调用，页面隐藏时才会自动上报
 useEventFlush()
 
 function goSearch() {
-  void router.push('/browse')
+  void router.push({ name: 'browse', query: { focus: 'search' } })
 }
+
+/** 首页骨架占位高度序列：与瀑布流错落节奏一致 */
+const SKELETON_RATIOS = [1.25, 0.78, 1.0, 1.4, 0.85, 1.15, 0.72, 1.32, 0.95, 1.18]
 
 /** 空库时引导到浏览页并直接打开上传面板 */
 function goBrowseAndUpload() {
@@ -191,11 +220,25 @@ function goBrowseAndUpload() {
       <button type="button" class="wall__search" :aria-label="t('browse.searchLabel')" @click="goSearch">
         <span aria-hidden="true">⌕</span>
         <span class="wall__search-text">{{ t('browse.searchPlaceholder') }}</span>
+        <kbd class="wall__kbd mono" aria-hidden="true">/</kbd>
+      </button>
+
+      <button type="button" class="wall__action" @click="goBrowseAndUpload">
+        + {{ t('home.upload') }}
       </button>
     </div>
 
+    <!-- 首次加载骨架屏 -->
+    <div v-if="store.loading && !store.items.length" class="wall__skeleton" aria-busy="true" :aria-label="t('site.loading')">
+      <div v-for="(r, idx) in SKELETON_RATIOS" :key="idx" class="wall__skel-card">
+        <div class="wall__skel-media" :style="{ aspectRatio: `1 / ${r}` }" />
+        <div class="wall__skel-line" />
+        <div class="wall__skel-line wall__skel-line--short" />
+      </div>
+    </div>
+
     <!-- 请求失败：与空库区分，给重试入口 -->
-    <div v-if="store.error && !store.items.length" class="wall__empty">
+    <div v-else-if="store.error && !store.items.length" class="wall__empty">
       <h1 class="wall__empty-title">{{ t('browse.errorTitle') }}</h1>
       <p class="muted">{{ store.error }}</p>
       <MLButton variant="ghost" @click="store.refresh()">{{ t('common.retry') }}</MLButton>
@@ -218,6 +261,7 @@ function goBrowseAndUpload() {
       :liked-ids="likedIds"
       @open="openLightbox"
       @toggle-like="toggleLike"
+      @filter-color="onFilterColor"
     />
 
     <!-- 无限滚动哨兵 -->
@@ -326,9 +370,81 @@ function goBrowseAndUpload() {
 }
 
 .wall__search-text {
+  flex: 1;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.wall__kbd {
+  font-size: 0.6875rem;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--p-radius-sm);
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink-muted);
+}
+
+.wall__action {
+  padding: var(--p-space-1) var(--p-space-3);
+  min-height: 30px;
+  font-size: var(--p-step--1);
+  color: var(--ink-muted);
+  border: 1px solid var(--rule);
+  border-radius: var(--p-radius-full);
+  background: var(--surface);
+  white-space: nowrap;
+  transition:
+    color var(--p-dur-fast) var(--p-ease-out),
+    border-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.wall__action:hover {
+  color: var(--ink);
+  border-color: var(--rule-strong);
+}
+
+.wall__skeleton {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--p-space-4);
+  align-items: start;
+}
+
+.wall__skel-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--p-space-2);
+}
+
+.wall__skel-media {
+  width: 100%;
+  border-radius: var(--p-radius-lg);
+  background: var(--surface-sunken);
+  animation: wall-pulse 1.5s var(--p-ease-in-out) infinite;
+}
+
+.wall__skel-line {
+  height: 12px;
+  width: 78%;
+  border-radius: var(--p-radius-sm);
+  background: var(--surface-sunken);
+  animation: wall-pulse 1.5s var(--p-ease-in-out) infinite;
+}
+
+.wall__skel-line--short {
+  width: 48%;
+}
+
+@keyframes wall-pulse {
+  0%, 100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.95;
+  }
 }
 
 .wall__empty {

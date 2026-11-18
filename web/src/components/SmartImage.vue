@@ -12,6 +12,7 @@
  * 不要改写本组件的 src（会破坏 srcset 选择）。
  */
 import { computed, ref, watch } from 'vue'
+import { useI18n } from '@/composables/useI18n'
 
 const props = withDefaults(
   defineProps<{
@@ -45,19 +46,29 @@ const props = withDefaults(
   },
 )
 
+const { t } = useI18n()
 const loaded = ref(false)
 /** 加载失败：展示占位图标而非永远的空白块 */
 const failed = ref(false)
+const retrySeed = ref(0)
 
 const versionQuery = computed(() => {
   const v = props.version
-  return v === undefined || v === null || v === '' ? '' : `v=${v}`
+  const base = v === undefined || v === null || v === '' ? '' : `v=${v}`
+  if (!retrySeed.value) return base
+  return base ? `${base}&r=${retrySeed.value}` : `r=${retrySeed.value}`
 })
 
 function onError() {
   failed.value = true
   // 失败时也显示容器，避免一直透明看起来像卡死
   loaded.value = true
+}
+
+function retryLoad() {
+  failed.value = false
+  loaded.value = false
+  retrySeed.value += 1
 }
 
 /** 白名单档位，与后端 ALLOWED_WIDTHS 保持一致 */
@@ -147,14 +158,21 @@ watch(
       @load="loaded = true"
       @error="onError"
     />
-    <!-- 失败态：给明确视觉反馈，而不是一块永远的主色底 -->
-    <div v-if="failed" class="smart-image__failed" aria-hidden="true">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 失败态：给明确视觉反馈，支持点击单卡重试 -->
+    <button
+      v-if="failed"
+      type="button"
+      class="smart-image__failed"
+      :aria-label="t('image.retry')"
+      :title="t('image.retry')"
+      @click.stop="retryLoad"
+    >
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <rect x="3" y="5" width="18" height="14" rx="2" />
         <circle cx="8.5" cy="10" r="1.5" />
         <path d="m21 16-5-5-4 4-2-2-7 6" />
       </svg>
-    </div>
+    </button>
   </div>
 </template>
 
@@ -174,7 +192,7 @@ watch(
   background: linear-gradient(
     110deg,
     transparent 20%,
-    rgba(255, 255, 255, 0.22) 45%,
+    color-mix(in srgb, var(--surface) 38%, transparent) 45%,
     transparent 70%
   );
   background-size: 220% 100%;
@@ -207,8 +225,14 @@ watch(
   place-items: center;
   color: var(--ink-muted);
   background: color-mix(in srgb, var(--surface-sunken) 88%, transparent);
-  opacity: 0.8;
-  pointer-events: none;
+  opacity: 0.85;
+  cursor: pointer;
+  transition: opacity var(--p-dur-fast) var(--p-ease-out);
+}
+
+.smart-image__failed:hover {
+  opacity: 1;
+  color: var(--ink);
 }
 
 .smart-image__img {

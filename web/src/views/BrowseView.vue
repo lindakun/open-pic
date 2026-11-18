@@ -425,8 +425,11 @@ onMounted(async () => {
       // 忽略
     }
   }
-  // 首页空库引导：带 upload=1 时直接打开上传面板
+  // 首页空库引导：带 upload=1 时直接打开上传面板；带 focus=search 时聚焦搜索框
   if (route.query.upload === '1') uploadOpen.value = true
+  if (route.query.focus === 'search') {
+    window.setTimeout(() => searchInputEl.value?.focus(), 0)
+  }
   searchInput.value = filters.q
   await store.refresh()
   // 首次渲染后还原上次锚点（D-17 验收 3）
@@ -802,15 +805,18 @@ watch(
       </div>
 
       <div class="browse__main">
-        <!-- 筛选切换中：给明确的加载态，避免误以为无响应 -->
-        <div v-if="store.loading && !store.items.length" class="browse__loading" role="status" aria-live="polite">
-          <span class="browse__spinner" aria-hidden="true" />
-          <span>{{ t('site.loading') }}</span>
+        <!-- 筛选切换中：骨架屏占位，避免白屏或仅一行字 -->
+        <div v-if="store.loading && !store.items.length" class="browse__skeleton" role="status" aria-live="polite" :aria-label="t('site.loading')">
+          <div v-for="(r, idx) in [1.2, 0.8, 1.0, 1.35, 0.88, 1.15, 0.75, 1.28]" :key="idx" class="browse__skel-card">
+            <div class="browse__skel-media" :style="{ aspectRatio: `1 / ${r}` }" />
+            <div class="browse__skel-line" />
+            <div class="browse__skel-line browse__skel-line--short" />
+          </div>
         </div>
 
         <!-- 请求失败与「真的没有内容」是两件事：前者要给重试入口，
              否则用户会以为库里没东西 -->
-        <div v-if="store.error && !store.items.length" class="browse__empty">
+        <div v-else-if="store.error && !store.items.length" class="browse__empty">
           <h2>{{ t('browse.errorTitle') }}</h2>
           <p class="muted">{{ store.error }}</p>
           <MLButton variant="ghost" @click="store.refresh()">
@@ -850,6 +856,7 @@ watch(
           @open="openLightbox"
           @toggle="toggleSelect"
           @toggle-like="toggleLike"
+          @filter-color="onFilterColor"
         />
 
         <!-- 分页哨兵：进入视口即自动加载；同时保留手动按钮作为兜底 -->
@@ -1160,6 +1167,47 @@ watch(
   .browse__spinner {
     animation: none;
     border-top-color: var(--accent);
+  }
+}
+
+.browse__skeleton {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--p-space-4);
+  align-items: start;
+}
+
+.browse__skel-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--p-space-2);
+}
+
+.browse__skel-media {
+  width: 100%;
+  border-radius: var(--p-radius-lg);
+  background: var(--surface-sunken);
+  animation: browse-pulse 1.5s var(--p-ease-in-out) infinite;
+}
+
+.browse__skel-line {
+  height: 12px;
+  width: 76%;
+  border-radius: var(--p-radius-sm);
+  background: var(--surface-sunken);
+  animation: browse-pulse 1.5s var(--p-ease-in-out) infinite;
+}
+
+.browse__skel-line--short {
+  width: 46%;
+}
+
+@keyframes browse-pulse {
+  0%, 100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.95;
   }
 }
 

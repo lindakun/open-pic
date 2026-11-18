@@ -44,6 +44,7 @@ const emit = defineEmits<{
   (e: 'open', index: number): void
   (e: 'toggle', id: string): void
   (e: 'toggle-like', id: string): void
+  (e: 'filter-color', color: string): void
 }>()
 
 const selectedSet = computed(() => new Set(props.selectedIds))
@@ -286,6 +287,7 @@ defineExpose({ renderedCount, isVisible, visibleRange })
         @open="emit('open', index)"
         @toggle="emit('toggle', $event)"
         @toggle-like="emit('toggle-like', $event)"
+        @filter-color="emit('filter-color', $event)"
       />
       <!-- 回收态占位：与卡片同尺寸同位置，保证滚动条总高与已渲染卡片零位移 -->
       <div
@@ -315,6 +317,7 @@ defineExpose({ renderedCount, isVisible, visibleRange })
         @open="emit('open', index)"
         @toggle="emit('toggle', $event)"
         @toggle-like="emit('toggle-like', $event)"
+        @filter-color="emit('filter-color', $event)"
       />
     </div>
   </div>
@@ -343,9 +346,20 @@ defineExpose({ renderedCount, isVisible, visibleRange })
             :display-width="120"
             :version="item.updated_at"
           />
+          <span v-if="item.kind === 'video'" class="list-row__vbadge mono" aria-hidden="true">
+            ▶{{ item.duration ? `${Math.round(item.duration)}s` : '' }}
+          </span>
         </div>
         <div class="list-row__info">
-          <span class="list-row__title">{{ item.title || item.name }}</span>
+          <span class="list-row__title">
+            <span
+              v-if="item.dominant_color"
+              class="list-row__color"
+              :style="{ backgroundColor: item.dominant_color }"
+              aria-hidden="true"
+            />
+            <span class="list-row__title-text">{{ item.title || item.name }}</span>
+          </span>
           <span class="list-row__tags">
             <span v-for="tag in (item.tags ?? []).slice(0, 4)" :key="tag" class="list-row__tag">{{ tag }}</span>
           </span>
@@ -429,7 +443,8 @@ defineExpose({ renderedCount, isVisible, visibleRange })
     background-color var(--p-dur-fast) var(--p-ease-out);
 }
 
-.list-row:hover {
+.list-row:hover,
+.list-row:focus-within {
   border-color: var(--rule-strong);
   background: var(--surface-hover);
 }
@@ -449,10 +464,23 @@ defineExpose({ renderedCount, isVisible, visibleRange })
 }
 
 .list-row__thumb {
+  position: relative;
   width: 64px;
   flex-shrink: 0;
   border-radius: var(--p-radius-sm);
   overflow: hidden;
+}
+
+.list-row__vbadge {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  padding: 0 4px;
+  border-radius: var(--p-radius-sm);
+  background: rgba(26, 24, 21, 0.76);
+  color: #faf8f5;
+  font-size: 0.625rem;
+  line-height: 1.4;
 }
 
 .list-row__info {
@@ -464,9 +492,24 @@ defineExpose({ renderedCount, isVisible, visibleRange })
 }
 
 .list-row__title {
+  display: flex;
+  align-items: center;
+  gap: var(--p-space-2);
   font-size: var(--p-step-0);
   font-weight: 500;
   color: var(--ink);
+  min-width: 0;
+}
+
+.list-row__color {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--p-radius-full);
+  border: 1px solid var(--rule-strong);
+  flex-shrink: 0;
+}
+
+.list-row__title-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
