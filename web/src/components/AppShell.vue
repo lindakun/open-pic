@@ -8,11 +8,10 @@
  */
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRouter } from 'vue-router'
-import { getActivePinia } from 'pinia'
 import { useTheme } from '@/composables/useTheme'
 import { useI18n } from '@/composables/useI18n'
 import { useRecent } from '@/composables/useRecent'
-import { useMediaStore } from '@/stores/media'
+import { globalLoading } from '@/stores/media'
 import MLSheet from './MLSheet.vue'
 import MLButton from './MLButton.vue'
 
@@ -20,7 +19,6 @@ const { mode, resolved, cycle } = useTheme()
 const { t, locale, toggleLocale, formatDate } = useI18n()
 const { recent, removeRecent, clearRecent } = useRecent()
 const router = useRouter()
-const mediaStore = getActivePinia() ? useMediaStore() : null
 const recentOpen = ref(false)
 const brokenThumbs = ref<Set<string>>(new Set())
 
@@ -153,8 +151,8 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
       </div>
     </div>
     <div
-      :class="['site-header__progress', { 'site-header__progress--loading': Boolean(mediaStore?.loading) }]"
-      :style="{ transform: mediaStore?.loading ? undefined : `scaleX(${scrollProgress})` }"
+      :class="['site-header__progress', { 'site-header__progress--loading': globalLoading }]"
+      :style="{ transform: globalLoading ? undefined : `scaleX(${scrollProgress})` }"
       aria-hidden="true"
     />
   </header>

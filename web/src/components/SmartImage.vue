@@ -167,11 +167,14 @@ watch(
       :title="t('image.retry')"
       @click.stop="retryLoad"
     >
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <rect x="3" y="5" width="18" height="14" rx="2" />
-        <circle cx="8.5" cy="10" r="1.5" />
-        <path d="m21 16-5-5-4 4-2-2-7 6" />
-      </svg>
+      <span class="smart-image__failed-inner">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="5" width="18" height="14" rx="2" />
+          <circle cx="8.5" cy="10" r="1.5" />
+          <path d="m21 16-5-5-4 4-2-2-7 6" />
+        </svg>
+        <span class="smart-image__failed-label">{{ t('image.retryLabel') }}</span>
+      </span>
     </button>
   </div>
 </template>
@@ -182,6 +185,7 @@ watch(
   width: 100%;
   overflow: hidden;
   border-radius: var(--p-radius-sm);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
 /* 加载中微光骨架：克制的纸感对角光泽，图片淡入后自动撤除 */
@@ -233,6 +237,24 @@ watch(
 .smart-image__failed:hover {
   opacity: 1;
   color: var(--ink);
+}
+
+.smart-image__failed-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.smart-image__failed-label {
+  font-size: 0.6875rem;
+  opacity: 0;
+  transition: opacity var(--p-dur-fast) var(--p-ease-out);
+}
+
+.smart-image__failed:hover .smart-image__failed-label,
+.smart-image__failed:focus-visible .smart-image__failed-label {
+  opacity: 0.9;
 }
 
 .smart-image__img {

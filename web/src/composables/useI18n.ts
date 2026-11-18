@@ -58,6 +58,7 @@ const messages: Record<Locale, Dict> = {
     'home.images': '图片',
     'home.videos': '视频',
     'home.typeFilter': '按媒体类型筛选',
+    'home.shuffle': '漫步',
 
     // 浏览页
     'browse.searchPlaceholder': '搜索标题、标签、来源…',
@@ -89,6 +90,9 @@ const messages: Record<Locale, Dict> = {
     'browse.colorFilter': '主色 {value}',
     'browse.collectionFilter': '画板：{value}',
     'browse.searchShortcut': '按 / 聚焦搜索框',
+    'browse.searchHistory': '最近搜索',
+    'browse.clearHistory': '清除',
+    'browse.pickImageSearch': '点击选择图片搜相似',
 
     // 排序
     'sort.newest': '最新',
@@ -150,6 +154,8 @@ const messages: Record<Locale, Dict> = {
     'lightbox.compare': '对比',
     'lightbox.comparePick': '加入对比',
     'lightbox.compareClear': '退出对比',
+    'lightbox.compareSplit': '卷帘',
+    'lightbox.compareSide': '并排',
     'lightbox.info': '详细信息',
     'lightbox.spec': '规格',
     'lightbox.author': '作者',
@@ -221,6 +227,7 @@ const messages: Record<Locale, Dict> = {
     'shortcut.seekVideo': '视频快退 / 快进 5 秒',
     'license.personalOnly': '仅限个人使用',
     'license.commercial': '可商用',
+    'card.personal': '个人',
 
     // Toast
     'toast.close': '关闭提示',
@@ -254,6 +261,8 @@ const messages: Record<Locale, Dict> = {
     'review.filterAll': '全部',
     'review.progressText': '已审阅 {done} / {total}',
     'review.noteShortcutHint': '⌘/Ctrl+Enter 保存',
+    'review.copySummary': '复制选中清单',
+    'review.summaryCopied': '已复制选中清单',
     'ai.disabled': 'AI 检索未启用',
     'ai.byImage': '以图搜图',
     'ai.byImageHint': '把图片拖进来，或直接粘贴（Ctrl/⌘+V）',
@@ -324,6 +333,7 @@ const messages: Record<Locale, Dict> = {
     'home.upload': '上传',
     'card.filterColor': '按主色 {color} 筛选',
     'image.retry': '点击重试加载图片',
+    'image.retryLabel': '点击重试',
     'common.confirm': '确定',
   },
 
@@ -368,6 +378,7 @@ const messages: Record<Locale, Dict> = {
     'home.images': 'Images',
     'home.videos': 'Videos',
     'home.typeFilter': 'Filter by media type',
+    'home.shuffle': 'Shuffle',
 
     'browse.searchPlaceholder': 'Search titles, tags, sources…',
     'browse.searchLabel': 'Search media library',
@@ -399,6 +410,9 @@ const messages: Record<Locale, Dict> = {
     'browse.colorFilter': 'Color {value}',
     'browse.collectionFilter': 'Board: {value}',
     'browse.searchShortcut': 'Press / to focus search',
+    'browse.searchHistory': 'Recent searches',
+    'browse.clearHistory': 'Clear',
+    'browse.pickImageSearch': 'Click to choose an image to search',
 
     'sort.newest': 'Newest',
     'sort.oldest': 'Oldest',
@@ -456,6 +470,8 @@ const messages: Record<Locale, Dict> = {
     'lightbox.compare': 'Compare',
     'lightbox.comparePick': 'Add to compare',
     'lightbox.compareClear': 'Exit compare',
+    'lightbox.compareSplit': 'Split',
+    'lightbox.compareSide': 'Side',
     'lightbox.info': 'Details',
     'lightbox.spec': 'Spec',
     'lightbox.author': 'Author',
@@ -527,6 +543,7 @@ const messages: Record<Locale, Dict> = {
     'shortcut.seekVideo': 'Seek video ±5s',
     'license.personalOnly': 'Personal use only',
     'license.commercial': 'Commercial use',
+    'card.personal': 'Personal',
 
     'toast.close': 'Dismiss notification',
 
@@ -558,6 +575,8 @@ const messages: Record<Locale, Dict> = {
     'review.filterAll': 'All',
     'review.progressText': 'Reviewed {done} / {total}',
     'review.noteShortcutHint': '⌘/Ctrl+Enter to save',
+    'review.copySummary': 'Copy selected list',
+    'review.summaryCopied': 'Selected list copied',
     'ai.disabled': 'AI search off',
     'ai.byImage': 'Search by image',
     'ai.byImageHint': 'Drag an image here, or paste it (Ctrl/⌘+V)',
@@ -628,6 +647,7 @@ const messages: Record<Locale, Dict> = {
     'home.upload': 'Upload',
     'card.filterColor': 'Filter by color {color}',
     'image.retry': 'Retry loading image',
+    'image.retryLabel': 'Retry',
     'common.confirm': 'Confirm',
   },
 }

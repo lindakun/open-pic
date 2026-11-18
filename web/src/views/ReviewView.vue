@@ -14,6 +14,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from '@/composables/useI18n'
 import { useTheme } from '@/composables/useTheme'
+import { copyText } from '@/composables/useClipboard'
 import type { MediaItem } from '@/api/types'
 
 const route = useRoute()
@@ -31,6 +32,26 @@ const error = ref('')
 const index = ref(0)
 const saving = ref(false)
 const savedAt = ref(0)
+const summaryCopied = ref(false)
+let summaryTimer: number | undefined
+
+async function copySelectedSummary() {
+  const picked = items.value.filter((it) => marks.value[it.id]?.state === 'selected')
+  if (!picked.length) return
+  const lines = picked.map((it, idx) => {
+    const title = it.title || it.name
+    const note = marks.value[it.id]?.note?.trim()
+    return note ? `${idx + 1}. ${title} — ${note}` : `${idx + 1}. ${title}`
+  })
+  const ok = await copyText(lines.join('\n'))
+  if (ok) {
+    summaryCopied.value = true
+    if (summaryTimer !== undefined) window.clearTimeout(summaryTimer)
+    summaryTimer = window.setTimeout(() => {
+      summaryCopied.value = false
+    }, 2000)
+  }
+}
 /** 点击图片放大检视细节 */
 const zoomed = ref(false)
 /** 标记后自动跳下一张（本地记忆，默认关闭以免打扰慢看） */
@@ -349,7 +370,10 @@ onMounted(() => {
   void load()
   window.addEventListener('keydown', onKeydown)
 })
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+  if (summaryTimer !== undefined) window.clearTimeout(summaryTimer)
+})
 </script>
 
 <template>
@@ -547,6 +571,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         </button>
         <button type="button" class="review__count-btn" :disabled="!counts.unmarked" @click="jumpToState('unmarked')">
           {{ t('review.unmarked') }} {{ counts.unmarked }}
+        </button>
+        <button
+          v-if="counts.selected > 0"
+          type="button"
+          class="review__copy-summary"
+          @click="copySelectedSummary"
+        >
+          {{ summaryCopied ? `✓ ${t('review.summaryCopied')}` : t('review.copySummary') }}
         </button>
       </footer>
     </template>
@@ -862,6 +894,24 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 .review__count-btn:disabled {
   cursor: default;
+}
+
+.review__copy-summary {
+  padding: 2px var(--p-space-3);
+  border-radius: var(--p-radius-full);
+  border: 1px solid var(--rule-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.75rem;
+  transition:
+    background-color var(--p-dur-fast) var(--p-ease-out),
+    border-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.review__copy-summary:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-hover);
 }
 
 @media (max-width: 600px) {

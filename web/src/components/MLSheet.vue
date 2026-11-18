@@ -206,6 +206,7 @@ onBeforeUnmount(() => {
 .ml-sheet__body {
   padding: var(--p-space-5);
   overflow-y: auto;
+  overscroll-behavior: contain;
   flex: 1;
 }
 

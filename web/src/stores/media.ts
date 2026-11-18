@@ -5,13 +5,16 @@
  * 分页加载、灯箱、竞态控制统一在此管理；
  * 筛选条件由 useFilterStore 独立维护（B-10），两者通过 queryParams 协作。
  */
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/api/client'
 import type { MediaItem } from '@/api/types'
 import { useFilterStore } from './filters'
 import { pageSizeFor } from '@/composables/useScrollRestore'
 import type { Facets } from './filters'
+
+/** 全局列表加载状态：供外壳顶栏进度线消费，不强制要求 Pinia 注入上下文 */
+export const globalLoading = ref(false)
 
 export const useMediaStore = defineStore('media', () => {
   const filters = useFilterStore()
@@ -20,6 +23,9 @@ export const useMediaStore = defineStore('media', () => {
   const items = ref<MediaItem[]>([])
   const total = ref(0)
   const loading = ref(false)
+  watch(loading, (v) => {
+    globalLoading.value = v
+  })
   const error = ref<string | null>(null)
   const facets = ref<Facets | null>(null)
   const facetsLoading = ref(false)

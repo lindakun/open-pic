@@ -185,6 +185,9 @@ const upgradingOriginal = ref(false)
 const copied = ref<string | null>(null)
 /** 对比模式：从候选里选出的 2–4 项 id（含当前项） */
 const compareIds = ref<string[]>([])
+/** 两图对比时支持「并排」或「卷帘叠加」切换 */
+const compareSplit = ref(false)
+const splitPos = ref(50)
 /** 连播状态与间隔 */
 const slideshow = ref<{ on: boolean; ms: number }>({ on: false, ms: 5000 })
 let slideshowTimer: number | null = null
@@ -689,6 +692,8 @@ watch(
     upgradingOriginal.value = false
     resetZoom()
     compareIds.value = []
+    compareSplit.value = false
+    splitPos.value = 50
     editing.value = false
     editError.value = ''
     // 切图时若帮助浮层还开着，关掉避免说明与当前内容脱节
@@ -758,7 +763,8 @@ onUnmounted(() => {
         'lightbox__stage',
         `lightbox__stage--bg-${stageBg}`,
         {
-          'lightbox__stage--compare': compareOn,
+          'lightbox__stage--compare': compareOn && !(compareSplit && compareItems.length === 2),
+          'lightbox__stage--split': compareOn && compareSplit && compareItems.length === 2,
           'lightbox__stage--compare-grid': compareOn && compareItems.length > 2,
           'lightbox__stage--with-panel': infoOpen,
           'lightbox__stage--with-film': filmstripOpen && (candidates?.length ?? 0) > 1 && !compareOn,
@@ -780,29 +786,65 @@ onUnmounted(() => {
 
       <template v-if="item.kind === 'image'">
         <div v-if="!imgLoaded && !compareOn" class="lightbox__spinner" aria-hidden="true" />
-        <figure v-for="it in compareOn ? compareItems : [item]" :key="it.id" class="lightbox__frame">
+        <!-- 两图卷帘叠加对比 -->
+        <div v-if="compareOn && compareSplit && compareItems.length === 2" class="lightbox__split-box">
           <img
-            :src="imgSrcFor(it)"
-            :alt="it.title || it.name"
-            :class="[
-              'lightbox__img',
-              {
-                'lightbox__img--zoomed': scale > 1.02,
-                'lightbox__img--dragging': dragging,
-                'lightbox__img--ready': compareOn || imgLoaded,
-              },
-            ]"
-            :style="compareOn
-              ? { transform: `translate3d(${zoomX}px, ${zoomY}px, 0) scale(${priceScale})` }
-              : { ...zoomStyle, viewTransitionName: `media-${item.id}` }"
-            @load="it.id === item.id && (imgLoaded = true, upgradingOriginal = false)"
-            @dblclick="onImgDblClick($event)"
-            @error="it.id === item.id && (imgLoaded = true, upgradingOriginal = false); onImgError($event, it)"
+            :src="imgSrcFor(compareItems[1])"
+            :alt="compareItems[1].title || compareItems[1].name"
+            class="lightbox__img lightbox__img--ready lightbox__split-img"
+            :style="{ transform: `translate3d(${zoomX}px, ${zoomY}px, 0) scale(${priceScale})` }"
+            @error="onImgError($event, compareItems[1])"
           />
-          <figcaption v-if="compareOn" class="lightbox__cap mono">
-            {{ it.title || it.name }} · {{ it.width }}×{{ it.height }} · {{ it.ext.replace(/^\./, '').toUpperCase() }}<template v-if="it.size"> · {{ formatBytes(it.size) }}</template>
-          </figcaption>
-        </figure>
+          <img
+            :src="imgSrcFor(compareItems[0])"
+            :alt="compareItems[0].title || compareItems[0].name"
+            class="lightbox__img lightbox__img--ready lightbox__split-img lightbox__split-top"
+            :style="{
+              transform: `translate3d(${zoomX}px, ${zoomY}px, 0) scale(${priceScale})`,
+              clipPath: `inset(0 ${100 - splitPos}% 0 0)`,
+            }"
+            @error="onImgError($event, compareItems[0])"
+          />
+          <div class="lightbox__split-line" :style="{ left: `${splitPos}%` }" aria-hidden="true">
+            <span class="lightbox__split-knob">⇆</span>
+          </div>
+          <input
+            v-model.number="splitPos"
+            type="range"
+            min="0"
+            max="100"
+            class="lightbox__split-range"
+            :aria-label="t('lightbox.compareSplit')"
+          />
+          <span class="lightbox__split-tag lightbox__split-tag--left mono">{{ compareItems[0].title || compareItems[0].name }}</span>
+          <span class="lightbox__split-tag lightbox__split-tag--right mono">{{ compareItems[1].title || compareItems[1].name }}</span>
+        </div>
+        <!-- 单图或并排多图对比 -->
+        <template v-else>
+          <figure v-for="it in compareOn ? compareItems : [item]" :key="it.id" class="lightbox__frame">
+            <img
+              :src="imgSrcFor(it)"
+              :alt="it.title || it.name"
+              :class="[
+                'lightbox__img',
+                {
+                  'lightbox__img--zoomed': scale > 1.02,
+                  'lightbox__img--dragging': dragging,
+                  'lightbox__img--ready': compareOn || imgLoaded,
+                },
+              ]"
+              :style="compareOn
+                ? { transform: `translate3d(${zoomX}px, ${zoomY}px, 0) scale(${priceScale})` }
+                : { ...zoomStyle, viewTransitionName: `media-${item.id}` }"
+              @load="it.id === item.id && (imgLoaded = true, upgradingOriginal = false)"
+              @dblclick="onImgDblClick($event)"
+              @error="it.id === item.id && (imgLoaded = true, upgradingOriginal = false); onImgError($event, it)"
+            />
+            <figcaption v-if="compareOn" class="lightbox__cap mono">
+              {{ it.title || it.name }} · {{ it.width }}×{{ it.height }} · {{ it.ext.replace(/^\./, '').toUpperCase() }}<template v-if="it.size"> · {{ formatBytes(it.size) }}</template>
+            </figcaption>
+          </figure>
+        </template>
       </template>
       <!-- key 强制切换条目时重建播放器：仅改 src 时部分浏览器
            不会重新触发 autoplay，会停留在上一支视频的最后一帧 -->
@@ -873,10 +915,19 @@ onUnmounted(() => {
           @click="toggleCompare(c.id)"
         />
         <button
+          v-if="compareOn && compareItems.length === 2"
+          type="button"
+          :class="['cmp-clear', { 'cmp-clear--on': compareSplit }]"
+          :aria-pressed="compareSplit"
+          @click="compareSplit = !compareSplit"
+        >
+          {{ compareSplit ? t('lightbox.compareSide') : t('lightbox.compareSplit') }}
+        </button>
+        <button
           v-if="compareOn"
           type="button"
           class="cmp-clear"
-          @click="compareIds = []"
+          @click="compareIds = []; compareSplit = false"
         >
           {{ t('lightbox.compareClear') }}
         </button>
@@ -1349,6 +1400,102 @@ onUnmounted(() => {
   background-position: 0 0, 0 10px, 10px -10px, -10px 0;
 }
 
+.lightbox__stage--bg-paper .lightbox__img,
+.lightbox__stage--bg-grid .lightbox__img {
+  border: 1px solid rgba(26, 24, 21, 0.12);
+  box-shadow: 0 6px 28px rgba(26, 24, 21, 0.14);
+}
+
+.lightbox__stage--bg-paper .lightbox__spinner,
+.lightbox__stage--bg-grid .lightbox__spinner {
+  border-color: rgba(26, 24, 21, 0.22);
+  border-top-color: var(--accent);
+}
+
+.lightbox__split-box {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.lightbox__split-img {
+  position: absolute;
+  max-width: 100%;
+  max-height: 100%;
+  pointer-events: none;
+}
+
+.lightbox__split-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--p-accent-500);
+  box-shadow: 0 0 0 1px rgba(18, 16, 13, 0.45);
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.lightbox__split-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 30px;
+  height: 30px;
+  border-radius: var(--p-radius-full);
+  background: var(--p-accent-600);
+  color: #faf8f5;
+  border: 2px solid #faf8f5;
+  display: grid;
+  place-items: center;
+  font-size: 0.75rem;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.lightbox__split-range {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: ew-resize;
+  z-index: 4;
+}
+
+.lightbox__split-tag {
+  position: absolute;
+  bottom: var(--p-space-3);
+  z-index: 2;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: var(--p-radius-full);
+  background: rgba(18, 16, 13, 0.72);
+  color: #faf8f5;
+  font-size: 0.6875rem;
+  pointer-events: none;
+}
+
+.lightbox__split-tag--left {
+  left: var(--p-space-3);
+}
+
+.lightbox__split-tag--right {
+  right: var(--p-space-3);
+}
+
+.cmp-clear--on {
+  background: var(--p-accent-600);
+}
+
 /* 有顶部对比选择条时让出安全高度，防止长竖图顶部被遮住 */
 .lightbox__stage--has-compare {
   padding-top: 68px;
@@ -1557,8 +1704,11 @@ onUnmounted(() => {
 
 .lightbox__cap {
   margin-top: var(--p-space-2);
+  padding: 2px var(--p-space-2);
+  border-radius: var(--p-radius-full);
+  background: rgba(18, 16, 13, 0.72);
+  color: #faf8f5;
   font-size: var(--p-step--1);
-  opacity: 0.78;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;

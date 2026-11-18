@@ -5,7 +5,7 @@
  * 结构：左侧分面面板 + 右侧瀑布流。
  * URL 即状态：刷新或分享链接都能还原完整筛选视图。
  */
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMediaStore } from '@/stores/media'
 import { useFilterStore } from '@/stores/filters'
@@ -41,7 +41,66 @@ const { t } = useI18n()
 
 const searchInput = ref(filters.q)
 const searchInputEl = ref<HTMLInputElement | null>(null)
+const aiImageInputEl = ref<HTMLInputElement | null>(null)
 const showBackTop = ref(false)
+/** 搜索历史（最多 6 条，聚焦搜索框时下拉展示） */
+const SEARCH_HISTORY_KEY = 'medialib.searchHistory'
+const searchFocused = ref(false)
+const searchHistory = ref<string[]>((() => {
+  try {
+    const raw = localStorage.getItem(SEARCH_HISTORY_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string').slice(0, 6) : []
+  } catch {
+    return []
+  }
+})())
+
+function pushSearchHistory(term: string) {
+  const clean = term.trim()
+  if (!clean) return
+  const next = [clean, ...searchHistory.value.filter((x) => x !== clean)].slice(0, 6)
+  searchHistory.value = next
+  try {
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(next))
+  } catch {
+    // 忽略
+  }
+}
+
+function clearSearchHistory() {
+  searchHistory.value = []
+  try {
+    localStorage.removeItem(SEARCH_HISTORY_KEY)
+  } catch {
+    // 忽略
+  }
+}
+
+function applyHistoryTerm(term: string) {
+  window.clearTimeout(debounceTimer)
+  searchInput.value = term
+  searchFocused.value = false
+  filters.setQ(term)
+  applyAndRefresh()
+}
+
+function onSearchFocus() {
+  searchFocused.value = true
+}
+
+function onSearchBlur() {
+  window.setTimeout(() => {
+    searchFocused.value = false
+  }, 150)
+}
+
+function onPickAiFile(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (file && file.type.startsWith('image/')) void searchByImage(file)
+}
 /** AI 检索能力（B-08）：未启用时隐藏以图搜图入口 */
 const { status: aiStatus, load: loadAiStatus } = useAiStatus()
 const dragActive = ref(false)
@@ -85,6 +144,7 @@ function onSearchInput(value: string) {
     await applyAndRefresh()
     // 记录搜索结果数：后续「零结果搜索词榜」直接来自这里（D-18）
     if (value.trim()) {
+      pushSearchHistory(value)
       track('search', { meta: { q: value.trim(), result_count: store.total } })
     }
   }, 300)
@@ -126,12 +186,14 @@ const density = ref<Density>((() => {
 })())
 
 function changeDensity(d: Density) {
+  const anchor = sampleAnchor()
   density.value = d
   try {
     localStorage.setItem('medialib.density', d)
   } catch {
     // 隐私模式静默忽略
   }
+  if (anchor) void nextTick(() => restoreScrollAnchor(anchor, store.items))
 }
 
 function changeSort(value: SortKey) {
@@ -140,12 +202,14 @@ function changeSort(value: SortKey) {
 }
 
 function changeView(mode: ViewMode) {
+  const anchor = sampleAnchor()
   filters.setView(mode)
   try {
     localStorage.setItem('medialib.view', mode)
   } catch {
     // 隐私模式静默忽略
   }
+  if (anchor) void nextTick(() => restoreScrollAnchor(anchor, store.items))
 }
 
 /** 方向 chip 的 i18n key */
@@ -700,6 +764,8 @@ watch(
           :placeholder="dragActive ? t('ai.dropHint') : t('browse.searchPlaceholder')"
           :title="t('browse.searchShortcut')"
           :aria-label="t('browse.searchLabel')"
+          @focus="onSearchFocus"
+          @blur="onSearchBlur"
           @input="onSearchInput(($event.target as HTMLInputElement).value)"
         />
         <!-- 有内容时提供一键清除：直接清队列/状态/刷新一次，
@@ -726,14 +792,48 @@ watch(
         >
           {{ t('ai.disabled') }}
         </span>
-        <span
+        <button
           v-else-if="!searchInput && aiStatus?.available"
-          class="browse__ai-on"
-          :title="t('ai.byImageHint')"
+          type="button"
+          class="browse__ai-on browse__ai-btn"
+          :title="`${t('ai.byImageHint')} · ${t('browse.pickImageSearch')}`"
+          @click="aiImageInputEl?.click()"
         >
           {{ t('ai.byImage') }}
-        </span>
+        </button>
+        <input
+          ref="aiImageInputEl"
+          type="file"
+          accept="image/*"
+          tabindex="-1"
+          class="sr-only"
+          @change="onPickAiFile"
+        />
         <kbd v-if="!searchInput && !aiBusy && !aiStatus" class="browse__search-kbd mono" aria-hidden="true">/</kbd>
+        <div
+          v-if="searchFocused && searchHistory.length && !searchInput"
+          class="browse__history"
+          role="listbox"
+          :aria-label="t('browse.searchHistory')"
+        >
+          <div class="browse__history-head">
+            <span>{{ t('browse.searchHistory') }}</span>
+            <button type="button" class="browse__history-clear" @mousedown.prevent="clearSearchHistory">
+              {{ t('browse.clearHistory') }}
+            </button>
+          </div>
+          <div class="browse__history-list">
+            <button
+              v-for="term in searchHistory"
+              :key="term"
+              type="button"
+              class="browse__history-item"
+              @mousedown.prevent="applyHistoryTerm(term)"
+            >
+              {{ term }}
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="browse__sorts" role="group" :aria-label="t('sort.label')">
@@ -1178,6 +1278,68 @@ watch(
   font-weight: 500;
 }
 
+.browse__ai-btn {
+  pointer-events: auto;
+  padding: 2px 8px;
+  border-radius: var(--p-radius-full);
+  background: var(--accent-soft);
+  transition: background-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.browse__ai-btn:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.browse__history {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 30;
+  padding: var(--p-space-2) var(--p-space-3);
+  border-radius: var(--p-radius-md);
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  box-shadow: var(--card-shadow-hover);
+}
+
+.browse__history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+  margin-bottom: var(--p-space-2);
+}
+
+.browse__history-clear {
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+}
+
+.browse__history-clear:hover {
+  color: var(--danger);
+}
+
+.browse__history-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--p-space-1);
+}
+
+.browse__history-item {
+  padding: 2px 10px;
+  border-radius: var(--p-radius-full);
+  font-size: var(--p-step--1);
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+}
+
+.browse__history-item:hover {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+
 .browse__ai-busy {
   animation: browse-pulse 1.2s var(--p-ease-in-out) infinite;
 }
@@ -1215,7 +1377,7 @@ watch(
   border: 1px solid var(--rule-strong);
   border-radius: var(--p-radius-md);
   /* 右侧预留清除按钮/AI 标识的位置，长搜索词不会压在按钮下面 */
-  padding: var(--p-space-2) var(--p-space-7) var(--p-space-2) var(--p-space-7);
+  padding: var(--p-space-2) var(--p-space-9) var(--p-space-2) var(--p-space-7);
   min-height: 36px;
   transition: border-color var(--p-dur-fast) var(--p-ease-out);
 }

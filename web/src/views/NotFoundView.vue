@@ -7,12 +7,16 @@ const { t } = useI18n()
 
 <template>
   <div class="not-found">
+    <svg class="not-found__art" width="56" height="56" viewBox="0 0 56 56" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="8" y="12" width="40" height="32" rx="4" />
+      <path d="M21 23l14 14M35 23L21 37" />
+    </svg>
     <p class="eyebrow mono">404</p>
     <h1>{{ t('notfound.heading') }}</h1>
     <p class="muted">{{ t('notfound.hint') }}</p>
     <div class="not-found__actions">
-      <RouterLink to="/" class="back">← {{ t('notfound.back') }}</RouterLink>
-      <RouterLink to="/browse" class="browse-link">{{ t('site.browse') }} →</RouterLink>
+      <RouterLink to="/" class="nf-btn nf-btn--primary">← {{ t('notfound.back') }}</RouterLink>
+      <RouterLink to="/browse" class="nf-btn nf-btn--ghost">{{ t('site.browse') }} →</RouterLink>
     </div>
   </div>
 </template>
@@ -20,35 +24,60 @@ const { t } = useI18n()
 <style scoped>
 .not-found {
   max-width: 640px;
-  margin: 0 auto;
-  padding: var(--p-space-9) var(--p-space-5);
+  margin: var(--p-space-7) auto 0;
+  padding: var(--p-space-8) var(--p-space-6);
   border-left: 2px solid var(--rule);
 }
 
+.not-found__art {
+  color: var(--ink-faint);
+  opacity: 0.72;
+  margin-bottom: var(--p-space-4);
+}
+
 .not-found h1 {
-  margin: var(--p-space-4) 0 var(--p-space-3);
+  margin: var(--p-space-3) 0 var(--p-space-3);
 }
 
 .not-found__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--p-space-5);
+  gap: var(--p-space-3);
   margin-top: var(--p-space-6);
 }
 
-.back {
-  display: inline-block;
-  color: var(--accent-hover);
-  border-bottom: 1px solid var(--accent);
+.nf-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 var(--p-space-4);
+  border-radius: var(--p-radius-md);
+  font-size: var(--p-step-0);
+  font-weight: 500;
+  transition:
+    background-color var(--p-dur-fast) var(--p-ease-out),
+    border-color var(--p-dur-fast) var(--p-ease-out);
 }
 
-.browse-link {
-  display: inline-block;
-  color: var(--ink-muted);
-  border-bottom: 1px solid var(--rule-strong);
+.nf-btn:hover {
+  text-decoration: none;
 }
 
-.browse-link:hover {
+.nf-btn--primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.nf-btn--primary:hover {
+  background: var(--accent-hover);
+}
+
+.nf-btn--ghost {
+  border: 1px solid var(--rule-strong);
   color: var(--ink);
+}
+
+.nf-btn--ghost:hover {
+  background: var(--surface-hover);
 }
 </style>

@@ -224,7 +224,16 @@ async function setHomeKind(kind: '' | 'image' | 'video') {
   filters.setKind(kind)
   window.scrollTo({ top: 0, behavior: 'auto' })
   await store.refresh()
-  if (!kind) await store.promoteFeatured()
+  if (!kind && filters.sort !== 'random') await store.promoteFeatured()
+}
+
+/** 首页随机漫步洗牌：让图墙常看常新 */
+async function toggleHomeShuffle() {
+  const next = filters.sort === 'random' ? 'newest' : 'random'
+  filters.setSort(next)
+  window.scrollTo({ top: 0, behavior: 'auto' })
+  await store.refresh()
+  if (next === 'newest' && !filters.kind) await store.promoteFeatured()
 }
 </script>
 
@@ -262,6 +271,15 @@ async function setHomeKind(kind: '' | 'image' | 'video') {
           {{ t('home.videos') }}
         </button>
       </div>
+
+      <button
+        type="button"
+        :class="['wall__action', { 'wall__action--on': filters.sort === 'random' }]"
+        :aria-pressed="filters.sort === 'random'"
+        @click="toggleHomeShuffle"
+      >
+        ↻ {{ t('home.shuffle') }}
+      </button>
 
       <button type="button" class="wall__search" :aria-label="t('browse.searchLabel')" @click="goSearch">
         <span aria-hidden="true">⌕</span>
@@ -504,6 +522,13 @@ async function setHomeKind(kind: '' | 'image' | 'video') {
 .wall__action:hover {
   color: var(--ink);
   border-color: var(--rule-strong);
+}
+
+.wall__action--on {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  border-color: var(--accent);
+  font-weight: 500;
 }
 
 .wall__skeleton {

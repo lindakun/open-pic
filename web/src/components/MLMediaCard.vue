@@ -174,6 +174,14 @@ const extraTagCount = computed(() => {
           <span class="ml-card__play" aria-hidden="true">▶</span>
           {{ item.duration ? `${formatNumber(Math.round(item.duration))}s` : t('facet.kindVideo') }}
         </span>
+        <!-- 不可商用授权提示：卡片态一目了然，避免选图后才发现受限 -->
+        <span
+          v-if="!selectable && item.commercial_ok === 0"
+          class="ml-card__personal"
+          :title="t('license.personalOnly')"
+        >
+          {{ t('card.personal') }}
+        </span>
         <!-- 选择圈：选择模式下常驻，避免 hover 才可见导致移动端不可用 -->
         <span v-if="selectable" :class="['ml-card__check', { 'ml-card__check--on': selected }]" aria-hidden="true">
           {{ selected ? '✓' : '' }}
@@ -458,6 +466,19 @@ const extraTagCount = computed(() => {
   border-radius: var(--p-radius-full);
   backdrop-filter: blur(4px);
   letter-spacing: 0.02em;
+}
+
+.ml-card__personal {
+  position: absolute;
+  left: var(--p-space-2);
+  bottom: var(--p-space-2);
+  padding: 1px 6px;
+  font-size: 0.625rem;
+  font-weight: 500;
+  border-radius: var(--p-radius-sm);
+  background: color-mix(in srgb, var(--danger) 88%, transparent);
+  color: #fff;
+  pointer-events: none;
 }
 
 .ml-card__meta {
