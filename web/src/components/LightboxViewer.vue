@@ -1890,6 +1890,7 @@ onUnmounted(() => {
 
 .panel__title {
   margin: 0;
+  color: inherit;
   font-size: var(--p-step-1);
   font-weight: 600;
   line-height: 1.3;
