@@ -190,7 +190,7 @@ const extraTagCount = computed(() => {
 
       <!-- 标题与数据：固定盒高（64px），保证瀑布流列高计算零偏差 -->
       <div class="ml-card__meta">
-        <span class="ml-card__title">{{ displayTitle }}</span>
+        <span class="ml-card__title" :title="displayTitle">{{ displayTitle }}</span>
         <span class="ml-card__foot">
           <span v-if="primaryPill" class="ml-card__tag">{{ primaryPill }}</span>
           <span v-if="extraTagCount > 0" class="ml-card__tag-more mono">+{{ extraTagCount }}</span>
@@ -501,6 +501,9 @@ const extraTagCount = computed(() => {
   line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   font-size: var(--p-step--1);
   font-weight: 500;
   line-height: 17px;

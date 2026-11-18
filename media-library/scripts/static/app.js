@@ -24,10 +24,35 @@
     selected: new Set(),
     curIdx: -1,
     collections: [],
+    popularTags: [],
+    batchTagMode: 'add',
     zoom: 1,
     panX: 0,
     panY: 0,
   };
+
+  function isMobileViewport() {
+    return window.innerWidth <= 860;
+  }
+
+  function syncSidebarBackdrop() {
+    const bd = $('#sidebarBackdrop');
+    if (!bd) return;
+    const openOnMobile = isMobileViewport() && !$('#sidebar').classList.contains('collapsed');
+    bd.hidden = !openOnMobile;
+  }
+
+  function closeMobileSidebar() {
+    if (isMobileViewport()) {
+      $('#sidebar').classList.add('collapsed');
+      syncSidebarBackdrop();
+    }
+  }
+
+  // 移动端默认收起侧边栏，避免首屏挤压主画廊
+  if (isMobileViewport()) {
+    $('#sidebar').classList.add('collapsed');
+  }
 
   // 初始化主题与视图
   document.documentElement.setAttribute('data-theme', state.theme);
@@ -74,7 +99,8 @@
       // 渲染热门标签云
       const cloud = $('#tagCloud');
       cloud.innerHTML = '';
-      (d.tags_list || []).slice(0, 40).forEach(t => {
+      state.popularTags = (d.tags_list || []).slice(0, 40);
+      state.popularTags.forEach(t => {
         const chip = document.createElement('span');
         chip.className = 'tag-chip';
         if (state.tags.includes(t.name)) chip.classList.add('on');
@@ -123,6 +149,7 @@
         div.onclick = () => {
           state.nav = 'collection';
           state.collectionId = c.id;
+          closeMobileSidebar();
           syncNavUI();
           loadItems(true);
         };
@@ -147,6 +174,8 @@
         c.style.width = '';
         c.style.left = '';
         c.style.top = '';
+        const box = c.querySelector('.thumb-box');
+        if (box) box.style.height = '';
       });
       return;
     }
@@ -222,6 +251,9 @@
       ? `<div class="badge">▶ ${it.duration ? fmtDur(it.duration) : '视频'}</div>`
       : '';
     const dim = it.width > 0 ? `${it.width}×${it.height}` : fmtBytes(it.size);
+    const extTxt = (it.ext || '').replace(/^\./, '').toUpperCase();
+    const specParts = [dim, extTxt, it.size ? fmtBytes(it.size) : '', it.source_platform && it.source_platform !== 'local' ? it.source_platform : ''].filter(Boolean);
+    const tagsHtml = (it.tags || []).slice(0, 3).map(t => `<span class="card-tag">#${esc(t)}</span>`).join('');
 
     el.innerHTML = `
       <div class="thumb-box" style="background:${esc(bg)}">
@@ -230,8 +262,11 @@
         <img loading="lazy" src="${thumbUrl}" alt="${esc(it.title)}">
       </div>
       <div class="meta">
-        <div class="meta-title">${esc(it.title || it.name)}</div>
-        <div class="meta-sub"><span>${esc(dim)}</span><span>${esc(it.source_platform || '')}</span></div>
+        <div class="meta-main">
+          <div class="meta-title" title="${esc(it.title || it.name)}">${esc(it.title || it.name)}</div>
+          ${tagsHtml ? `<div class="card-tags">${tagsHtml}</div>` : ''}
+        </div>
+        <div class="meta-sub"><span>${esc(dim)}</span><span>${esc(it.source_platform === 'local' ? extTxt : (it.source_platform || extTxt))}</span></div>
       </div>`;
 
     const img = el.querySelector('img');
@@ -576,6 +611,11 @@
 
   // ---------- 批量多选 ----------
 
+  function syncBatchBarVisibility(show) {
+    $('#batchBar').hidden = !show;
+    document.body.classList.toggle('has-batch-bar', Boolean(show));
+  }
+
   function toggleSelect(id, cardEl) {
     if (state.selected.has(id)) state.selected.delete(id);
     else state.selected.add(id);
@@ -585,14 +625,14 @@
       if (ck) ck.textContent = state.selected.has(id) ? '✓' : '';
     }
     $('#batchCount').textContent = state.selected.size;
-    $('#batchBar').hidden = state.selected.size === 0;
+    syncBatchBarVisibility(state.selected.size > 0);
   }
 
   function exitSelectMode() {
     state.selectMode = false;
     state.selected.clear();
     document.body.classList.remove('select-mode');
-    $('#batchBar').hidden = true;
+    syncBatchBarVisibility(false);
     $$('.card.selected').forEach(c => {
       c.classList.remove('selected');
       const ck = c.querySelector('.sel-check');
@@ -608,6 +648,7 @@
       $('#bRestore').hidden = state.nav !== 'trash';
       $('#bPurge').hidden = state.nav !== 'trash';
       $('#bDelete').hidden = state.nav === 'trash';
+      closeMobileSidebar();
       toast('已进入多选模式，点击卡片勾选');
     }
   };
@@ -630,15 +671,70 @@
     }
   }
 
-  $('#bAddTag').onclick = () => {
-    const raw = prompt('输入要批量添加的标签（逗号分隔）');
-    if (raw) runBatch('add_tags', { tags: raw.split(/[,，\s]+/).filter(Boolean) });
+  function openBatchTagModal(mode) {
+    state.batchTagMode = mode;
+    $('#batchTagTitle').textContent = mode === 'remove' ? '批量移除标签' : '批量打标签';
+    $('#batchTagHint').textContent = mode === 'remove'
+      ? `将从已选的 ${state.selected.size} 项中移除匹配的标签`
+      : `将追加到已选的 ${state.selected.size} 项，不会覆盖原有标签`;
+    const btn = $('#btnSubmitBatchTag');
+    btn.textContent = mode === 'remove' ? '确认移除' : '确定';
+    btn.className = mode === 'remove' ? 'btn danger' : 'btn primary';
+    const inp = $('#inBatchTags');
+    inp.value = '';
+    const picks = $('#batchTagPicks');
+    picks.innerHTML = '';
+    let tagCandidates = state.popularTags.slice(0, 12).map(x => x.name);
+    if (mode === 'remove') {
+      const selTags = new Set();
+      state.items.forEach(it => {
+        if (state.selected.has(it.id)) (it.tags || []).forEach(t => selTags.add(t));
+      });
+      if (selTags.size) tagCandidates = Array.from(selTags).slice(0, 16);
+    }
+    tagCandidates.forEach(name => {
+      const chip = document.createElement('span');
+      chip.className = 'tag-chip';
+      chip.textContent = name;
+      chip.onclick = () => {
+        const cur = inp.value.split(/[,，\s]+/).filter(Boolean);
+        const i = cur.indexOf(name);
+        if (i >= 0) cur.splice(i, 1);
+        else cur.push(name);
+        inp.value = cur.join(' ');
+        chip.classList.toggle('on', i < 0 && mode !== 'remove');
+        chip.classList.toggle('ex', i < 0 && mode === 'remove');
+      };
+      picks.appendChild(chip);
+    });
+    $('#batchTagModal').hidden = false;
+    inp.focus();
+  }
+
+  $('#bAddTag').onclick = () => openBatchTagModal('add');
+  $('#bRemTag').onclick = () => openBatchTagModal('remove');
+  $('#btnSubmitBatchTag').onclick = () => {
+    const tags = $('#inBatchTags').value.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean);
+    if (!tags.length) return toast('请输入或点选标签');
+    closeModal('batchTagModal');
+    runBatch(state.batchTagMode === 'remove' ? 'remove_tags' : 'add_tags', { tags });
   };
+  $('#inBatchTags').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); $('#btnSubmitBatchTag').click(); }
+  });
+
   $('#bAddCol').onclick = () => {
     if (!state.collections.length) return toast('请先在左侧新建画板');
-    const list = state.collections.map(c => `${c.id}: ${c.name}`).join('\n');
-    const cid = prompt(`输入目标画板 ID:\n${list}`);
-    if (cid && !isNaN(+cid)) runBatch('add_collection', { collection_id: +cid });
+    const sel = $('#inBatchCol');
+    sel.innerHTML = state.collections.map(c => `<option value="${c.id}">${esc(c.name)} (${c.item_count})</option>`).join('');
+    $('#batchColModal').hidden = false;
+    sel.focus();
+  };
+  $('#btnSubmitBatchCol').onclick = () => {
+    const cid = +$('#inBatchCol').value;
+    if (!cid) return;
+    closeModal('batchColModal');
+    runBatch('add_collection', { collection_id: cid });
   };
   $('#bDelete').onclick = () => runBatch('delete');
   $('#bRestore').onclick = () => runBatch('restore');
@@ -683,20 +779,50 @@
     const [sr, ar] = await Promise.all([fetch('/api/storage/summary'), fetch('/api/analytics')]);
     const st = await sr.json();
     const an = await ar.json();
+    const rows = [
+      { label: '原文件', files: st.files.files, bytes: st.files.bytes },
+      { label: '多规格缩略图', files: st.thumbs.files, bytes: st.thumbs.bytes },
+      { label: '视频动态预览', files: st.previews.files, bytes: st.previews.bytes },
+      { label: '兼容播放副本', files: st.play.files, bytes: st.play.bytes },
+    ];
+    if (st.imgcache && st.imgcache.files > 0) {
+      rows.push({ label: '按需变换缓存', files: st.imgcache.files, bytes: st.imgcache.bytes });
+    }
+    const mediaTotal = Math.max(rows.reduce((s, r) => s + (r.bytes || 0), 0), 1);
+    const diskUsed = Math.max(0, (st.disk_total || 0) - (st.disk_free || 0));
+    const diskPct = st.disk_total > 0 ? Math.min(100, Math.round(diskUsed * 100 / st.disk_total)) : 0;
+
     $('#storageBox').innerHTML = `
-      <div class="kv">
-        <span>原文件 (${st.files.files})</span><b>${fmtBytes(st.files.bytes)}</b>
-        <span>多规格缩略图 (${st.thumbs.files})</span><b>${fmtBytes(st.thumbs.bytes)}</b>
-        <span>视频动态预览 (${st.previews.files})</span><b>${fmtBytes(st.previews.bytes)}</b>
-        <span>兼容播放副本 (${st.play.files})</span><b>${fmtBytes(st.play.bytes)}</b>
-        <span>磁盘可用空间</span><b>${fmtBytes(st.disk_free)} / ${fmtBytes(st.disk_total)}</b>
+      <div class="storage-list">
+        ${rows.map(r => {
+          const pct = r.bytes > 0 ? Math.max(2, Math.round(r.bytes * 100 / mediaTotal)) : 0;
+          return `<div class="storage-row">
+            <div class="storage-head"><span>${esc(r.label)} (${r.files})</span><b>${fmtBytes(r.bytes)}</b></div>
+            <div class="storage-track"><div class="storage-fill" style="width:${pct}%"></div></div>
+          </div>`;
+        }).join('')}
+        <div class="storage-row storage-disk">
+          <div class="storage-head"><span>磁盘空间（可用 ${fmtBytes(st.disk_free)}）</span><b>${diskPct}% · ${fmtBytes(diskUsed)} / ${fmtBytes(st.disk_total)}</b></div>
+          <div class="storage-track"><div class="storage-fill ok" style="width:${diskPct}%"></div></div>
+        </div>
       </div>`;
 
     const daily = an.daily_ingest || [];
     const maxC = Math.max(...daily.map(d => d.cnt), 1);
+    const sumC = daily.reduce((s, d) => s + (d.cnt || 0), 0);
+    const dailyHead = $('#dailyChart').previousElementSibling;
+    if (dailyHead && dailyHead.tagName === 'H3') {
+      dailyHead.innerHTML = `<span>近 30 天入库趋势</span><small>合计 ${sumC} 项 · 峰值 ${daily.length ? maxC : 0}/天</small>`;
+    }
+    const axis = daily.length > 1
+      ? `<div class="chart-axis"><span>${esc(daily[0].day)}</span><span>${esc(daily[daily.length - 1].day)}</span></div>`
+      : '';
     $('#dailyChart').innerHTML = daily.length
-      ? daily.map(d => `<div class="bar-col" style="height:${Math.max(6, Math.round(d.cnt * 100 / maxC))}%" title="${d.day}: ${d.cnt} 项"></div>`).join('')
+      ? daily.map(d => `<div class="bar-col" style="height:${Math.max(6, Math.round(d.cnt * 100 / maxC))}%" title="${esc(d.day)}: ${d.cnt} 项"></div>`).join('')
       : '<span class="muted">暂无近 30 天入库数据</span>';
+    const oldAxis = $('#dailyChart').parentElement.querySelector('.chart-axis');
+    if (oldAxis) oldAxis.remove();
+    if (axis) $('#dailyChart').insertAdjacentHTML('afterend', axis);
 
     $('#topViewed').innerHTML = (an.top_viewed || []).map(it => `
       <div class="top-item" onclick="window.open('/s/${it.id}','_blank')">
@@ -755,11 +881,14 @@
 
   function syncNavUI() {
     $$('.nav-item').forEach(n => n.classList.toggle('on', n.dataset.nav === state.nav));
-    $$('.col-item').forEach(c => c.classList.remove('on'));
+    $$('.col-item').forEach((c, idx) => {
+      const col = state.collections[idx];
+      c.classList.toggle('on', state.nav === 'collection' && col && col.id === state.collectionId);
+    });
     const isAna = state.nav === 'analytics';
     $('#gallery').hidden = isAna;
     $('#done').hidden = isAna;
-    $('#activeBar').hidden = isAna;
+    if (isAna) $('#activeBar').hidden = true;
     $('#analyticsView').hidden = !isAna;
     if (isAna) loadAnalytics();
   }
@@ -769,6 +898,7 @@
       state.nav = n.dataset.nav;
       state.collectionId = null;
       exitSelectMode();
+      closeMobileSidebar();
       syncNavUI();
       if (state.nav !== 'analytics') loadItems(true);
     };
@@ -781,6 +911,11 @@
     state.orientation = '';
     state.platform = '';
     state.color = '';
+    if (state.nav === 'collection' || state.nav === 'trash') {
+      state.nav = 'all';
+      state.collectionId = null;
+      syncNavUI();
+    }
     $('#q').value = '';
     $('#btnClearQ').hidden = true;
     $('#orientFilter').value = '';
@@ -835,7 +970,41 @@
     };
   });
 
-  $('#btnSidebar').onclick = () => { $('#sidebar').classList.toggle('collapsed'); requestAnimationFrame(layoutMasonry); };
+  $('#btnSidebar').onclick = () => {
+    $('#sidebar').classList.toggle('collapsed');
+    syncSidebarBackdrop();
+    requestAnimationFrame(layoutMasonry);
+  };
+  if ($('#sidebarBackdrop')) {
+    $('#sidebarBackdrop').onclick = () => {
+      $('#sidebar').classList.add('collapsed');
+      syncSidebarBackdrop();
+    };
+  }
+  window.addEventListener('resize', syncSidebarBackdrop, { passive: true });
+
+  // 所有弹窗与任务抽屉统一支持点击遮罩或按 Esc 关闭
+  $$('.modal').forEach(m => {
+    m.addEventListener('click', e => {
+      if (e.target === m) m.hidden = true;
+    });
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    const openModal = $$('.modal').find(m => !m.hidden);
+    if (openModal) {
+      openModal.hidden = true;
+      return;
+    }
+    if (!$('#jobsDrawer').hidden) {
+      $('#jobsDrawer').hidden = true;
+      return;
+    }
+    if (state.selectMode && $('#lb').hidden) {
+      exitSelectMode();
+    }
+  });
+
   $('#btnTheme').onclick = () => {
     state.theme = state.theme === 'dark' ? 'light' : 'dark';
     localStorage.setItem('mlib_theme', state.theme);

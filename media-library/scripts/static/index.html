@@ -48,8 +48,11 @@
       <button class="btn" id="btnSelectMode">☑ 多选</button>
       <button class="icon-btn" id="btnJobs" title="任务中心">⚡<span class="dot" id="jobDot" hidden></span></button>
       <button class="icon-btn" id="btnTheme" title="切换明暗主题">◐</button>
+      <a class="btn" href="/app/" title="打开前台沉浸浏览页">↗ 前台</a>
     </div>
   </header>
+
+  <div class="sidebar-backdrop" id="sidebarBackdrop" hidden></div>
 
   <div class="layout">
     <!-- 左侧边栏 -->
@@ -143,6 +146,7 @@
   <div class="batch-bar" id="batchBar" hidden>
     <span>已选 <b id="batchCount">0</b> 项</span>
     <button class="btn" id="bAddTag">+ 打标签</button>
+    <button class="btn" id="bRemTag">− 移除标签</button>
     <button class="btn" id="bAddCol">+ 加入画板</button>
     <button class="btn" id="bZip">⬇ 打包 ZIP</button>
     <button class="btn danger" id="bDelete">🗑 移入回收站</button>
@@ -193,6 +197,33 @@
       <div class="modal-foot">
         <button class="btn" onclick="closeModal('colModal')">取消</button>
         <button class="btn primary" id="btnSubmitCol">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 批量标签弹窗 -->
+  <div class="modal" id="batchTagModal" hidden>
+    <div class="modal-card">
+      <h3 id="batchTagTitle">批量打标签</h3>
+      <p class="muted" id="batchTagHint">输入标签（逗号或空格分隔），也可点选下方常用标签</p>
+      <input id="inBatchTags" class="inp" placeholder="如：人物 壁纸">
+      <div class="tag-cloud" id="batchTagPicks" style="margin-top:10px"></div>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeModal('batchTagModal')">取消</button>
+        <button class="btn primary" id="btnSubmitBatchTag">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 批量加入画板弹窗 -->
+  <div class="modal" id="batchColModal" hidden>
+    <div class="modal-card">
+      <h3>加入画板</h3>
+      <p class="muted">将已选资产批量归入目标画板</p>
+      <select id="inBatchCol" class="sel full" style="margin-top:10px"></select>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeModal('batchColModal')">取消</button>
+        <button class="btn primary" id="btnSubmitBatchCol">确定</button>
       </div>
     </div>
   </div>

@@ -123,7 +123,7 @@ export const useFilterStore = defineStore('filters', () => {
   function syncUrl(): void {
     window.clearTimeout(syncTimer)
     syncTimer = window.setTimeout(() => {
-      router.replace({ query: toUrlQuery() })
+      void router?.replace({ query: toUrlQuery() })
     }, 200)
   }
 

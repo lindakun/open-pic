@@ -724,6 +724,18 @@ const shortcuts = computed(() => [
   { key: '?', desc: t('shortcut.help') },
 ])
 
+function scrollLbFilmToCurrent() {
+  void nextTick(() => {
+    dialogRef.value
+      ?.querySelector<HTMLElement>('.lb-film--cur')
+      ?.scrollIntoView?.({ block: 'nearest', inline: 'center', behavior: 'smooth' })
+  })
+}
+
+watch(filmstripOpen, (open) => {
+  if (open) scrollLbFilmToCurrent()
+})
+
 // 切换条目时复位视图状态并预加载相邻图片
 watch(
   () => props.item.id,
@@ -739,6 +751,7 @@ watch(
     // 切图时若帮助浮层还开着，关掉避免说明与当前内容脱节
     if (helpOpen.value) closeHelp()
     preloadNeighbors()
+    if (filmstripOpen.value) scrollLbFilmToCurrent()
     if (infoOpen.value) void loadSimilar()
   },
   { immediate: true },

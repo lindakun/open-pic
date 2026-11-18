@@ -204,6 +204,19 @@ function groupActiveCount(key: string): number {
           :title="hex.toUpperCase()"
           @click="togglePresetColor(hex)"
         />
+        <div v-if="filters.color" class="facet__color-current">
+          <span class="facet__color-preview" :style="{ backgroundColor: filters.color }" aria-hidden="true" />
+          <span class="mono">{{ filters.color.toUpperCase() }}</span>
+          <button
+            type="button"
+            class="facet__color-clear"
+            :aria-label="t('facet.clearColor')"
+            :title="t('facet.clearColor')"
+            @click="filters.setColor('')"
+          >
+            ×
+          </button>
+        </div>
       </div>
     </details>
 
@@ -288,6 +301,7 @@ function groupActiveCount(key: string): number {
   flex-direction: column;
   gap: var(--p-space-1);
   font-size: var(--p-step--1);
+  overflow-x: hidden;
 }
 
 .facets__head {
@@ -484,6 +498,7 @@ function groupActiveCount(key: string): number {
 
 .facet__colors {
   gap: var(--p-space-2);
+  padding: 4px 4px var(--p-space-3);
 }
 
 .facet__color-dot {
@@ -497,11 +512,48 @@ function groupActiveCount(key: string): number {
 }
 
 .facet__color-dot:hover {
-  transform: scale(1.14);
+  transform: scale(1.12);
 }
 
 .facet__color-dot--on {
-  transform: scale(1.14);
-  box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--accent);
+  transform: scale(1.12);
+  box-shadow: 0 0 0 2px var(--paper), 0 0 0 3.5px var(--accent);
+}
+
+.facet__color-current {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--p-space-1);
+  margin-top: 2px;
+  padding: 2px var(--p-space-2);
+  border-radius: var(--p-radius-full);
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+  font-size: 0.75rem;
+}
+
+.facet__color-preview {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--p-radius-full);
+  border: 1px solid var(--rule-strong);
+  flex-shrink: 0;
+}
+
+.facet__color-clear {
+  margin-left: auto;
+  min-width: 18px;
+  min-height: 18px;
+  border-radius: var(--p-radius-full);
+  color: var(--ink-muted);
+  display: grid;
+  place-items: center;
+  line-height: 1;
+}
+
+.facet__color-clear:hover {
+  background: var(--surface-hover);
+  color: var(--danger);
 }
 </style>

@@ -180,8 +180,8 @@ function formatRelative(tsMs: number): string {
           <span aria-hidden="true">◷</span>
           <span v-if="recent.length" class="icon-btn__badge mono">{{ recent.length > 99 ? '99+' : recent.length }}</span>
         </button>
-        <!-- 管理后台是独立的旧版单页，用普通链接跳转，不经 SPA 路由 -->
-        <a href="/admin" class="admin-link" :title="t('site.admin')">{{ t('site.admin') }}</a>
+        <!-- 管理后台是独立的旧版单页，用普通链接跳转（带尾斜杠避免 302 往返） -->
+        <a href="/admin/" class="admin-link" :title="t('site.admin')">{{ t('site.admin') }}</a>
       </div>
     </div>
     <div

@@ -89,6 +89,25 @@ function clearSearchHistory() {
   }
 }
 
+function removeSearchHistory(term: string) {
+  const next = searchHistory.value.filter((x) => x !== term)
+  searchHistory.value = next
+  try {
+    if (next.length) localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(next))
+    else localStorage.removeItem(SEARCH_HISTORY_KEY)
+  } catch {
+    // 忽略
+  }
+}
+
+function onSearchKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    e.stopPropagation()
+    searchFocused.value = false
+    searchInputEl.value?.blur()
+  }
+}
+
 let debounceTimer: number | undefined
 
 function onSearchInput(value: string) {
@@ -255,6 +274,23 @@ const allSelected = computed(
     visibleItems.value.length > 0 &&
     selectedIds.value.length >= visibleItems.value.length,
 )
+
+/** 提取当前已选条目实际包含的标签集合（按频次排序），供批量移除标签直接点选 */
+const selectedItemTags = computed(() => {
+  if (!selectedIds.value.length) return []
+  const picked = new Set(selectedIds.value)
+  const freq = new Map<string, number>()
+  for (const it of store.items) {
+    if (!picked.has(it.id)) continue
+    for (const tag of it.tags ?? []) {
+      if (tag) freq.set(tag, (freq.get(tag) ?? 0) + 1)
+    }
+  }
+  return Array.from(freq.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([tag]) => tag)
+    .slice(0, 16)
+})
 
 function toggleSelectAll() {
   if (allSelected.value) clearSelection()
@@ -474,6 +510,9 @@ function stepVisible(delta: number) {
     store.openLightbox(real)
     pushRecent({ id: target.id, title: target.title || target.name, kind: target.kind })
   }
+  if (delta > 0 && next >= visibleItems.value.length - 4 && store.hasMore && !store.loading) {
+    void store.load()
+  }
 }
 
 function stepVisibleToFirst() {
@@ -492,8 +531,10 @@ function onCloseLightbox() {
 }
 
 const compareCandidates = computed(() => {
-  const start = Math.max(0, store.lightboxIndex - 4)
-  return store.items.slice(start, start + 8)
+  const list = visibleItems.value
+  const idx = visibleIndex.value >= 0 ? visibleIndex.value : store.lightboxIndex
+  const start = Math.max(0, idx - 8)
+  return list.slice(start, start + 20)
 })
 
 function onSelectSimilar(sim: { id: string; slug?: string }) {
@@ -832,6 +873,7 @@ watch(
           :aria-label="t('browse.searchLabel')"
           @focus="onSearchFocus"
           @blur="onSearchBlur"
+          @keydown="onSearchKeydown"
           @input="onSearchInput(($event.target as HTMLInputElement).value)"
         />
         <button
@@ -879,15 +921,27 @@ watch(
             </button>
           </div>
           <div class="wall-search__history-list">
-            <button
+            <span
               v-for="term in searchHistory"
               :key="term"
-              type="button"
-              class="wall-search__history-item"
-              @mousedown.prevent="applyHistoryTerm(term)"
+              class="wall-search__history-chip"
             >
-              {{ term }}
-            </button>
+              <button
+                type="button"
+                class="wall-search__history-item"
+                @mousedown.prevent="applyHistoryTerm(term)"
+              >
+                {{ term }}
+              </button>
+              <button
+                type="button"
+                class="wall-search__history-del"
+                :aria-label="`${t('browse.removeHistoryItem')} ${term}`"
+                @mousedown.prevent="removeSearchHistory(term)"
+              >
+                ×
+              </button>
+            </span>
           </div>
         </div>
       </div>
@@ -1019,15 +1073,6 @@ watch(
           {{ selectMode ? t('batch.exitSelect') : t('batch.select') }}
         </button>
 
-        <button
-          v-if="selectMode && visibleItems.length"
-          type="button"
-          class="wall__pill-btn"
-          @click="toggleSelectAll"
-        >
-          {{ allSelected ? t('batch.unselectAll') : t('batch.selectAll') }}
-        </button>
-
         <button type="button" class="wall__pill-btn" @click="uploadOpen = true">
           + {{ t('home.upload') }}
         </button>
@@ -1129,8 +1174,20 @@ watch(
       </MLButton>
     </div>
 
-    <div v-if="selectMode && visibleItems.length > 1" class="wall__select-hint muted">
-      {{ t('browse.shiftRangeHint') }}
+    <div v-if="selectMode && visibleItems.length" class="wall__select-bar">
+      <button
+        type="button"
+        class="wall__pill-btn"
+        @click="toggleSelectAll"
+      >
+        {{ allSelected ? t('batch.unselectAll') : `${t('batch.selectAll')} (${visibleItems.length})` }}
+      </button>
+      <span v-if="selectedIds.length" class="wall__select-count mono">
+        {{ t('batch.selected', { count: selectedIds.length }) }}
+      </span>
+      <span v-if="visibleItems.length > 1" class="wall__select-hint muted">
+        {{ t('browse.shiftRangeHint') }}
+      </span>
     </div>
 
     <!-- 主体区：默认单栏全宽瀑布流；展开筛选时切换为左栏分面 + 右栏图墙 -->
@@ -1244,7 +1301,13 @@ watch(
         </p>
         <div v-if="onlyLiked && store.hasMore && !store.loading" class="wall__liked-more">
           <span class="muted">
-            {{ t('browse.likedLoadMoreHint', { loaded: store.items.length, total: store.total }) }}
+            {{
+              t('browse.likedLoadMoreHint', {
+                loaded: store.items.length,
+                remaining: Math.max(0, store.total - store.items.length),
+                total: store.total,
+              })
+            }}
           </span>
           <MLButton variant="ghost" size="sm" @click="store.load()">
             {{ t('browse.loadMoreToFindLikes') }}
@@ -1256,8 +1319,8 @@ watch(
     <LightboxViewer
       v-if="store.currentItem"
       :item="store.currentItem"
-      :index="store.lightboxIndex + 1"
-      :total="store.items.length"
+      :index="visibleIndex >= 0 ? visibleIndex + 1 : store.lightboxIndex + 1"
+      :total="onlyLiked ? visibleItems.length : Math.max(store.total, store.items.length)"
       :has-prev="visibleHasPrev"
       :has-next="visibleHasNext"
       :candidates="compareCandidates"
@@ -1300,6 +1363,7 @@ watch(
       :selected="selectedIds"
       :collections="collections"
       :available-tags="(store.facets?.tag ?? []).filter((x) => x.count > 0).slice(0, 12).map((x) => x.value)"
+      :selected-tags="selectedItemTags"
       @clear="clearSelection"
       @done="onBatchDone"
     />
@@ -1474,13 +1538,13 @@ watch(
   position: absolute;
   left: 0;
   right: 0;
-  top: calc(100% + 6px);
-  z-index: var(--p-z-header);
-  padding: var(--p-space-2) var(--p-space-3);
-  border-radius: var(--p-radius-md);
+  top: calc(100% + 8px);
+  z-index: calc(var(--p-z-header) + 5);
+  padding: var(--p-space-3);
+  border-radius: var(--p-radius-lg);
   background: var(--surface);
   border: 1px solid var(--rule-strong);
-  box-shadow: var(--card-shadow-hover);
+  box-shadow: var(--sheet-shadow);
 }
 
 .wall-search__history-head {
@@ -1504,20 +1568,49 @@ watch(
 .wall-search__history-list {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--p-space-1);
+  gap: 6px;
+}
+
+.wall-search__history-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--p-radius-full);
+  background: var(--surface-sunken);
+  border: 1px solid transparent;
+  transition:
+    background-color var(--p-dur-fast) var(--p-ease-out),
+    border-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.wall-search__history-chip:hover {
+  background: var(--accent-soft);
+  border-color: var(--rule-strong);
 }
 
 .wall-search__history-item {
-  padding: 2px 10px;
-  border-radius: var(--p-radius-full);
+  padding: 2px 6px 2px 10px;
   font-size: var(--p-step--1);
-  background: var(--surface-sunken);
   color: var(--ink-muted);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.wall-search__history-item:hover {
-  background: var(--accent-soft);
+.wall-search__history-chip:hover .wall-search__history-item {
   color: var(--accent-hover);
+}
+
+.wall-search__history-del {
+  padding: 0 7px 0 2px;
+  font-size: 0.8125rem;
+  line-height: 1;
+  color: var(--ink-faint);
+  border-radius: 0 var(--p-radius-full) var(--p-radius-full) 0;
+}
+
+.wall-search__history-del:hover {
+  color: var(--danger);
 }
 
 /* ---------- 悬浮控制条 ---------- */
@@ -1771,9 +1864,28 @@ watch(
   font-size: var(--p-step--1);
 }
 
+.wall__select-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--p-space-2) var(--p-space-3);
+  margin-bottom: var(--p-space-3);
+  padding: 4px var(--p-space-2) 4px 4px;
+  border-radius: var(--p-radius-full);
+  background: var(--surface-sunken);
+  width: fit-content;
+  max-width: 100%;
+}
+
+.wall__select-count {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent-hover);
+}
+
 .wall__select-hint {
   font-size: 0.75rem;
-  margin-bottom: var(--p-space-3);
+  padding-right: var(--p-space-2);
 }
 
 /* ---------- 布局：默认全宽图墙，展开筛选时两栏并排 ---------- */
@@ -1793,6 +1905,8 @@ watch(
   top: calc(var(--header-offset, 0px) + 52px);
   max-height: calc(100vh - var(--header-offset, 0px) - var(--p-space-8));
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   padding-right: var(--p-space-2);
   scrollbar-width: thin;
   scrollbar-color: var(--rule-strong) transparent;

@@ -10,3 +10,4 @@ venv/
 *.log
 *.pid
 .DS_Store
+screenshots/

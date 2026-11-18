@@ -18,6 +18,8 @@ const props = defineProps<{
   selected: string[]
   collections?: Collection[]
   availableTags?: string[]
+  /** 当前已选素材实际携带的标签，供「移除标签」模式优先点选 */
+  selectedTags?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -39,6 +41,14 @@ const collectionOpen = ref(false)
 const targetCollection = ref<number | null>(null)
 
 const count = computed(() => props.selected.length)
+
+/** 候选标签列表：移除模式优先展示当前已选项拥有的标签，无则回退全库标签 */
+const candidateTags = computed(() => {
+  if (tagMode.value === 'remove' && props.selectedTags?.length) {
+    return props.selectedTags
+  }
+  return props.availableTags ?? []
+})
 
 /**
  * 批量条出现时抬高 toast 的基线高度，避免两者在底部中央重叠。
@@ -229,7 +239,7 @@ async function exportZip() {
       </button>
     </div>
 
-    <!-- 批量打标 -->
+    <!-- 批量打标 / 移除标签 -->
     <MLSheet
       v-model:open="tagOpen"
       :title="tagMode === 'remove' ? t('batch.tagsRemoveTitle') : t('batch.tagsTitle')"
@@ -238,17 +248,25 @@ async function exportZip() {
       <div class="batch__form" @keydown.enter.prevent="applyTags">
         <MLField
           v-model="tagDraft"
-          :label="t('upload.fieldTags')"
-          :placeholder="t('upload.tagsPlaceholder')"
-          :hint="t('batch.tagsHint', { count })"
+          :label="tagMode === 'remove' ? t('batch.tagsRemoveField') : t('upload.fieldTags')"
+          :placeholder="tagMode === 'remove' ? t('batch.tagsRemovePlaceholder') : t('upload.tagsPlaceholder')"
+          :hint="tagMode === 'remove' ? t('batch.tagsRemoveHint', { count }) : t('batch.tagsHint', { count })"
         />
-        <div v-if="availableTags?.length" class="batch__tag-picks">
-          <span class="batch__tag-picks-label">{{ t('batch.availableTags') }}</span>
+        <div v-if="candidateTags.length" class="batch__tag-picks">
+          <span class="batch__tag-picks-label">
+            {{ tagMode === 'remove' && selectedTags?.length ? t('batch.selectedItemsTags') : t('batch.availableTags') }}
+          </span>
           <button
-            v-for="tag in availableTags"
+            v-for="tag in candidateTags"
             :key="tag"
             type="button"
-            :class="['batch__tag-pick', { 'batch__tag-pick--on': hasDraftTag(tag) }]"
+            :class="[
+              'batch__tag-pick',
+              {
+                'batch__tag-pick--on': hasDraftTag(tag) && tagMode !== 'remove',
+                'batch__tag-pick--remove': hasDraftTag(tag) && tagMode === 'remove',
+              },
+            ]"
             @click="appendAvailableTag(tag)"
           >
             {{ tag }}
@@ -256,8 +274,12 @@ async function exportZip() {
         </div>
         <div class="batch__form-actions">
           <MLButton variant="quiet" @click="tagOpen = false">{{ t('common.cancel') }}</MLButton>
-          <MLButton :disabled="busy || !tagDraft.trim()" @click="applyTags">
-            {{ t('common.confirm') }}
+          <MLButton
+            :variant="tagMode === 'remove' ? 'danger' : 'primary'"
+            :disabled="busy || !tagDraft.trim()"
+            @click="applyTags"
+          >
+            {{ tagMode === 'remove' ? t('batch.tagsRemoveConfirm') : t('common.confirm') }}
           </MLButton>
         </div>
       </div>
@@ -295,8 +317,9 @@ async function exportZip() {
   max-width: calc(100vw - var(--p-space-5) * 2);
   padding: var(--p-space-2) var(--p-space-3);
   border-radius: var(--p-radius-full);
-  background: var(--surface);
-  border: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(14px) saturate(1.1);
+  border: 1px solid var(--rule-strong);
   box-shadow: var(--bar-shadow);
   animation: batch-in var(--p-dur-base) var(--p-ease-out);
 }
@@ -388,6 +411,14 @@ async function exportZip() {
   background: var(--accent-soft);
   color: var(--accent-hover);
   border-color: var(--accent);
+}
+
+.batch__tag-pick--remove,
+.batch__tag-pick--remove:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: var(--danger);
+  text-decoration: line-through;
 }
 
 .batch__label {

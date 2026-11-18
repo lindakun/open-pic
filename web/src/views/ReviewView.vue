@@ -18,8 +18,15 @@ import { copyText } from '@/composables/useClipboard'
 import type { MediaItem } from '@/api/types'
 
 const route = useRoute()
-const { t, formatBytes, formatDate } = useI18n()
-const { mode: themeMode, cycle: cycleTheme } = useTheme()
+const { t, locale, toggleLocale, formatBytes, formatDate } = useI18n()
+const { mode: themeMode, resolved: resolvedTheme, cycle: cycleTheme } = useTheme()
+
+const themeHint = computed(() => {
+  if (themeMode.value === 'light') return t('site.themeLight')
+  if (themeMode.value === 'dark') return t('site.themeDark')
+  const active = resolvedTheme.value === 'dark' ? t('site.themeDarkShort') : t('site.themeLightShort')
+  return `${t('site.themeAutoShort')} · ${active}`
+})
 
 const token = computed(() => String(route.params.token ?? ''))
 const items = ref<MediaItem[]>([])
@@ -379,30 +386,51 @@ onUnmounted(() => {
 <template>
   <div class="review">
     <header class="review__head">
-      <button
-        type="button"
-        class="review__theme mono"
-        :aria-label="t('site.toggleTheme')"
-        :title="t('site.toggleTheme')"
-        @click="cycleTheme"
-      >
-        {{ themeMode === 'light' ? '☀' : themeMode === 'dark' ? '☾' : '◐' }}
-      </button>
-      <h1 class="review__title">{{ linkTitle || t('review.title') }}</h1>
-      <p v-if="linkMessage" class="review__msg">{{ linkMessage }}</p>
-      <p v-if="linkExpiresAt" class="review__msg mono">
-        {{ t('review.expires', { date: formatDate(linkExpiresAt) }) }}
+      <div class="review__head-bar">
+        <a href="/app/" class="review__brand">
+          <span class="review__brand-mark" aria-hidden="true">◐</span>
+          <span>{{ t('site.name') }}</span>
+        </a>
+        <div class="review__head-center">
+          <h1 class="review__title">{{ linkTitle || t('review.title') }}</h1>
+          <span class="review__hint">{{ t('review.hint') }}</span>
+        </div>
+        <div class="review__head-tools">
+          <label class="review__who">
+            <span>{{ t('review.reviewer') }}</span>
+            <input
+              v-model="reviewer"
+              type="text"
+              :placeholder="t('review.reviewerPlaceholder')"
+              maxlength="40"
+            />
+          </label>
+          <button
+            type="button"
+            class="review__lang mono"
+            :aria-label="locale === 'zh-CN' ? t('site.switchToEn') : t('site.switchToZh')"
+            :title="locale === 'zh-CN' ? t('site.switchToEn') : t('site.switchToZh')"
+            @click="toggleLocale"
+          >
+            {{ locale === 'zh-CN' ? 'EN' : '中' }}
+          </button>
+          <button
+            type="button"
+            class="review__theme mono"
+            :aria-label="`${t('site.toggleTheme')} (${themeHint})`"
+            :title="themeHint"
+            @click="cycleTheme"
+          >
+            {{ themeMode === 'light' ? '☀' : themeMode === 'dark' ? '☾' : '◐' }}
+          </button>
+        </div>
+      </div>
+      <p v-if="linkMessage || linkExpiresAt" class="review__sub">
+        <span v-if="linkMessage" class="review__msg">{{ linkMessage }}</span>
+        <span v-if="linkExpiresAt" class="review__msg mono">
+          {{ t('review.expires', { date: formatDate(linkExpiresAt) }) }}
+        </span>
       </p>
-      <p class="review__hint">{{ t('review.hint') }}</p>
-      <label class="review__who">
-        <span>{{ t('review.reviewer') }}</span>
-        <input
-          v-model="reviewer"
-          type="text"
-          :placeholder="t('review.reviewerPlaceholder')"
-          maxlength="40"
-        />
-      </label>
     </header>
 
     <div v-if="loading" class="review__state" role="status">
@@ -477,48 +505,50 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <div class="review__actions">
-          <button
-            type="button"
-            :class="['rv-btn', { 'rv-btn--selected': markOf(current?.id ?? '')?.state === 'selected' }]"
-            @click="setMark('selected')"
-          >
-            ✓ {{ t('review.selected') }}
-          </button>
-          <button
-            type="button"
-            :class="['rv-btn', { 'rv-btn--pending': markOf(current?.id ?? '')?.state === 'pending' }]"
-            @click="setMark('pending')"
-          >
-            ? {{ t('review.pending') }}
-          </button>
-          <button
-            type="button"
-            :class="['rv-btn', { 'rv-btn--rejected': markOf(current?.id ?? '')?.state === 'rejected' }]"
-            @click="setMark('rejected')"
-          >
-            ✕ {{ t('review.rejected') }}
-          </button>
-          <label class="review__auto-next">
-            <input v-model="autoNext" type="checkbox" />
-            <span>{{ t('review.autoNext') }}</span>
-          </label>
-        </div>
+        <div class="review__workbench">
+          <div class="review__actions">
+            <button
+              type="button"
+              :class="['rv-btn', { 'rv-btn--selected': markOf(current?.id ?? '')?.state === 'selected' }]"
+              @click="setMark('selected')"
+            >
+              ✓ {{ t('review.selected') }}
+            </button>
+            <button
+              type="button"
+              :class="['rv-btn', { 'rv-btn--pending': markOf(current?.id ?? '')?.state === 'pending' }]"
+              @click="setMark('pending')"
+            >
+              ? {{ t('review.pending') }}
+            </button>
+            <button
+              type="button"
+              :class="['rv-btn', { 'rv-btn--rejected': markOf(current?.id ?? '')?.state === 'rejected' }]"
+              @click="setMark('rejected')"
+            >
+              ✕ {{ t('review.rejected') }}
+            </button>
+            <label class="review__auto-next">
+              <input v-model="autoNext" type="checkbox" />
+              <span>{{ t('review.autoNext') }}</span>
+            </label>
+          </div>
 
-        <div class="review__note">
-          <label :for="'note'" class="sr-only">{{ t('review.note') }}</label>
-          <textarea
-            id="note"
-            v-model="noteDraft"
-            :placeholder="`${t('review.notePlaceholder')} (${t('review.noteShortcutHint')})`"
-            rows="2"
-            @keydown.ctrl.enter.prevent="saveNote"
-            @keydown.meta.enter.prevent="saveNote"
-          />
-          <button type="button" class="rv-btn" @click="saveNote">{{ t('review.saveNote') }}</button>
+          <div class="review__note">
+            <label :for="'note'" class="sr-only">{{ t('review.note') }}</label>
+            <textarea
+              id="note"
+              v-model="noteDraft"
+              :placeholder="`${t('review.notePlaceholder')} (${t('review.noteShortcutHint')})`"
+              rows="1"
+              @keydown.ctrl.enter.prevent="saveNote"
+              @keydown.meta.enter.prevent="saveNote"
+            />
+            <button type="button" class="rv-btn" @click="saveNote">{{ t('review.saveNote') }}</button>
+            <span v-if="saving" class="review__saving">{{ t('review.saving') }}</span>
+            <span v-else-if="savedAt" class="review__saving review__saving--ok">✓ {{ t('review.saved') }}</span>
+          </div>
         </div>
-        <p v-if="saving" class="review__saving">{{ t('review.saving') }}</p>
-        <p v-else-if="savedAt" class="review__saving">{{ t('review.saved') }}</p>
       </main>
 
       <!-- 底部胶片条过滤与缩略图 -->
@@ -587,40 +617,93 @@ onUnmounted(() => {
 
 <style scoped>
 .review {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   background: var(--paper);
+  color: var(--ink);
   /* 375px 下也不出横向滚动 */
   max-width: 100vw;
   overflow-x: hidden;
 }
 
 .review__head {
-  position: relative;
-  padding: var(--p-space-4) var(--p-space-5) var(--p-space-2);
-  max-width: 900px;
-  margin: 0 auto;
-  width: 100%;
-  text-align: center;
+  padding: var(--p-space-2) var(--p-space-4);
+  border-bottom: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--paper) 90%, transparent);
+  backdrop-filter: blur(10px);
 }
 
-.review__theme {
-  position: absolute;
-  top: var(--p-space-4);
-  right: var(--p-space-4);
-  width: 32px;
-  height: 32px;
+.review__head-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--p-space-3);
+  max-width: 1440px;
+  margin: 0 auto;
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.review__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--p-font-display);
+  font-weight: 600;
+  font-size: var(--p-step-0);
+  color: var(--ink);
+  flex-shrink: 0;
+}
+
+.review__brand:hover {
+  text-decoration: none;
+}
+
+.review__brand-mark {
+  color: var(--accent);
+}
+
+.review__head-center {
+  display: flex;
+  align-items: baseline;
+  gap: var(--p-space-3);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.review__head-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--p-space-2);
+  flex-wrap: wrap;
+}
+
+.review__sub {
+  display: flex;
+  justify-content: center;
+  gap: var(--p-space-3);
+  flex-wrap: wrap;
+  margin: var(--p-space-1) 0 0;
+  font-size: var(--p-step--1);
+}
+
+.review__theme,
+.review__lang {
+  width: 30px;
+  height: 30px;
   border-radius: var(--p-radius-full);
   border: 1px solid var(--rule);
   background: var(--surface);
   color: var(--ink-muted);
   display: grid;
   place-items: center;
-  font-size: 0.9375rem;
+  font-size: 0.8125rem;
+  flex-shrink: 0;
 }
 
-.review__theme:hover {
+.review__theme:hover,
+.review__lang:hover {
   color: var(--ink);
   border-color: var(--rule-strong);
 }
@@ -629,8 +712,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: var(--p-space-3);
-  padding: 0 var(--p-space-4) var(--p-space-2);
-  max-width: 1080px;
+  padding: 6px var(--p-space-4);
+  max-width: 1440px;
   margin: 0 auto;
   width: 100%;
 }
@@ -643,38 +726,38 @@ onUnmounted(() => {
 
 .review__title {
   margin: 0;
-  font-size: var(--p-step-2);
+  font-size: var(--p-step-1);
   font-weight: 600;
 }
 
 .review__msg {
-  margin: var(--p-space-2) 0 0;
+  margin: 0;
   color: var(--ink-muted);
 }
 
 .review__hint {
-  margin: var(--p-space-2) 0 0;
-  font-size: var(--p-step--1);
-  color: var(--ink-muted);
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--ink-faint);
 }
 
 .review__who {
   display: inline-flex;
   align-items: center;
-  gap: var(--p-space-2);
-  margin-top: var(--p-space-3);
-  font-size: var(--p-step--1);
+  gap: 6px;
+  font-size: 0.75rem;
   color: var(--ink-muted);
 }
 
 .review__who input {
-  min-height: 32px;
+  min-height: 28px;
   padding: 0 var(--p-space-2);
   border: 1px solid var(--rule);
-  border-radius: var(--p-radius-md);
+  border-radius: var(--p-radius-full);
   background: var(--surface);
   color: var(--ink);
-  max-width: 160px;
+  font-size: 0.75rem;
+  width: 136px;
 }
 
 .review__state {
@@ -692,8 +775,9 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--p-space-3);
-  padding: 0 var(--p-space-4) var(--p-space-4);
+  justify-content: center;
+  gap: var(--p-space-2);
+  padding: var(--p-space-1) var(--p-space-4) var(--p-space-2);
   min-height: 0;
 }
 
@@ -703,12 +787,13 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--p-space-2);
+  gap: 6px;
 }
 
 .review__img {
   max-width: min(1280px, 100%);
-  max-height: clamp(280px, 54dvh, 740px);
+  /* 动态预留顶栏 + 操作台 + 胶片条高度，保证桌面端无需滚动即可一屏完整展示 */
+  max-height: clamp(200px, calc(100dvh - 320px), 680px);
   width: auto;
   height: auto;
   object-fit: contain;
@@ -751,6 +836,16 @@ onUnmounted(() => {
   justify-content: center;
 }
 
+.review__workbench {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--p-space-2) var(--p-space-4);
+  width: 100%;
+  max-width: 1120px;
+}
+
 .review__actions,
 .review__note {
   display: flex;
@@ -758,31 +853,43 @@ onUnmounted(() => {
   align-items: center;
   flex-wrap: wrap;
   justify-content: center;
-  width: 100%;
+}
+
+.review__note {
+  flex: 1 1 320px;
+  max-width: 500px;
 }
 
 .review__note textarea {
-  flex: 1 1 240px;
-  max-width: 520px;
-  padding: var(--p-space-2);
+  flex: 1 1 200px;
+  min-height: 34px;
+  max-height: 96px;
+  padding: 6px var(--p-space-3);
   border: 1px solid var(--rule);
-  border-radius: var(--p-radius-md);
+  border-radius: var(--p-radius-full);
   background: var(--surface);
   color: var(--ink);
   font: inherit;
   font-size: var(--p-step--1);
-  resize: vertical;
+  line-height: 1.4;
+  resize: none;
+  transition: border-color var(--p-dur-fast) var(--p-ease-out);
+}
+
+.review__note textarea:focus {
+  border-color: var(--accent);
 }
 
 .rv-btn {
-  min-height: 36px;
-  padding: 0 var(--p-space-4);
+  min-height: 34px;
+  padding: 0 var(--p-space-3);
   border: 1px solid var(--rule);
   border-radius: var(--p-radius-full);
   background: var(--surface);
   color: var(--ink);
   font-size: var(--p-step--1);
   font-weight: 500;
+  white-space: nowrap;
   transition: border-color var(--p-dur-fast) var(--p-ease-out);
 }
 
@@ -970,16 +1077,20 @@ onUnmounted(() => {
 }
 
 .review__saving {
-  font-size: var(--p-step--1);
+  font-size: 0.75rem;
   color: var(--ink-muted);
-  margin: 0;
+  white-space: nowrap;
+}
+
+.review__saving--ok {
+  color: var(--success);
 }
 
 .review__film {
   display: flex;
   gap: var(--p-space-1);
   overflow-x: auto;
-  padding: var(--p-space-2) var(--p-space-4);
+  padding: 6px var(--p-space-4);
   border-top: 1px solid var(--rule);
   background: var(--surface);
 }
@@ -987,8 +1098,8 @@ onUnmounted(() => {
 .film {
   position: relative;
   flex: 0 0 auto;
-  width: 64px;
-  height: 64px;
+  width: 54px;
+  height: 54px;
   border-radius: var(--p-radius-sm);
   overflow: hidden;
   border: 2px solid transparent;
@@ -1028,11 +1139,21 @@ onUnmounted(() => {
 
 .review__counts {
   display: flex;
-  gap: var(--p-space-4);
+  gap: var(--p-space-3);
+  align-items: center;
   justify-content: center;
   flex-wrap: wrap;
-  padding: var(--p-space-2) var(--p-space-4) var(--p-space-4);
-  font-size: var(--p-step--1);
+  padding: 6px var(--p-space-4) var(--p-space-2);
+  font-size: 0.75rem;
   color: var(--ink-muted);
+}
+
+@media (max-width: 680px) {
+  .review__hint {
+    display: none;
+  }
+  .review__img {
+    max-height: 52dvh;
+  }
 }
 </style>

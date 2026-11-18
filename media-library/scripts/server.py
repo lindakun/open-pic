@@ -542,23 +542,34 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
             for c in palette_list
         )
         tags_html = "".join(
-            f'<a class="tag" href="/app/browse?tag={html.escape(t)}">#{html.escape(t)}</a>'
+            f'<a class="tag" href="/app/?tag={quote(t)}">#{html.escape(t)}</a>'
             for t in tags_list[:12]
         )
         author_esc = html.escape(str(it.get("author") or it.get("credit") or ""))
         license_esc = html.escape(str(it.get("license") or ""))
-        bg_color = html.escape(str(it.get("dominant_color") or "#ede8e1"))
+        notes_esc = html.escape(str(it.get("notes") or "").strip())
+        personal_only = it.get("commercial_ok") == 0 or it.get("commercial_ok") is False
+        added_date = time.strftime("%Y-%m-%d", time.localtime(int(it.get("ts") or time.time())))
+        stage_tools = (
+            '<div class="stage__tools" aria-label="看图底色">'
+            '<button type="button" class="stage-bg is-on" data-bg="sunken" title="默认底色">默认</button>'
+            '<button type="button" class="stage-bg" data-bg="dark" title="暗夜底色">暗底</button>'
+            '<button type="button" class="stage-bg" data-bg="grid" title="透明棋盘格">透明格</button>'
+            '</div>'
+            if it["kind"] != "video"
+            else ""
+        )
 
         media_tag = (
             f'<video src="{media_url}" poster="{thumb_url}" controls autoplay playsinline '
             f'class="stage__media"></video>'
             if it["kind"] == "video"
             else f'<img id="stageImg" src="{media_url}" data-full="{original_url}" alt="{title_esc}" '
-            f'class="stage__media stage__img" title="点击放大查看原图">'
+            f'class="stage__media stage__img" title="点击或按 Z 放大查看原图">'
         )
 
         return HTMLResponse(f"""<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -575,36 +586,50 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{title_esc}">
 <meta name="twitter:image" content="{thumb_url}">
+<script>
+(function(){{try{{var m=localStorage.getItem('medialib.theme')||'auto';var d=m==='dark'||(m==='auto'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches);document.documentElement.dataset.theme=d?'dark':'light';}}catch(e){{}}}})();
+</script>
 <style>
-:root{{--paper:#faf8f5;--surface:#fff;--sunken:#f4f0ea;--ink:#1a1815;--muted:#6f6a63;--rule:#e0d9cf;--accent:#8c6a4a;--accent-hover:#6f5238;--on-accent:#fdfcfa;--shadow:0 20px 56px rgba(26,24,21,.10)}}
-@media (prefers-color-scheme:dark){{:root{{--paper:#14120f;--surface:#1c1a16;--sunken:#0f0d0b;--ink:#ede8e1;--muted:#9c958c;--rule:#2b2721;--accent:#a8825e;--accent-hover:#8c6a4a;--on-accent:#14120f;--shadow:0 20px 56px rgba(0,0,0,.55)}}}}
+:root,html[data-theme="light"]{{--paper:#faf8f5;--surface:#fff;--sunken:#f4f0ea;--ink:#1a1815;--muted:#6f6a63;--rule:#e0d9cf;--accent:#8c6a4a;--accent-hover:#6f5238;--on-accent:#fdfcfa;--danger:#b04a3f;--danger-soft:#f7e8e6;--shadow:0 20px 56px rgba(26,24,21,.10);color-scheme:light}}
+html[data-theme="dark"]{{--paper:#14120f;--surface:#1c1a16;--sunken:#0f0d0b;--ink:#ede8e1;--muted:#9c958c;--rule:#2b2721;--accent:#a8825e;--accent-hover:#8c6a4a;--on-accent:#14120f;--danger:#d9776c;--danger-soft:#2c1c19;--shadow:0 20px 56px rgba(0,0,0,.55);color-scheme:dark}}
 *{{box-sizing:border-box}}
 body{{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans SC","Segoe UI",sans-serif;min-height:100dvh;display:flex;flex-direction:column}}
 .topbar{{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px;border-bottom:1px solid var(--rule);background:var(--paper)}}
 .brand{{display:inline-flex;align-items:center;gap:8px;font-weight:600;color:var(--ink);text-decoration:none;letter-spacing:-.02em}}
 .brand__mark{{color:var(--accent)}}
 .topbar__actions{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}
-.main{{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:24px;max-width:1440px;width:100%;margin:0 auto;padding:24px 20px 32px;align-items:start}}
-.stage{{background:var(--sunken);border:1px solid var(--rule);border-radius:12px;min-height:min(72dvh,760px);display:grid;place-items:center;padding:16px;overflow:hidden;position:relative}}
-.stage__media{{max-width:100%;max-height:calc(100dvh - 180px);width:auto;height:auto;object-fit:contain;border-radius:6px;box-shadow:var(--shadow);background:{bg_color}}}
+.icon-btn{{width:36px;height:36px;border-radius:8px;border:1px solid var(--rule);background:var(--surface);color:var(--muted);cursor:pointer;display:grid;place-items:center;font-size:.95rem}}
+.icon-btn:hover{{color:var(--ink);background:var(--sunken)}}
+.main{{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 332px;gap:24px;max-width:1440px;width:100%;margin:0 auto;padding:24px 20px 32px;align-items:start}}
+.stage{{background:var(--sunken);border:1px solid var(--rule);border-radius:12px;min-height:min(72dvh,760px);display:grid;place-items:center;padding:20px;overflow:hidden;position:relative;transition:background-color .2s ease}}
+.stage[data-bg="dark"]{{background:#12100d}}
+.stage[data-bg="grid"]{{background-color:#d9d5ce;background-image:linear-gradient(45deg,#c4bfb7 25%,transparent 25%),linear-gradient(-45deg,#c4bfb7 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#c4bfb7 75%),linear-gradient(-45deg,transparent 75%,#c4bfb7 75%);background-size:20px 20px;background-position:0 0,0 10px,10px -10px,-10px 0}}
+.stage__tools{{position:absolute;right:12px;bottom:12px;z-index:2;display:inline-flex;gap:2px;padding:3px;border-radius:999px;background:color-mix(in srgb,var(--surface) 84%,transparent);backdrop-filter:blur(8px);border:1px solid var(--rule)}}
+.stage-bg{{border:none;background:transparent;color:var(--muted);font-size:.75rem;padding:3px 9px;border-radius:999px;cursor:pointer}}
+.stage-bg.is-on{{background:var(--accent);color:var(--on-accent);font-weight:500}}
+.stage__media{{max-width:100%;max-height:calc(100dvh - 180px);width:auto;height:auto;object-fit:contain;border-radius:6px;box-shadow:var(--shadow)}}
 .stage__img{{cursor:zoom-in;transition:transform .2s ease}}
 .stage.is-zoomed{{position:fixed;inset:0;z-index:99;border-radius:0;border:none;background:rgba(18,16,13,.95);padding:20px;overflow:auto}}
+.stage.is-zoomed .stage__tools{{display:none}}
 .stage.is-zoomed .stage__media{{max-width:none;max-height:none;cursor:zoom-out;box-shadow:none}}
 .aside{{background:var(--surface);border:1px solid var(--rule);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:16px}}
-.title{{margin:0;font-size:1.25rem;line-height:1.35;word-break:break-word}}
+.title{{margin:0;font-size:1.25rem;line-height:1.35;word-break:break-word;overflow-wrap:anywhere}}
+.badge-personal{{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:4px;font-size:.75rem;font-weight:500;background:var(--danger-soft);color:var(--danger);vertical-align:middle}}
+.notes{{margin:0;padding:8px 12px;border-left:2px solid var(--accent);background:var(--sunken);border-radius:0 6px 6px 0;font-size:.8125rem;line-height:1.5;white-space:pre-wrap;word-break:break-word}}
 .spec{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8125rem;color:var(--muted)}}
 .meta-list{{margin:0;display:grid;gap:8px;font-size:.875rem;border-top:1px solid var(--rule);padding-top:14px}}
 .meta-row{{display:flex;justify-content:space-between;gap:12px}}
 .meta-row dt{{color:var(--muted)}}
-.meta-row dd{{margin:0;text-align:right;word-break:break-word}}
+.meta-row dd{{margin:0;text-align:right;word-break:break-word;font-variant-numeric:tabular-nums}}
 .tags{{display:flex;flex-wrap:wrap;gap:6px}}
-.tag{{font-size:.75rem;padding:2px 10px;border-radius:999px;background:var(--sunken);color:var(--muted);text-decoration:none}}
-.tag:hover{{color:var(--ink)}}
+.tag{{font-size:.75rem;padding:2px 10px;border-radius:999px;background:var(--sunken);color:var(--muted);text-decoration:none;border:1px solid transparent;transition:border-color .15s,color .15s}}
+.tag:hover{{color:var(--ink);border-color:var(--rule)}}
 .swatches{{display:flex;gap:8px;flex-wrap:wrap}}
-.swatch{{position:relative;width:54px;height:36px;border-radius:4px;border:1px solid var(--rule);cursor:pointer;padding:0;overflow:hidden}}
+.swatch{{position:relative;width:58px;height:38px;border-radius:6px;border:1px solid var(--rule);cursor:pointer;padding:0;overflow:hidden;transition:transform .15s ease}}
+.swatch:hover{{transform:translateY(-2px)}}
 .swatch span{{position:absolute;inset:auto 0 0 0;font-size:10px;font-family:ui-monospace,monospace;background:rgba(18,16,13,.72);color:#faf8f5;padding:1px 2px}}
 .actions{{display:flex;flex-direction:column;gap:8px;margin-top:4px}}
-.btn{{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:0 16px;border-radius:8px;font-size:.875rem;font-weight:500;text-decoration:none;cursor:pointer;border:1px solid var(--rule);background:var(--surface);color:var(--ink)}}
+.btn{{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:0 16px;border-radius:8px;font-size:.875rem;font-weight:500;text-decoration:none;cursor:pointer;border:1px solid var(--rule);background:var(--surface);color:var(--ink);transition:background-color .15s ease}}
 .btn:hover{{background:var(--sunken)}}
 .btn--primary{{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}}
 .btn--primary:hover{{background:var(--accent-hover)}}
@@ -615,41 +640,67 @@ body{{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-syste
 <header class="topbar">
   <a class="brand" href="/app/"><span class="brand__mark">◐</span><span>MediaLib</span></a>
   <div class="topbar__actions">
+    <button type="button" id="themeBtn" class="icon-btn" title="切换明暗主题" aria-label="切换明暗主题">◐</button>
     <a class="btn" href="{app_url}">在库中打开</a>
     <a class="btn btn--primary" href="/f/{it['file']}?dl=1" download>下载原文件</a>
   </div>
 </header>
 <main class="main">
-  <div id="stage" class="stage">{media_tag}</div>
+  <div id="stage" class="stage">{media_tag}{stage_tools}</div>
   <aside class="aside">
-    <h1 class="title">{title_esc}</h1>
+    <h1 class="title">{title_esc}{'<span class="badge-personal">仅限个人使用</span>' if personal_only else ''}</h1>
     {f'<div class="spec">{spec_esc}</div>' if spec_esc else ''}
+    {f'<blockquote class="notes">{notes_esc}</blockquote>' if notes_esc else ''}
     <dl class="meta-list">
       {f'<div class="meta-row"><dt>作者</dt><dd>{author_esc}</dd></div>' if author_esc else ''}
       {f'<div class="meta-row"><dt>授权</dt><dd>{license_esc}</dd></div>' if license_esc else ''}
+      <div class="meta-row"><dt>入库时间</dt><dd>{added_date}</dd></div>
       <div class="meta-row"><dt>浏览 / 下载</dt><dd>{int(it.get("views") or 0)} / {int(it.get("downloads") or 0)}</dd></div>
     </dl>
     {f'<div class="tags">{tags_html}</div>' if tags_html else ''}
     {f'<div class="swatches">{swatches_html}</div>' if swatches_html else ''}
     <div class="actions">
-      <button type="button" id="copyBtn" class="btn" data-url="{canonical_url}">复制分享链接</button>
-      <a class="btn" href="/app/browse">浏览全部资产</a>
+      <button type="button" id="copyBtn" class="btn" data-url="{canonical_url}">复制分享链接 (C)</button>
+      <a class="btn" href="/app/">浏览全部资产</a>
     </div>
   </aside>
 </main>
 <script>
 (function(){{
+  var root=document.documentElement,tb=document.getElementById('themeBtn');
+  function syncTb(){{if(tb)tb.textContent=root.dataset.theme==='dark'?'☾':'☀';}}
+  syncTb();
+  if(tb){{tb.addEventListener('click',function(){{
+    var next=root.dataset.theme==='dark'?'light':'dark';
+    root.dataset.theme=next;syncTb();
+    try{{localStorage.setItem('medialib.theme',next);}}catch(e){{}}
+  }});}}
   var stage=document.getElementById('stage'),img=document.getElementById('stageImg');
-  if(img){{img.addEventListener('click',function(){{
+  function toggleZoom(){{
+    if(!img||!stage)return;
     if(!stage.classList.contains('is-zoomed')&&img.dataset.full){{img.src=img.dataset.full;}}
     stage.classList.toggle('is-zoomed');
-  }});
-  document.addEventListener('keydown',function(e){{if(e.key==='Escape')stage.classList.remove('is-zoomed');}});}}
+  }}
+  if(img){{img.addEventListener('click',toggleZoom);}}
+  document.querySelectorAll('.stage-bg').forEach(function(b){{b.addEventListener('click',function(e){{
+    e.stopPropagation();
+    document.querySelectorAll('.stage-bg').forEach(function(x){{x.classList.remove('is-on');}});
+    b.classList.add('is-on');
+    var bg=b.dataset.bg||'sunken';
+    if(bg==='sunken')stage.removeAttribute('data-bg');else stage.setAttribute('data-bg',bg);
+  }});}});
   var cb=document.getElementById('copyBtn');
-  if(cb){{cb.addEventListener('click',function(){{
+  function copyShare(){{
+    if(!cb)return;
     if(navigator.clipboard)navigator.clipboard.writeText(cb.dataset.url||'');
-    cb.textContent='已复制链接';setTimeout(function(){{cb.textContent='复制分享链接';}},1600);
-  }});}}
+    cb.textContent='✓ 已复制链接';setTimeout(function(){{cb.textContent='复制分享链接 (C)';}},1600);
+  }}
+  if(cb){{cb.addEventListener('click',copyShare);}}
+  document.addEventListener('keydown',function(e){{
+    if(e.key==='Escape'&&stage)stage.classList.remove('is-zoomed');
+    if((e.key==='z'||e.key==='Z')&&img)toggleZoom();
+    if((e.key==='c'||e.key==='C')&&!e.metaKey&&!e.ctrlKey)copyShare();
+  }});
   document.querySelectorAll('.swatch').forEach(function(b){{b.addEventListener('click',function(){{
     var h=b.dataset.hex||'';if(navigator.clipboard)navigator.clipboard.writeText(h);
     var s=b.querySelector('span');if(s){{var o=s.textContent;s.textContent='已复制';setTimeout(function(){{s.textContent=o;}},1200);}}

@@ -76,7 +76,14 @@ function beginThemeTransition() {
 export function useTheme() {
   function cycle() {
     beginThemeTransition()
-    mode.value = mode.value === 'light' ? 'dark' : mode.value === 'dark' ? 'auto' : 'light'
+    // 从 auto 出发时直接切往与当前系统相反的明暗态，确保首次点击必有即时视觉反馈
+    if (mode.value === 'auto') {
+      mode.value = systemDark.value ? 'light' : 'dark'
+    } else if (mode.value === 'dark') {
+      mode.value = systemDark.value ? 'auto' : 'light'
+    } else {
+      mode.value = systemDark.value ? 'dark' : 'auto'
+    }
   }
 
   return {

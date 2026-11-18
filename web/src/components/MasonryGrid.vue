@@ -173,6 +173,7 @@ const containerHeight = computed(() => {
 })
 
 let observer: ResizeObserver | null = null
+let roRaf = 0
 
 /** 当前滚动位置与视口高度：驱动可见区间计算 */
 const scrollY = ref(0)
@@ -237,8 +238,14 @@ const renderedCount = computed(() => {
 
 onMounted(() => {
   measure()
-  // 容器宽度变化（窗口缩放、侧栏开合）时重排
-  observer = new ResizeObserver(measure)
+  // 容器宽度变化（窗口缩放、侧栏开合）时用 rAF 重排，避免同帧高度变化引起 ResizeObserver loop 告警
+  observer = new ResizeObserver(() => {
+    if (roRaf) cancelAnimationFrame(roRaf)
+    roRaf = requestAnimationFrame(() => {
+      roRaf = 0
+      measure()
+    })
+  })
   if (containerRef.value) observer.observe(containerRef.value)
 
   window.addEventListener('scroll', onScroll, { passive: true })
@@ -248,6 +255,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   observer?.disconnect()
+  if (roRaf) cancelAnimationFrame(roRaf)
   window.removeEventListener('scroll', onScroll)
   window.removeEventListener('resize', measure)
   if (scrollTimer !== undefined) window.clearTimeout(scrollTimer)
