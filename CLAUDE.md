@@ -8,6 +8,7 @@
 
 - **线上访问地址**：`http://192.168.31.188:18100/`
 - **NAS 部署路径**：
+  - Git 工作副本：`/vol1/picoclaw/repos/open-pic`（跟踪 GitHub `origin/main`）
   - 技能代码：`/vol1/picoclaw/.picoclaw/workspace/skills/media-library`
   - 虚拟环境：`/vol1/picoclaw/.picoclaw/workspace/skills/media-library/venv`
   - 数据目录：`/vol1/picoclaw/.picoclaw/workspace/media-library`（`files/`、`thumbs/`、`previews/`、`play/`、`media.db`）
@@ -94,12 +95,11 @@ bash /vol1/picoclaw/.picoclaw/workspace/skills/media-library/scripts/ensure.sh
 # 1. 本地：提交后推送到 GitHub 远程仓库（origin）
 git push origin main
 
-# 2. NAS：从 GitHub 拉取并同步到部署目录
-ssh fnos 'rm -rf /tmp/open-pic-deploy && \
-  git clone --depth 1 --branch main \
-    https://github.com/lindakun/open-pic.git /tmp/open-pic-deploy && \
-  rsync -a --delete /tmp/open-pic-deploy/media-library/scripts/ \
-    /vol1/picoclaw/.picoclaw/workspace/skills/media-library/scripts/'
+# 2. NAS：从 GitHub 持久化工作副本 pull 并同步到技能部署目录（保留 venv）
+ssh fnos 'git -C /vol1/picoclaw/repos/open-pic pull --ff-only origin main && \
+  rsync -a --delete --exclude="venv" --exclude=".pytest_cache" \
+    /vol1/picoclaw/repos/open-pic/media-library/ \
+    /vol1/picoclaw/.picoclaw/workspace/skills/media-library/'
 
 # 3. NAS：显式重启（ensure.sh 不会重启旧进程，这步不能省）
 ssh fnos 'cd /vol1/picoclaw/.picoclaw/workspace/skills/media-library && \
