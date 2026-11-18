@@ -58,9 +58,16 @@ const helpRef = ref<HTMLDialogElement | null>(null)
 const videoRef = ref<HTMLVideoElement | null>(null)
 const { t, formatBytes, formatDate, formatNumber } = useI18n()
 
-/** 视频播放控制：倍速、循环、画中画 */
+/** 视频播放控制：倍速、循环、静音、画中画 */
 const videoSpeed = ref(1)
 const videoLoop = ref(false)
+const videoMuted = ref((() => {
+  try {
+    return localStorage.getItem('medialib.videoMuted') === '1'
+  } catch {
+    return false
+  }
+})())
 const pipSupported = typeof document !== 'undefined' && 'pictureInPictureEnabled' in document && document.pictureInPictureEnabled
 
 function setVideoSpeed(rate: number) {
@@ -71,6 +78,16 @@ function setVideoSpeed(rate: number) {
 function toggleVideoLoop() {
   videoLoop.value = !videoLoop.value
   if (videoRef.value) videoRef.value.loop = videoLoop.value
+}
+
+function toggleVideoMute() {
+  videoMuted.value = !videoMuted.value
+  if (videoRef.value) videoRef.value.muted = videoMuted.value
+  try {
+    localStorage.setItem('medialib.videoMuted', videoMuted.value ? '1' : '0')
+  } catch {
+    // 忽略
+  }
 }
 
 async function togglePip() {
@@ -302,6 +319,12 @@ const spec = computed(() => {
   if (props.item.ext) parts.push(props.item.ext.replace(/^\./, '').toUpperCase())
   if (props.item.size) parts.push(formatBytes(props.item.size))
   if (props.item.duration) parts.push(`${formatNumber(props.item.duration)}s`)
+  if (props.item.kind === 'video' && props.item.fps) {
+    parts.push(`${Math.round(props.item.fps)}fps`)
+  }
+  if (props.item.kind === 'video' && props.item.codec) {
+    parts.push(props.item.codec.toUpperCase())
+  }
   return parts.join(' · ')
 })
 
@@ -616,6 +639,22 @@ function onKeydown(e: KeyboardEvent) {
     case 'B':
       if (props.item.kind === 'image') cycleStageBg()
       break
+    case 'm':
+    case 'M':
+      if (props.item.kind === 'video') toggleVideoMute()
+      break
+    case 'Home':
+      if (!compareOn.value && props.candidates?.length) {
+        e.preventDefault()
+        emit('select-item', props.candidates[0])
+      }
+      break
+    case 'End':
+      if (!compareOn.value && props.candidates?.length) {
+        e.preventDefault()
+        emit('select-item', props.candidates[props.candidates.length - 1])
+      }
+      break
     case 'd':
     case 'D':
       download()
@@ -677,6 +716,7 @@ const shortcuts = computed(() => [
   { key: 'F', desc: t('shortcut.filmstrip') },
   { key: 'H', desc: t('shortcut.hideChrome') },
   { key: 'B', desc: t('shortcut.stageBg') },
+  { key: 'M', desc: t('shortcut.mute') },
   { key: 'D', desc: t('shortcut.download') },
   { key: 'C', desc: t('shortcut.copy') },
   { key: 'Space', desc: t('shortcut.slideshow') },
@@ -855,6 +895,7 @@ onUnmounted(() => {
         :src="videoUrl"
         :poster="`/t/${item.id}.jpg`"
         :loop="videoLoop"
+        :muted="videoMuted"
         :style="{ backgroundColor: item.dominant_color || '#12100d' }"
         controls
         autoplay
@@ -1193,6 +1234,17 @@ onUnmounted(() => {
             @click="toggleVideoLoop"
           >
             ↻
+          </button>
+          <button
+            type="button"
+            class="lb-btn"
+            :class="{ 'lb-btn--on': videoMuted }"
+            :aria-pressed="videoMuted"
+            :aria-label="t('lightbox.mute')"
+            :title="`${t('lightbox.mute')} (M)`"
+            @click="toggleVideoMute"
+          >
+            {{ videoMuted ? '🔇' : '🔊' }}
           </button>
           <button
             v-if="pipSupported"
@@ -1724,10 +1776,17 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: var(--p-space-2);
+  max-width: calc(100vw - var(--p-space-5));
+  overflow-x: auto;
+  scrollbar-width: none;
   padding: var(--p-space-2) var(--p-space-3);
   border-radius: var(--p-radius-full);
   background: rgba(18, 16, 13, 0.72);
   backdrop-filter: blur(6px);
+}
+
+.lightbox__compare::-webkit-scrollbar {
+  display: none;
 }
 
 .lightbox__compare-label {
@@ -1931,6 +1990,11 @@ onUnmounted(() => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: transform var(--p-dur-base) var(--p-ease-out);
+}
+
+.panel__sim-item:hover img {
+  transform: scale(1.06);
 }
 
 .panel__rows {

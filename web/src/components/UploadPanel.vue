@@ -268,6 +268,8 @@ onBeforeUnmount(() => {
   }
   previewUrls.clear()
 })
+
+defineExpose({ addFiles })
 </script>
 
 <template>
@@ -405,7 +407,7 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- 链接采集 -->
-      <div v-else class="up__pane">
+      <div v-else class="up__pane" @keydown.enter.prevent="submitUrl">
         <MLField
           v-model="url"
           type="url"

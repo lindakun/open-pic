@@ -9,7 +9,7 @@
  *     滚动时淡出，把画面完全让给图片
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import { useMediaStore } from '@/stores/media'
 import { useFilterStore } from '@/stores/filters'
 import { useI18n } from '@/composables/useI18n'
@@ -241,9 +241,9 @@ async function toggleHomeShuffle() {
   <div class="wall">
     <!-- 悬浮工具条：极轻、半透明，不构成"头部区块" -->
     <div :class="['wall__bar', { 'wall__bar--dim': toolbarDim }]">
-      <span class="wall__count mono" aria-live="polite">
+      <RouterLink to="/browse" class="wall__count mono" aria-live="polite" :title="t('home.browseAll')">
         {{ store.loading && !store.items.length ? t('site.loading') : t('site.total', { count: store.total }) }}
-      </span>
+      </RouterLink>
 
       <div class="wall__kinds" role="group" :aria-label="t('home.typeFilter')">
         <button
@@ -453,8 +453,12 @@ async function toggleHomeShuffle() {
 }
 
 @media (max-width: 560px) {
+  .wall__bar {
+    flex-wrap: wrap;
+    gap: var(--p-space-2);
+  }
   .wall__kinds {
-    display: none;
+    order: 3;
   }
 }
 

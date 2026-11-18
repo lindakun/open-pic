@@ -185,7 +185,7 @@ watch(
   width: 100%;
   overflow: hidden;
   border-radius: var(--p-radius-sm);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 6%, transparent);
+  box-shadow: inset 0 0 0 1px var(--media-hairline, color-mix(in srgb, var(--ink) 6%, transparent));
 }
 
 /* 加载中微光骨架：克制的纸感对角光泽，图片淡入后自动撤除 */

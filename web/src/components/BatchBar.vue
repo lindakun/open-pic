@@ -235,7 +235,7 @@ async function exportZip() {
       :title="tagMode === 'remove' ? t('batch.tagsRemoveTitle') : t('batch.tagsTitle')"
       width="380px"
     >
-      <div class="batch__form">
+      <div class="batch__form" @keydown.enter.prevent="applyTags">
         <MLField
           v-model="tagDraft"
           :label="t('upload.fieldTags')"
@@ -265,7 +265,7 @@ async function exportZip() {
 
     <!-- 加入画板 -->
     <MLSheet v-model:open="collectionOpen" :title="t('batch.collectionTitle')" width="380px">
-      <div class="batch__form">
+      <div class="batch__form" @keydown.enter.prevent="applyCollection">
         <label class="batch__label" for="batch-collection">{{ t('batch.collectionPick') }}</label>
         <select id="batch-collection" v-model="targetCollection" class="batch__select">
           <option :value="null" disabled>{{ t('batch.collectionPick') }}</option>

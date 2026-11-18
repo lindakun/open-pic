@@ -109,8 +109,34 @@ const aiBusy = ref(false)
 const aiSearchActive = ref(false)
 /** 上传面板与批量选择（REQ-05） */
 const uploadOpen = ref(false)
+const uploadPanelRef = ref<InstanceType<typeof UploadPanel> | null>(null)
+const pageDragActive = ref(false)
 const selectMode = ref(false)
 const selectedIds = ref<string[]>([])
+
+function onPageDragOver(e: DragEvent) {
+  if (uploadOpen.value || store.currentItem) return
+  if (e.dataTransfer?.types?.includes('Files')) {
+    pageDragActive.value = true
+  }
+}
+
+function onPageDragLeave(e: DragEvent) {
+  const next = e.relatedTarget as Node | null
+  if (next && (e.currentTarget as HTMLElement).contains(next)) return
+  pageDragActive.value = false
+}
+
+function onPageDrop(e: DragEvent) {
+  pageDragActive.value = false
+  if (uploadOpen.value || store.currentItem) return
+  const files = e.dataTransfer?.files
+  if (!files?.length) return
+  uploadOpen.value = true
+  void nextTick(() => {
+    uploadPanelRef.value?.addFiles(files)
+  })
+}
 /**
  * 空态文案：区分「搜索无结果」「筛选无结果」「库本来就空」三种情况，
  * 统一文案会让用户不知道下一步该做什么。
@@ -730,7 +756,18 @@ watch(
 </script>
 
 <template>
-  <div class="browse">
+  <div
+    class="browse"
+    @dragover.prevent="onPageDragOver"
+    @dragleave.prevent="onPageDragLeave"
+    @drop.prevent="onPageDrop"
+  >
+    <div v-if="pageDragActive" class="browse__drop-overlay" aria-hidden="true">
+      <div class="browse__drop-card">
+        <span class="browse__drop-plus">＋</span>
+        <span>{{ t('browse.dropUploadHint') }}</span>
+      </div>
+    </div>
     <!-- 页面主标题：屏幕阅读器用于定位，视觉上以工具条承担同样语义 -->
     <h1 class="sr-only">{{ t('site.browse') }}</h1>
 
@@ -751,9 +788,9 @@ watch(
 
       <div
         :class="['browse__search', { 'browse__search--drag': dragActive, 'browse__search--busy': aiBusy }]"
-        @dragover.prevent="aiStatus?.available && (dragActive = true)"
-        @dragleave.prevent="onSearchDragLeave"
-        @drop.prevent="onDrop"
+        @dragover.prevent.stop="aiStatus?.available && (dragActive = true, pageDragActive = false)"
+        @dragleave.prevent.stop="onSearchDragLeave"
+        @drop.prevent.stop="onDrop"
       >
         <span class="browse__search-icon" aria-hidden="true">⌕</span>
         <input
@@ -1170,6 +1207,7 @@ watch(
     </Transition>
 
     <UploadPanel
+      ref="uploadPanelRef"
       v-model:open="uploadOpen"
       :suggested-tags="(store.facets?.tag ?? []).filter((x) => x.count > 0).slice(0, 8).map((x) => x.value)"
       @uploaded="onUploaded"
@@ -1187,9 +1225,43 @@ watch(
 
 <style scoped>
 .browse {
+  position: relative;
   max-width: 1700px;
   margin: 0 auto;
   padding: var(--p-space-5) var(--p-space-5) var(--p-space-9);
+}
+
+.browse__drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--p-z-sheet);
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
+  backdrop-filter: blur(6px);
+  display: grid;
+  place-items: center;
+  padding: var(--p-space-5);
+  pointer-events: none;
+}
+
+.browse__drop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--p-space-2);
+  padding: var(--p-space-7) var(--p-space-8);
+  border-radius: var(--p-radius-lg);
+  border: 2px dashed var(--accent);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--p-step-1);
+  font-weight: 500;
+  box-shadow: var(--sheet-shadow);
+}
+
+.browse__drop-plus {
+  font-size: 2rem;
+  color: var(--accent);
+  line-height: 1;
 }
 
 .browse__toolbar {

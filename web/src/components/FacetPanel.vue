@@ -211,7 +211,7 @@ function groupActiveCount(key: string): number {
       v-for="group in groups"
       :key="group.key"
       :class="['facet', { 'facet--active': groupActiveCount(group.key) > 0 }]"
-      :open="group.key === 'kind' || group.key === 'orientation' || (group.key === 'tag' && groupActiveCount('tag') > 0)"
+      :open="group.key === 'kind' || group.key === 'orientation' || groupActiveCount(group.key) > 0"
     >
       <summary class="facet__summary">
         <span class="facet__name">

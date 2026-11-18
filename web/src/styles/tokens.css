@@ -114,6 +114,7 @@ html[data-theme='light'] {
   --card-shadow-hover: 0 12px 32px rgba(26, 24, 21, 0.1);
   --sheet-shadow: 0 24px 64px rgba(26, 24, 21, 0.18);
   --bar-shadow: 0 8px 28px rgba(26, 24, 21, 0.16);
+  --media-hairline: color-mix(in srgb, var(--ink) 6%, transparent);
 
   color-scheme: light;
 }
@@ -149,6 +150,7 @@ html[data-theme='dark'] {
   --card-shadow-hover: 0 12px 32px rgba(0, 0, 0, 0.5);
   --sheet-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
   --bar-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  --media-hairline: color-mix(in srgb, var(--ink) 12%, transparent);
 
   color-scheme: dark;
 }

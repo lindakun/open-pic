@@ -97,6 +97,15 @@ const themeLabel = () => {
 
 /** 按钮上的语言显示：切换目标而非当前语言，减少歧义 */
 const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
+
+/** 最近浏览相对时间格式化：今天内精准到分钟/小时，更早回退日期 */
+function formatRelative(tsMs: number): string {
+  const diffSec = Math.max(0, Math.floor((Date.now() - tsMs) / 1000))
+  if (diffSec < 60) return t('recent.justNow')
+  if (diffSec < 3600) return t('recent.minutesAgo', { count: Math.floor(diffSec / 60) })
+  if (diffSec < 86400) return t('recent.hoursAgo', { count: Math.floor(diffSec / 3600) })
+  return formatDate(Math.floor(tsMs / 1000))
+}
 </script>
 
 <template>
@@ -180,7 +189,7 @@ const localeShort = () => (locale.value === 'zh-CN' ? 'EN' : '中')
               <span class="recent-item__meta mono">
                 <span>{{ entry.kind === 'video' ? t('facet.kindVideo') : t('facet.kindImage') }}</span>
                 <span aria-hidden="true">·</span>
-                <span>{{ formatDate(Math.floor(entry.ts / 1000)) }}</span>
+                <span>{{ formatRelative(entry.ts) }}</span>
               </span>
             </span>
           </button>

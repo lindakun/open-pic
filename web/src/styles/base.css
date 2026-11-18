@@ -304,3 +304,17 @@ html.theme-transitioning select {
     transition: none;
   }
 }
+
+/* ---------- 打印优化：隐藏悬浮条与导航 chrome ---------- */
+@media print {
+  .site-header,
+  .wall__bar,
+  .wall__top,
+  .browse__toolbar,
+  .browse__facets,
+  .browse__top,
+  .batch,
+  .ml-toast-stack {
+    display: none !important;
+  }
+}
