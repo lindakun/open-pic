@@ -23,9 +23,10 @@ import tempfile
 import threading
 import time
 import zipfile
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
+from urllib.request import ProxyHandler, build_opener
 
 # 确保同目录模块可导入
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -738,7 +739,7 @@ body{{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-syste
 
     @app.get("/healthz")
     def healthz():
-        return {"ok": True, "version": "2.0.0"}
+        return {"ok": True, "version": "2.0.0", "pid": os.getpid()}
 
     # ---------- 媒体文件分发 ----------
 
@@ -1805,76 +1806,178 @@ def repair_library(db: MediaDB, verbose: bool = True) -> Dict[str, Any]:
 
 # ---------- 进程管理（兼容原有 CLI） ----------
 
+def _read_pid() -> Optional[int]:
+    try:
+        with open(PIDFILE) as f:
+            pid = int(f.read().strip())
+        return pid if pid > 0 else None
+    except (OSError, ValueError):
+        return None
+
+
+@contextmanager
+def _pid_guard():
+    with open(PIDFILE + ".lock", "a+b") as lock:
+        if os.name == "nt":
+            import msvcrt
+            if lock.tell() == 0:
+                lock.write(b"0")
+                lock.flush()
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def _health_status(port: int) -> dict:
+    try:
+        with build_opener(ProxyHandler({})).open(f"http://127.0.0.1:{port}/healthz", timeout=2) as r:
+            data = json.load(r)
+        return data if isinstance(data, dict) and data.get("ok") is True else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _is_server_process(pid: int, port: int) -> bool:
+    if sys.platform != "linux":
+        return _health_status(port).get("pid") == pid
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            argv = [os.fsdecode(v) for v in f.read().split(b"\0") if v]
+        index = 1
+        while index < len(argv) and argv[index] in ("-B", "-u", "-E", "-I", "-s", "-S"):
+            index += 1
+        if index >= len(argv) or os.path.realpath(argv[index]) != os.path.realpath(__file__):
+            return False
+        options = argv[index + 1:]
+        process_port = 18100
+        for position, option in enumerate(options):
+            if option == "--port":
+                process_port = int(options[position + 1])
+            elif option.startswith("--port="):
+                process_port = int(option.partition("=")[2])
+        return process_port == port and not any(flag in options for flag in ("--stop", "--status", "--repair"))
+    except (OSError, ValueError, IndexError):
+        return False
+
+
+def _listening_server_pid(port: int) -> Optional[int]:
+    if sys.platform != "linux":
+        return None
+    inodes = set()
+    for table in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(table) as f:
+                for line in f.readlines()[1:]:
+                    row = line.split()
+                    if row[3] == "0A" and int(row[1].split(":")[1], 16) == port:
+                        inodes.add(f"socket:[{row[9]}]")
+        except FileNotFoundError:
+            continue
+    if not inodes:
+        return None
+    for name in os.listdir("/proc"):
+        if not name.isdigit() or not _is_server_process(int(name), port):
+            continue
+        try:
+            for fd in os.listdir(f"/proc/{name}/fd"):
+                try:
+                    if os.readlink(f"/proc/{name}/fd/{fd}") in inodes:
+                        return int(name)
+                except OSError:
+                    continue
+        except PermissionError:
+            continue
+        except FileNotFoundError:
+            continue
+    return None
+
+
+def _server_pid(port: int) -> Optional[int]:
+    reported = _health_status(port).get("pid")
+    if isinstance(reported, int) and reported > 0 and _is_server_process(reported, port):
+        return reported
+    listening = _listening_server_pid(port)
+    if listening is not None:
+        return listening
+    recorded = _read_pid()
+    return recorded if recorded and _is_server_process(recorded, port) else None
+
+
+def _remove_own_pid(pid: int):
+    with _pid_guard():
+        if _read_pid() == pid:
+            os.remove(PIDFILE)
+
+
 def cmd_start(port: int, host: str) -> int:
     ensure_dirs()
-    if os.path.exists(PIDFILE):
-        try:
-            with open(PIDFILE) as f:
-                pid = int(f.read().strip())
-            os.kill(pid, 0)
-            print(f"已在运行 pid={pid}  http://{host}:{port}/")
+    with _pid_guard():
+        pid = _server_pid(port)
+        if pid or _health_status(port):
+            print(f"已在运行 pid={pid or '未知'}  http://{host}:{port}/")
             return 0
-        except Exception:
-            pass
-    with open(PIDFILE, "w") as f:
-        f.write(str(os.getpid()))
+        with open(PIDFILE, "w") as f:
+            f.write(str(os.getpid()))
     print(f"serving on http://{host}:{port}/  data={DATA}")
     sys.stdout.flush()
-    app = create_app(port=port)
     try:
+        app = create_app(port=port)
         uvicorn.run(app, host=host, port=port, log_level="warning")
     except KeyboardInterrupt:
         pass
     finally:
-        try:
-            os.remove(PIDFILE)
-        except Exception:
-            pass
+        _remove_own_pid(os.getpid())
     return 0
 
 
-def cmd_stop() -> int:
-    if not os.path.exists(PIDFILE):
+def cmd_stop(port: int = 18100) -> int:
+    ensure_dirs()
+    pid = _server_pid(port)
+    if pid is None:
+        if _health_status(port):
+            print("服务在线但无法验证 PID，请以服务运行用户执行停止操作")
+            return 1
         print("未运行")
         return 0
-    with open(PIDFILE) as f:
-        pid = int(f.read().strip())
     try:
         os.kill(pid, signal.SIGTERM)
-        for _ in range(50):
+        for _ in range(100):
             time.sleep(0.1)
-            try:
-                os.kill(pid, 0)
-            except OSError:
-                break
-        print(f"已停止 pid={pid}")
-    except ProcessLookupError:
-        print("进程不存在，清理 pid 文件")
-    except Exception as e:
-        print(f"停止失败: {e}")
+            recorded = _read_pid()
+            if (not _is_server_process(pid, port) or recorded not in (None, pid)
+                    or (recorded != pid and not _health_status(port))):
+                _remove_own_pid(pid)
+                print(f"已停止 pid={pid}")
+                return 0
+        print(f"停止尚未完成 pid={pid}，保留 PID 记录，未强制终止")
         return 1
-    try:
-        os.remove(PIDFILE)
-    except Exception:
-        pass
-    return 0
+    except ProcessLookupError:
+        _remove_own_pid(pid)
+        print(f"进程已退出 pid={pid}")
+        return 0
+    except PermissionError:
+        print(f"无权停止 pid={pid}，请以服务运行用户执行")
+        return 1
 
 
 def cmd_status(port: int) -> int:
-    ensure_dirs()
-    if os.path.exists(PIDFILE):
-        with open(PIDFILE) as f:
-            pid = f.read().strip()
-        try:
-            os.kill(int(pid), 0)
-            db = MediaDB(DB_PATH)
-            st = db.get_stats()
-            print(f"运行中 pid={pid} 端口={port} 项目数={st['total']}")
-            return 0
-        except Exception:
-            print("pid 文件存在但进程已死")
-            return 1
-    print("未运行")
+    health = _health_status(port)
+    if health:
+        pid = _server_pid(port)
+        print(f"运行中 pid={pid or '未知（PID 记录缺失或不可访问）'} 端口={port} 健康检查正常")
+        return 0
+    pid = _server_pid(port)
+    print(f"进程存在但服务未就绪 pid={pid}" if pid else "未运行")
     return 1
 
 
@@ -1887,7 +1990,7 @@ def main():
     ap.add_argument("--repair", action="store_true")
     a = ap.parse_args()
     if a.stop:
-        return cmd_stop()
+        return cmd_stop(a.port)
     if a.status:
         return cmd_status(a.port)
     if a.repair:

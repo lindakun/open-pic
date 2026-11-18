@@ -1,5 +1,17 @@
 # web/ —— MediaLib 前端（Vite + Vue 3 + TypeScript）
 
+## 产品定位与访问入口
+
+`open-pic` 的主流程是**定时自动抓取图片和视频 → 处理入库 → 用户 Web 浏览 → 管理员前台维护**；手工链接采集与上传是补充，不是唯一的数据来源。
+
+| 入口 | 面向对象与用途 | 代码位置 |
+| :--- | :--- | :--- |
+| `/app/` | 用户前台：图片墙、搜索筛选、灯箱查看与视频播放 | 本目录 `src/`；构建产物为 `media-library/scripts/static/app/` |
+| `/admin/` | 管理员前台：素材、标签、合集、回收站、采集任务与统计维护 | `media-library/scripts/static/index.html`、`app.css`、`app.js` |
+| `/` | 站点入口，默认跳转 `/app/`；旧前端模式或缺少构建产物时跳转 `/admin` | `media-library/scripts/server.py` |
+
+两套前台共用 FastAPI 接口、SQLite 索引与媒体文件，管理员前台并非仅供临时回退。X 自动采集由 NAS 上的 PicoClaw 定时任务调用本项目 `x_scrape_cron.sh`，不是由用户打开网页触发，具体约定见 [技能说明](../media-library/SKILL.md)。
+
 ## 技术栈
 
 | 项 | 选择 |
@@ -86,15 +98,24 @@ MEDIA_LIB_DIR=/tmp/mlib-dev python3 media-library/scripts/server.py --port 18100
 bash scripts/build-web.sh
 ```
 
-产物输出至 `media-library/scripts/static/app/`，**并纳入版本库**——NAS 端只需 `git pull`，无需安装 Node 工具链。
+产物输出至 `media-library/scripts/static/app/`，**源代码与构建产物都纳入本项目版本库**；管理员前台的源文件同样在本仓库维护，不得只在 NAS 上修改页面或静态文件。
 
-服务端按环境变量切换前端：
+每次更新部署严格执行：
+
+1. 在本项目修改、测试并构建，审查源代码和构建产物。
+2. 将本次变更提交到 Git，再推送 GitHub `origin/main`。
+3. NAS 的 `/vol1/picoclaw/repos/open-pic` 从 GitHub `pull --ff-only`，再将仓库内 `media-library/` 同步到 PicoClaw 技能部署目录。
+4. 按项目部署规范显式重启服务，并检查 `/healthz`、用户前台 `/app/` 与管理员前台 `/admin/`。
+
+**只运行 `git pull` 并不等于完成部署，直接修改 NAS 部署副本也不会回写仓库。** NAS 不需要安装 Node 工具链；代码同步、数据保护和重启注意事项见 [项目部署规范](../CLAUDE.md)。
+
+服务端按环境变量选择站点根路径的默认入口，`/admin/` 管理员前台独立保留：
 
 | `MEDIA_LIB_FRONTEND` | 行为 |
 | :--- | :--- |
-| 未设置 | 若 `static/app/index.html` 存在则用新前端，否则用旧单页 |
-| `next` | 强制新前端（`/` 302 到 `/app/`） |
-| `legacy` | 强制旧单页，用于回退 |
+| 未设置 | 用户前台产物存在时，`/` 跳转 `/app/`；否则跳转 `/admin` |
+| `next` | 优先用户前台；产物存在时 `/` 跳转 `/app/`，缺失时回落 `/admin` |
+| `legacy` | `/` 跳转 `/admin`；管理员前台仍承担日常维护功能 |
 
 ## 设计约束（来自文档 §2.3 / §2.4）
 

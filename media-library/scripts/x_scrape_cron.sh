@@ -11,20 +11,34 @@ if [[ ! -d "$DATA" ]]; then
   exit 2
 fi
 
-exec 9>"$DATA/x_scrape.lock"
-flock -n 9 || exit 0
-
+FOREGROUND=0
+if [[ "${1:-}" == --foreground ]]; then
+  FOREGROUND=1
+  shift
+fi
 DRY_RUN=0
 for arg in "$@"; do
   case "$arg" in
     --dry-run|-h|--help) DRY_RUN=1 ;;
   esac
 done
-if [[ "$DRY_RUN" == 0 ]]; then
-  bash "$S/ensure.sh"
+
+if [[ "$DRY_RUN" == 0 && "$FOREGROUND" == 0 ]]; then
+  setsid nohup bash "$S/x_scrape_cron.sh" --foreground "$@" </dev/null >/dev/null 2>&1 &
+  exit 0
 fi
 
-exec "$PY" "$S/x_scrape.py" \
+exec 9>"$DATA/x_scrape.lock"
+flock -n 9 || exit 0
+
+if [[ "$DRY_RUN" == 0 ]]; then
+  exec >"$DATA/x_scrape_runner.log" 2>&1
+  trap 'rc=$?; printf "[%s] 后台采集退出 rc=%s\n" "$(date "+%F %T")" "$rc"' EXIT
+  printf '[%s] 后台采集启动 pid=%s\n' "$(date '+%F %T')" "$$"
+  bash "$S/ensure.sh" 9>&-
+fi
+
+"$PY" "$S/x_scrape.py" \
   --file "$DATA/x_accounts.txt" \
   --batch "${X_SCRAPE_BATCH:-7}" \
   --limit "${X_SCRAPE_LIMIT:-4}" \

@@ -6,6 +6,8 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import signal
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -290,12 +292,18 @@ def run_wrapper(wrapper, *args, extra_env=None):
 
 
 def test_wrapper_defaults_and_paths_with_spaces(wrapper):
-    result = run_wrapper(wrapper)
+    result = run_wrapper(wrapper, "--foreground")
     assert result.returncode == 0, result.stderr
     cron, data, env = wrapper
     captured = Path(env["CAPTURE"]).read_text().splitlines()
     assert captured == [str(cron.with_name("x_scrape.py")), "--file", str(data / "x_accounts.txt"), "--batch", "7", "--limit", "4", "--max-mb", "30", "--tags", "X抓取,人物"]
     assert Path(env["STARTED"]).exists()
+
+
+def test_wrapper_does_not_pass_scrape_lock_to_service(wrapper):
+    ensure = wrapper[0].with_name("ensure.sh")
+    ensure.write_text('test ! -e "/proc/$$/fd/9"\n')
+    assert run_wrapper(wrapper, "--foreground").returncode == 0
 
 
 def test_wrapper_dry_run_does_not_start_service(wrapper):
@@ -309,7 +317,7 @@ def test_wrapper_lock_prevents_overlapping_runs(wrapper):
     import fcntl
     with (wrapper[1] / "x_scrape.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        result = run_wrapper(wrapper)
+        result = run_wrapper(wrapper, "--foreground")
     assert result.returncode == 0
     assert not Path(wrapper[2]["CAPTURE"]).exists()
     assert not Path(wrapper[2]["STARTED"]).exists()
@@ -317,4 +325,56 @@ def test_wrapper_lock_prevents_overlapping_runs(wrapper):
 
 @pytest.mark.parametrize("variable,code", [("ENSURE_EXIT", "7"), ("PYTHON_EXIT", "9")])
 def test_wrapper_propagates_failure(wrapper, variable, code):
-    assert run_wrapper(wrapper, extra_env={variable: code}).returncode == int(code)
+    assert run_wrapper(wrapper, "--foreground", extra_env={variable: code}).returncode == int(code)
+    assert f"后台采集退出 rc={code}" in (wrapper[1] / "x_scrape_runner.log").read_text()
+
+
+def wait_until(predicate, timeout=5):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.02)
+    pytest.fail("test worker did not reach expected state")
+
+
+def test_background_worker_survives_scheduler_group_exit_and_keeps_lock(wrapper, tmp_path):
+    cron, data, env = wrapper
+    python = cron.parent.parent / "venv/bin/python3"
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        "import json,os,time\nfrom pathlib import Path\n"
+        "Path(os.environ['CAPTURE']).write_text(json.dumps({'pid':os.getpid(),'sid':os.getsid(0)}))\n"
+        "for _ in range(500):\n"
+        "    if Path(os.environ['RELEASE']).exists(): break\n"
+        "    time.sleep(0.02)\n"
+        "raise SystemExit(9)\n"
+    )
+    python.write_text('#!/usr/bin/env bash\nexec "$TEST_PYTHON" "$WORKER"\n')
+    release = tmp_path / "release"
+    env = {**env, "TEST_PYTHON": sys.executable, "WORKER": str(worker), "RELEASE": str(release)}
+    parent = subprocess.Popen(
+        ["bash", "-c", 'bash "$1"; sleep 60', "test-scheduler", str(cron)],
+        env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+    )
+    log = data / "x_scrape_runner.log"
+    try:
+        capture = Path(env["CAPTURE"])
+        wait_until(lambda: capture.exists() and bool(capture.read_text()))
+        worker_info = json.loads(capture.read_text())
+        assert worker_info["sid"] != parent.pid
+        os.killpg(parent.pid, signal.SIGTERM)
+        parent.wait(timeout=3)
+        os.kill(worker_info["pid"], 0)
+        assert run_wrapper(wrapper, "--foreground").returncode == 0
+        assert json.loads(capture.read_text()) == worker_info
+        assert "退出 rc=" not in log.read_text()
+    finally:
+        release.touch()
+        if parent.poll() is None:
+            os.killpg(parent.pid, signal.SIGTERM)
+            parent.wait(timeout=3)
+    wait_until(lambda: "后台采集退出 rc=9" in log.read_text())
+    import fcntl
+    with (data / "x_scrape.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
