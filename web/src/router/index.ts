@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-// 路由定义（§4 A-02）：首页编辑化、浏览页独立、资产页语义化 URL
-// 组件按需懒加载，首屏只加载首页所需代码
+// 路由定义：单主页沉浸看图 + 按需筛选，保留 /browse 与 /a/:slug 兼容跳转
+// 组件按需懒加载，首屏只加载主页所需代码
 const router = createRouter({
   history: createWebHistory('/app/'),
   routes: [
@@ -12,19 +12,19 @@ const router = createRouter({
       meta: { title: 'MediaLib' },
     },
     {
+      // 兼容旧浏览页链接与 SEO 落地页跳转：携带全部筛选 query 无缝归并到主页
       path: '/browse',
       name: 'browse',
-      component: () => import('@/views/BrowseView.vue'),
-      meta: { title: '浏览全部资产' },
+      redirect: (to) => ({ name: 'home', query: to.query, replace: true }),
     },
     {
-      // 兼容旧分享链接：/app/ 下不做 301，直接渲染到浏览页并定位
+      // 兼容分享短链：/app/ 下不做 301，直接渲染主页并定位打开灯箱
       path: '/a/:slug',
       name: 'asset',
-      component: () => import('@/views/BrowseView.vue'),
+      component: () => import('@/views/HomeView.vue'),
     },
     {
-      // 客户选片页（C-14）：独立布局，不套顶栏
+      // 客户选片页（C-14）：独立布局
       path: '/review/:token',
       name: 'review',
       component: () => import('@/views/ReviewView.vue'),
@@ -46,9 +46,9 @@ const router = createRouter({
 /** 页面标题走 i18n，切换语言后也能同步更新（原先写死中文） */
 const TITLE_KEYS: Record<string, string> = {
   home: 'site.name',
-  browse: 'site.browse',
+  browse: 'site.name',
   review: 'review.title',
-  asset: 'site.browse',
+  asset: 'site.name',
   'not-found': 'notfound.title',
 }
 

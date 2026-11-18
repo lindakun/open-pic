@@ -60,8 +60,7 @@ web/
     │   ├── tokens.css      # 三层 Token：primitive → semantic
     │   └── base.css
     └── views/
-        ├── HomeView.vue    # 整屏瀑布流图片墙
-        ├── BrowseView.vue  # 分面检索与多视图浏览页
+        ├── HomeView.vue    # 单页沉浸式图片墙 + 按需展开分面检索主页
         ├── ReviewView.vue  # 客户独立选片与批注页
         └── NotFoundView.vue
 ```

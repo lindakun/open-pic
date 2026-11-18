@@ -78,6 +78,8 @@ const messages: Record<Locale, Dict> = {
     'browse.emptyTitle': '没有匹配的内容',
     'browse.errorTitle': '内容加载失败',
     'browse.emptyHint': '试试放宽筛选条件，或清空全部筛选。',
+    'browse.emptyHintFilter': '没有符合当前筛选条件的内容，试试放宽或清空筛选。',
+    'browse.emptyHintSearch': '没有匹配「{q}」的素材，换个关键词试试。',
     'browse.emptyHintNoFilter': '上传图片或通过链接抓取，开始构建你的视觉资产库。',
     'browse.loadMore': '加载更多',
     'browse.endOfList': '已显示全部 {count} 项',

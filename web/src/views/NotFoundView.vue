@@ -16,7 +16,7 @@ const { t } = useI18n()
     <p class="muted">{{ t('notfound.hint') }}</p>
     <div class="not-found__actions">
       <RouterLink to="/" class="nf-btn nf-btn--primary">← {{ t('notfound.back') }}</RouterLink>
-      <RouterLink to="/browse" class="nf-btn nf-btn--ghost">{{ t('site.browse') }} →</RouterLink>
+      <RouterLink :to="{ path: '/', query: { sort: 'random' } }" class="nf-btn nf-btn--ghost">↻ {{ t('sort.random') }}</RouterLink>
     </div>
   </div>
 </template>

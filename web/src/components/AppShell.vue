@@ -1,13 +1,14 @@
 <script setup lang="ts">
 /**
- * 站点外壳：顶栏 + 主内容区
+ * 站点外壳：零页签顶栏（品牌 + 居中搜索插槽 + 工具图标）+ 主内容区
  *
  * 遵循纯图规范（§2.3）：
- *   - 顶栏一级动作 ≤5 个
- *   - 滚动 200px 后自动隐藏，回到顶部 40px 内复现
+ *   - 去除重复的「图墙 / 浏览」页签，把视觉重心完全让给图片
+ *   - 顶栏一级动作精简，中间留给主页搜索框插槽
+ *   - 滚动 200px 后自动隐藏，向上回滚或按 / 搜索时复现
  */
 import { onMounted, onUnmounted, ref, watch } from 'vue'
-import { RouterLink, RouterView, useRouter } from 'vue-router'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import { useI18n } from '@/composables/useI18n'
 import { useRecent } from '@/composables/useRecent'
@@ -18,6 +19,7 @@ import MLButton from './MLButton.vue'
 const { mode, resolved, cycle } = useTheme()
 const { t, locale, toggleLocale, formatDate } = useI18n()
 const { recent, removeRecent, clearRecent } = useRecent()
+const route = useRoute()
 const router = useRouter()
 const recentOpen = ref(false)
 const brokenThumbs = ref<Set<string>>(new Set())
@@ -34,6 +36,11 @@ function openRecentItem(id: string) {
   void router.push(`/a/asset-${id.slice(0, 8)}`)
 }
 
+/** 点击左上角品牌标识：通知主页清空筛选并回到初始图墙 */
+function onBrandClick() {
+  window.dispatchEvent(new CustomEvent('mlib:reset-home'))
+}
+
 const headerRef = ref<HTMLElement | null>(null)
 const headerHidden = ref(false)
 const headerScrolled = ref(false)
@@ -41,14 +48,21 @@ const scrollProgress = ref(0)
 let ticking = false
 /** 上一次滚动位置：用于判断方向，向上滚动时必须立刻复现顶栏 */
 let lastY = 0
+let headerRo: ResizeObserver | null = null
 
-/** 同步顶栏当前占位高度到 CSS 变量，供首页粘性工具条避让（消除叠层遮挡） */
+/** 同步顶栏当前占位高度到 CSS 变量，供主页粘性工具条避让（消除叠层遮挡） */
 function syncHeaderOffset() {
-  const h = headerHidden.value ? 0 : (headerRef.value?.offsetHeight ?? 57)
+  const h = headerHidden.value || route.name === 'review' ? 0 : (headerRef.value?.offsetHeight ?? 57)
   document.documentElement.style.setProperty('--header-offset', `${h}px`)
 }
 
+function onRevealHeader() {
+  headerHidden.value = false
+  syncHeaderOffset()
+}
+
 watch(headerHidden, syncHeaderOffset)
+watch(() => route.name, syncHeaderOffset)
 
 function onScroll() {
   if (ticking) return
@@ -76,11 +90,18 @@ onMounted(() => {
   syncHeaderOffset()
   window.addEventListener('scroll', onScroll, { passive: true })
   window.addEventListener('resize', syncHeaderOffset, { passive: true })
+  window.addEventListener('mlib:reveal-header', onRevealHeader)
+  if (typeof ResizeObserver !== 'undefined' && headerRef.value) {
+    headerRo = new ResizeObserver(() => syncHeaderOffset())
+    headerRo.observe(headerRef.value)
+  }
 })
 
 onUnmounted(() => {
   window.removeEventListener('scroll', onScroll)
   window.removeEventListener('resize', syncHeaderOffset)
+  window.removeEventListener('mlib:reveal-header', onRevealHeader)
+  headerRo?.disconnect()
   document.documentElement.style.removeProperty('--header-offset')
 })
 
@@ -112,19 +133,23 @@ function formatRelative(tsMs: number): string {
   <a class="skip-link" href="#main">{{ t('site.skipToMain') }}</a>
 
   <header
+    v-if="route.name !== 'review'"
     ref="headerRef"
     :class="['site-header', { 'site-header--hidden': headerHidden, 'site-header--scrolled': headerScrolled }]"
   >
     <div class="site-header__inner">
-      <RouterLink to="/" class="brand" :aria-label="`${t('site.name')} ${t('site.home')}`">
+      <RouterLink
+        to="/"
+        class="brand"
+        :aria-label="`${t('site.name')} ${t('site.home')}`"
+        @click="onBrandClick"
+      >
         <span class="brand__mark" aria-hidden="true">◐</span>
         <span class="brand__name">{{ t('site.name') }}</span>
       </RouterLink>
 
-      <nav class="site-nav" aria-label="Main">
-        <RouterLink to="/" exact-active-class="router-link-active" class="site-nav__link">{{ t('site.wall') }}</RouterLink>
-        <RouterLink to="/browse" class="site-nav__link">{{ t('site.browse') }}</RouterLink>
-      </nav>
+      <!-- 主页搜索框通过 Teleport 挂载于此；选片/404 等页面自动留空 -->
+      <div id="site-header-center" class="site-header__center" />
 
       <div class="site-header__actions">
         <button
@@ -268,10 +293,11 @@ function formatRelative(tsMs: number): string {
 .site-header__inner {
   display: flex;
   align-items: center;
-  gap: var(--p-space-6);
-  max-width: 1600px;
+  gap: var(--p-space-5);
+  max-width: 1720px;
   margin: 0 auto;
-  padding: var(--p-space-3) var(--p-space-5);
+  padding: var(--p-space-2) var(--p-space-5);
+  min-height: 54px;
 }
 
 .brand {
@@ -282,6 +308,7 @@ function formatRelative(tsMs: number): string {
   font-size: var(--p-step-1);
   font-weight: 600;
   letter-spacing: -0.02em;
+  flex-shrink: 0;
 }
 
 .brand:hover {
@@ -293,35 +320,19 @@ function formatRelative(tsMs: number): string {
   font-size: 1.125rem;
 }
 
-.site-nav {
-  display: flex;
-  gap: var(--p-space-4);
+.site-header__center {
   flex: 1;
-}
-
-.site-nav__link {
-  font-size: var(--p-step--1);
-  color: var(--ink-muted);
-  letter-spacing: 0.04em;
-  padding: var(--p-space-1) 0;
-  border-bottom: 1px solid transparent;
-  transition: color var(--p-dur-fast) var(--p-ease-out);
-}
-
-.site-nav__link:hover {
-  color: var(--ink);
-  text-decoration: none;
-}
-
-.site-nav__link.router-link-active {
-  color: var(--ink);
-  border-bottom-color: var(--accent);
+  min-width: 0;
+  display: flex;
+  justify-content: center;
 }
 
 .site-header__actions {
   display: flex;
   align-items: center;
   gap: var(--p-space-1);
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .icon-btn {
@@ -495,11 +506,19 @@ function formatRelative(tsMs: number): string {
   color: var(--ink);
 }
 
-@media (max-width: 520px) {
+@media (max-width: 680px) {
   .site-header__inner {
-    gap: var(--p-space-3);
+    flex-wrap: wrap;
+    gap: var(--p-space-2);
     padding: var(--p-space-2) var(--p-space-3);
   }
+  .site-header__center:not(:empty) {
+    order: 3;
+    flex: 1 1 100%;
+  }
+}
+
+@media (max-width: 520px) {
   .brand__name {
     font-size: var(--p-step-0);
   }
