@@ -254,6 +254,25 @@ body {
 }
 .col-item:hover { background: var(--bg-hover); color: var(--text); }
 .col-item.on { background: var(--primary); color: #fff; }
+.col-item__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col-item__meta { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+/* 操作按钮默认隐藏，悬停或选中时显示，避免侧栏过于嘈杂 */
+.col-item__acts { display: none; gap: 1px; margin-left: 2px; }
+.col-item:hover .col-item__acts, .col-item.on .col-item__acts { display: flex; }
+/* 触屏设备无 hover，操作按钮常显 */
+@media (hover: none) { .col-item__acts { display: flex; } }
+.mini-icon {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 1px 3px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1;
+  opacity: .7;
+}
+.mini-icon:hover { background: rgba(127, 127, 127, .28); opacity: 1; }
 
 .tag-cloud { display: flex; flex-wrap: wrap; gap: 5px; }
 .tag-chip {

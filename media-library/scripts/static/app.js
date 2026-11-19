@@ -25,6 +25,7 @@
     lastSelectedIdx: -1,
     curIdx: -1,
     collections: [],
+    editingCol: null,
     popularTags: [],
     batchTagMode: 'add',
     zoom: 1,
@@ -148,7 +149,13 @@
       state.collections.forEach(c => {
         const div = document.createElement('div');
         div.className = 'col-item' + (state.nav === 'collection' && state.collectionId === c.id ? ' on' : '');
-        div.innerHTML = `<span>📁 ${esc(c.name)}</span><b>${c.item_count}</b>`;
+        div.innerHTML = `<span class="col-item__name">📁 ${esc(c.name)}</span>
+          <span class="col-item__meta"><b>${c.item_count}</b>
+            <span class="col-item__acts">
+              <button class="mini-icon" data-act="rename" title="重命名" aria-label="重命名">✎</button>
+              <button class="mini-icon" data-act="del" title="删除" aria-label="删除">🗑</button>
+            </span>
+          </span>`;
         div.onclick = () => {
           state.nav = 'collection';
           state.collectionId = c.id;
@@ -156,9 +163,43 @@
           syncNavUI();
           loadItems(true);
         };
+        div.querySelectorAll('[data-act]').forEach(btn => {
+          btn.onclick = e => {
+            e.stopPropagation();
+            if (btn.dataset.act === 'rename') openColModal(c);
+            else deleteCollection(c);
+          };
+        });
         list.appendChild(div);
       });
     } catch (e) { console.error(e); }
+  }
+
+  // 打开画板弹窗：传 c 为编辑，缺省为新建
+  function openColModal(c = null) {
+    state.editingCol = c ? c.id : null;
+    $('#colModalTitle').textContent = c ? '重命名画板' : '新建画板';
+    $('#btnSubmitCol').textContent = c ? '保存' : '创建';
+    $('#inColName').value = c ? c.name : '';
+    $('#inColDesc').value = c ? (c.description || '') : '';
+    $('#colModal').hidden = false;
+    $('#inColName').focus();
+    $('#inColName').select();
+  }
+
+  async function deleteCollection(c) {
+    if (!confirm(`删除画板「${c.name}」？画板内的素材不会被删除。`)) return;
+    const r = await fetch(`/api/collections/${c.id}`, { method: 'DELETE' });
+    if (!r.ok) return toast('删除失败');
+    // 正在浏览被删画板时回到全部资产，避免停留在空筛选
+    if (state.nav === 'collection' && state.collectionId === c.id) {
+      state.nav = 'all';
+      state.collectionId = null;
+      syncNavUI();
+      loadItems(true);
+    }
+    await loadCollections();
+    toast('画板已删除');
   }
 
   function toggleArr(arr, val) {
@@ -799,22 +840,25 @@
 
   // ---------- 画板、统计看板、任务 SSE ----------
 
-  $('#btnNewCol').onclick = () => { $('#colModal').hidden = false; $('#inColName').focus(); };
+  $('#btnNewCol').onclick = () => openColModal();
   $('#btnSubmitCol').onclick = async () => {
     const name = $('#inColName').value.trim();
     if (!name) return;
-    const r = await fetch('/api/collections', {
-      method: 'POST',
+    const editing = state.editingCol;
+    const r = await fetch(editing ? `/api/collections/${editing}` : '/api/collections', {
+      method: editing ? 'PATCH' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, description: $('#inColDesc').value }),
     });
-    if (r.ok) {
-      closeModal('colModal');
-      $('#inColName').value = '';
-      $('#inColDesc').value = '';
-      loadCollections();
-      toast('画板已创建');
-    }
+    if (!r.ok) return toast(editing ? '保存失败' : '创建失败');
+    closeModal('colModal');
+    state.editingCol = null;
+    $('#inColName').value = '';
+    $('#inColDesc').value = '';
+    await loadCollections();
+    // 重命名的是当前筛选的画板时，同步刷新顶部筛选条
+    if (editing && state.nav === 'collection' && state.collectionId === editing) renderActiveBar();
+    toast(editing ? '画板已更新' : '画板已创建');
   };
 
   async function loadAnalytics() {
