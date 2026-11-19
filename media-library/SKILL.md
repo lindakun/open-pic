@@ -55,6 +55,16 @@ bash "$S/x_scrape_cron.sh" --foreground
 
 以上入口默认使用技能目录的 `venv/bin/python3`，不存在时才使用 `python3`；正常执行应使用 PicoClaw 的运行身份和环境。验证时检查实际 `x_scrape.log` 中的完成摘要、断点及素材变化，不能只看调度器显示的 `ok`；无新推文时新增数为零是正常结果。
 
+## 在线运维中心（管理台「⚙ 采集与后处理」）
+
+管理员可在 `/admin/` 的「⚙ 采集与后处理」面板在线维护运行参数，无需 SSH 改文件：
+
+- **配置存储**：全部参数保存在运行数据目录 `pipeline_config.json`（同步兼容 `vision_config.json`），账号白名单直接读写 `x_accounts.txt`；均属运行数据，代码部署不会覆盖。
+- **可维护内容**：定时抓取参数（批次/推文上限/体积/标签/代理等）、存量后处理参数（批大小/指纹回填/去重距离/阶段开关）、在线视觉模型配置（接口/模型/API Key/审核 Prompt）、X 账号白名单，并可查看锁状态、轮转游标、待处理存量、四路日志，一键触发正式运行、试运行（dry-run）、重置游标与代理连通性测试。
+- **参数优先级**：CLI 参数 > 环境变量 > `pipeline_config.json` > 代码默认值；cron 默认读配置，人工诊断仍可用显式 CLI 参数或环境变量临时覆盖。
+- **API Key 安全**：接口只返回脱敏掩码（如 `sk-****xxxx`）；保存时留空表示保留原密钥。
+- 对应后端接口：`GET/PUT /api/pipeline/config`、`GET /api/pipeline/status`、`POST /api/pipeline/action`。
+
 ## 手工采集（补充入口）
 
 ```bash

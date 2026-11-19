@@ -9,7 +9,7 @@
 1. **定时采集**：PicoClaw 按计划调用本项目的抓取脚本，从配置的 X 账号获取图片与视频，分批轮转并保留去重断点。
 2. **处理入库**：采集结果通过 FastAPI 入库，SQLite 保存索引与元数据，磁盘保存原文件、缩略图及播放副本。
 3. **用户浏览**：用户通过 `/app/` 浏览、搜索、筛选、查看图片及播放视频。
-4. **管理员维护**：管理员通过 `/admin/` 维护素材、标签、合集、回收站，查看任务与统计；手工链接采集和上传是补充入口。
+4. **管理员维护**：管理员通过 `/admin/` 维护素材、标签、合集、回收站，查看任务与统计，并在「⚙ 采集与后处理」面板在线维护抓取/后处理/视觉模型参数、账号白名单与运行状态；手工链接采集和上传是补充入口。
 
 技术架构为 **FastAPI + SQLite（WAL + FTS5）+ 独立静态前端**。两套前台共用同一后端与图库；当前用户前台为 Vue 应用，管理员前台为保留的管理单页。
 
@@ -39,6 +39,7 @@ open-pic/
     ├── references/LEARNINGS.md      # 踩坑经验记录
     └── scripts/
         ├── server.py                # FastAPI 主服务 + CLI（--port/--stop/--status/--repair）
+        ├── pipeline_config.py       # 抓取/后处理统一配置中心：校验、脱敏、锁探测与运维动作
         ├── db.py                    # SQLite WAL + FTS5 仓储、软删除、画板、任务表
         ├── media_proc.py            # 元数据提取、主色调、dHash、多规格 WebP、视频预览/转码
         ├── tasks.py                 # 后台异步任务队列与 SSE 事件广播
@@ -48,6 +49,7 @@ open-pic/
         ├── ingest.py                # 手工链接/网页/yt-dlp 采集入库 CLI
         ├── ensure.sh                # 图片库服务保活；不负责定时抓取
         ├── learn.py                 # 经验记录工具
+        ├── test_pipeline_config.py  # 配置中心、参数优先级与 pipeline API 回归测试
         ├── test_server.py           # FastAPI + SQLite 集成测试
         └── static/                  # 前端目录
             ├── index.html/app.css/app.js   # 管理员前台（/admin/，独立保留）
@@ -66,14 +68,18 @@ open-pic/
 4. **语言与注释**：
    - 代码注释与文档统一使用中文。
 
-5. **前端重构约定（v2.0）**：
+5. **运行参数配置中心**：
+   - 定时抓取、存量后处理与在线视觉模型参数统一保存在运行数据目录 `pipeline_config.json`（同步兼容 `vision_config.json`），由管理台「⚙ 采集与后处理」（`/api/pipeline/*`）在线维护；账号白名单直接读写 `DATA/x_accounts.txt`。
+   - 脚本参数按 **CLI 参数 > 环境变量 > 配置文件 > 代码默认值** 四级优先级取值；Shell 入口仅在环境变量显式非空时追加 CLI flag，否则由 Python 脚本读配置。
+   - API Key 只脱敏返回（`sk-****xxxx`），留空保留原值；配置文件属于运行数据，`rsync --delete` 部署绝不覆盖。
+
+6. **前端重构约定（v2.0）**：
    - 新前端源码在 `web/`，构建产物输出到 `media-library/scripts/static/app/`，**产物纳入版本库**，NAS 端从远程仓库 pull 即可获得产物（无需在 NAS 构建）；**部署仍须显式重启服务**，见第 6 条。
    - `static/app/` 为构建产物，**禁止手改**；所有改动在 `web/src/` 内完成并重新 `bash scripts/build-web.sh`。
    - 两套前台并存：`web/` 提供 `/app/` 用户前台，`static/index.html`、`app.css`、`app.js` 提供 `/admin/` 管理员前台；后者不是可随意删除的临时回退页。`MEDIA_LIB_FRONTEND=next|legacy` 只选择根路径的默认入口，未设置时依据用户前台产物是否存在判定。
    - 样式只消费 `web/src/styles/tokens.css` 的语义变量，组件内禁止硬编码颜色（浅色编辑纸感为设计基准）。
 
-6. **代码统一维护与部署：`本仓库修改/测试 → commit → push GitHub → NAS pull → 同步部署 → 验证`**：
-   - **本项目所有代码必须放在本仓库维护**，包括定时抓取入口及主程序、服务端、用户前台、管理员前台、测试、构建与部署脚本；不得只存在于 NAS 技能目录、临时目录或历史会话中。
+7. **代码统一维护与部署：`本仓库修改/测试 → commit → push GitHub → NAS pull → 同步部署 → 验证`**：   - **本项目所有代码必须放在本仓库维护**，包括定时抓取入口及主程序、服务端、用户前台、管理员前台、测试、构建与部署脚本；不得只存在于 NAS 技能目录、临时目录或历史会话中。
    - 唯一远程仓库为 GitHub（`origin`: `https://github.com/lindakun/open-pic.git`），**禁止推送到 NAS 裸仓库**。NAS 的 Git 工作副本和技能目录分别是拉取位置与部署位置，不是第二套独立维护的源码。
    - 每次更新部署都必须先在本项目完成修改、测试和 **Git 提交**，再 `git push origin main`，然后 NAS `git pull --ff-only origin main` 并同步到部署目录；禁止跳过 GitHub，直接把本地未提交或未推送代码拷入生产目录，也禁止只在 NAS 热改。
    - 恢复遗失脚本同样遵守此流程：先找回或重写到本仓库，补测试、提交并推送，再部署；上线前检查 `git status`，避免遗漏未跟踪的脚本。
@@ -92,7 +98,7 @@ open-pic/
 | 存量后处理（去重与标注） | `45 */2 * * *` | `media-library/scripts/library_postprocess_cron.sh` → `library_postprocess.py` | 视频指纹回填、全库去重、分批视觉补齐 |
 | 图片库服务守护 | `0 * * * *` | `media-library/scripts/ensure.sh` | 服务不可用时拉起，不负责抓取 |
 
-X 抓取入口默认每次轮转 14 个账号，每账号最多处理 4 条推文，视频上限 30MB；从运行数据目录读取 `x_accounts.txt` 与 `x_scrape_state.json`，写入 `x_scrape.log`。默认通过 `setsid` 启动独立后台任务，避免受到 PicoClaw 5 分钟命令时限影响；互斥锁由后台任务持有，重复调度不会并发抓取。调度器返回只表示已投递，应以 `x_scrape_runner.log` 的退出码和 `x_scrape.log` 的完成摘要验收。
+X 抓取入口默认每次轮转 14 个账号，每账号最多处理 4 条推文，视频上限 30MB（以上默认值可在管理台「⚙ 采集与后处理」在线调整，保存于运行数据目录 `pipeline_config.json`）；从运行数据目录读取 `x_accounts.txt` 与 `x_scrape_state.json`，写入 `x_scrape.log`。默认通过 `setsid` 启动独立后台任务，避免受到 PicoClaw 5 分钟命令时限影响；互斥锁由后台任务持有，重复调度不会并发抓取。调度器返回只表示已投递，应以 `x_scrape_runner.log` 的退出码和 `x_scrape.log` 的完成摘要验收。
 
 `--dry-run` 同步执行且不改断点，`--foreground` 可同步执行真实采集用于人工诊断，不应用于有 5 分钟时限的 cron。更新代码不能清空名单或断点，也不能把“未处理的推文”标成已见；主页仅提供有限的最新推文，不保证补齐全部历史。
 
