@@ -26,7 +26,7 @@ description: >
 
 | 任务 | Cron 表达式 | 执行入口 |
 |---|---|---|
-| X 账号图片视频自动抓取 | `15 * * * *`，每小时第 15 分钟 | `bash /vol1/picoclaw/.picoclaw/workspace/skills/media-library/scripts/x_scrape_cron.sh` |
+| X 账号图片视频自动抓取 | `15 */2 * * *`，每两小时第 15 分钟 | `bash /vol1/picoclaw/.picoclaw/workspace/skills/media-library/scripts/x_scrape_cron.sh` |
 | 图片库服务守护 | `0 * * * *`，每小时整点 | `bash /vol1/picoclaw/.picoclaw/workspace/skills/media-library/scripts/ensure.sh` |
 
 `ensure.sh` 仅检查图片库并在不可用时拉起服务；**不能以保活成功代替自动采集验证**。`x_scrape_cron.sh` 默认通过 `setsid` / `nohup` 启动独立后台任务并立即返回，避免 PicoClaw 的 5 分钟命令时限中断采集；后台任务使用 `flock` 持锁到结束，先检查服务，再启动 `x_scrape.py`。保活进程不会继承采集锁；重复调度不会重叠采集。
