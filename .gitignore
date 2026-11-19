@@ -11,3 +11,4 @@ venv/
 *.pid
 .DS_Store
 screenshots/
+ssh.txt
