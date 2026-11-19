@@ -131,8 +131,13 @@ python3 $S/server.py --stop
 | `X_SCRAPE_LIMIT` | `4` | 定时入口每账号每轮的推文条数上限，`0` 表示本页全部；不是媒体数 |
 | `X_SCRAPE_MAX_MB` | `30` | 定时入口的视频体积上限，目前不对图片应用此大小上限 |
 | `X_SCRAPE_TAGS` | `X抓取,人物` | 定时入口的默认入库标签 |
+| `X_VISION_ENABLED` | `1` | 是否开启 X 抓取视觉过滤与标题/标签生成（`0` 关闭） |
+| `X_VISION_BASE_URL` | `https://sub.hhxxttxs.icu:8787` | OpenAI 兼容视觉接口地址 |
+| `X_VISION_API_KEY` | 空 | 视觉接口密钥（也可写入数据目录 `vision_config.json`） |
+| `X_VISION_MODEL` | `cloudflare-workers-ai/@cf/qwen/qwen3.8-27b` | 视觉模型 ID |
+| `X_VISION_TIMEOUT` | `45` | 单次视觉识别请求超时秒数 |
 
-`X_SCRAPE_BATCH/LIMIT/MAX_MB/TAGS` 由 shell 入口传给主程序；直接调用 `x_scrape.py` 时用对应命令行参数。主程序默认 `--batch 0`，与定时入口的默认 `7` 区分。
+`X_SCRAPE_BATCH/LIMIT/MAX_MB/TAGS` 由 shell 入口传给主程序；直接调用 `x_scrape.py` 时用对应命令行参数。主程序默认 `--batch 0`，与定时入口的默认 `7` 区分。`vision_config.json` 置于运行数据目录 `MEDIA_LIB_DIR` 下时，环境变量优先级高于文件配置。
 
 ## 已知限制（踩过的坑）
 

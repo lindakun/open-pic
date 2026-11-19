@@ -32,6 +32,10 @@ import urllib.parse
 import urllib.request
 
 BASE = os.path.dirname(os.path.abspath(__file__))
+if BASE not in sys.path:
+    sys.path.insert(0, BASE)
+import vision_filter
+
 DATA = os.environ.get("MEDIA_LIB_DIR", "/vol1/picoclaw/.picoclaw/workspace/media-library")
 STATE_PATH = os.path.join(DATA, "x_scrape_state.json")
 LOG_PATH = os.path.join(DATA, "x_scrape.log")
@@ -493,6 +497,26 @@ def download_and_store(it, entry, account, args, stats):
             tags.append("X视频")
         title = f"@{account} X"
 
+        if not getattr(args, "no_vision", False):
+            vision_cfg = getattr(args, "vision_config", None) or vision_filter.load_config(DATA)
+            if vision_cfg.get("enabled"):
+                try:
+                    vres = vision_filter.analyze_media(dest, it["kind"], vision_cfg)
+                except Exception as e:
+                    log(f"    ✗ 视觉识别失败 {it['name']}：{e}")
+                    stats["fail"] += 1
+                    return False
+                if not vres["keep"]:
+                    reason = vres.get("reason") or "不符合女性人像条件"
+                    log(f"    - {it['name']} 跳过（视觉过滤）：{reason}")
+                    stats["skip_vision"] = stats.get("skip_vision", 0) + 1
+                    return True
+                if vres.get("title"):
+                    title = vres["title"]
+                for vt in vres.get("tags") or []:
+                    if vt not in tags:
+                        tags.append(vt)
+
         rec = upload(dest, it["name"], tags, title=title,
                      source=f"https://x.com/{account}")
         if rec.get("error"):
@@ -554,6 +578,7 @@ def main():
     p.add_argument("--tags", default="X抓取,人物", help="入库标签，逗号分隔")
     p.add_argument("--timeout", type=int, default=30, help="单请求超时秒")
     p.add_argument("--dry-run", action="store_true", help="只看会抓什么，不下载不入库")
+    p.add_argument("--no-vision", action="store_true", help="跳过在线视觉识别过滤与元数据生成")
     p.add_argument("--quiet", action="store_true", help="不往 stderr 打日志")
     args = p.parse_args()
     if args.limit < 0 or args.batch < 0 or args.max_mb <= 0 or args.timeout <= 0:
@@ -583,6 +608,18 @@ def main():
         log("✗ 图片库服务未响应（先跑 ensure.sh）")
         return 4
 
+    args.vision_config = None
+    if not args.dry_run and not args.no_vision:
+        try:
+            vcfg = vision_filter.load_config(DATA)
+        except Exception as e:
+            log(f"✗ 视觉识别配置加载失败：{e}")
+            return 5
+        if vcfg.get("enabled") and not vcfg.get("api_key"):
+            log("✗ 已启用视觉识别但未配置 API Key（X_VISION_API_KEY 或 vision_config.json）")
+            return 5
+        args.vision_config = vcfg
+
     st = load_state()
     # 游标轮转：每轮只抓 batch 个，保证每个账号都会被轮到
     if args.batch and args.batch < len(accounts):
@@ -598,7 +635,7 @@ def main():
         log(f"账号 {len(accounts)} 个｜上限 {args.max_mb:g}MB｜标签 {args.tags}")
 
     stats = {"accounts": 0, "scanned": 0, "new": 0, "skip_dup": 0,
-             "skip_big": 0, "skip_small": 0, "fail": 0, "no_new": 0, "bytes": 0}
+             "skip_big": 0, "skip_small": 0, "skip_vision": 0, "fail": 0, "no_new": 0, "bytes": 0}
     for acct in accounts:
         stats["accounts"] += 1
         try:

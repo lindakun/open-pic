@@ -24,6 +24,7 @@ def scraper(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "log", lambda *args, **kwargs: None)
     monkeypatch.setattr(module, "proxy_alive", lambda: True)
     monkeypatch.setattr(module, "api_ok", lambda: True)
+    monkeypatch.setenv("X_VISION_ENABLED", "0")
     yield module
     if module.log_fp:
         module.log_fp.close()
@@ -57,11 +58,11 @@ def timeline(entries):
 
 
 def stats():
-    return dict.fromkeys(("accounts", "scanned", "new", "skip_dup", "skip_big", "skip_small", "fail", "no_new", "bytes"), 0)
+    return dict.fromkeys(("accounts", "scanned", "new", "skip_dup", "skip_big", "skip_small", "skip_vision", "fail", "no_new", "bytes"), 0)
 
 
 def args(**kwargs):
-    return SimpleNamespace(**{"limit": 4, "max_mb": 30, "timeout": 5, "tags": ["X抓取", "人物"], **kwargs})
+    return SimpleNamespace(**{"limit": 4, "max_mb": 30, "timeout": 5, "tags": ["X抓取", "人物"], "no_vision": False, **kwargs})
 
 
 def mock_timeline(scraper, monkeypatch, entries):
@@ -378,3 +379,128 @@ def test_background_worker_survives_scheduler_group_exit_and_keeps_lock(wrapper,
     import fcntl
     with (data / "x_scrape.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _jpeg_bytes(size=(400, 400)):
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", size, (180, 120, 120)).save(buf, format="JPEG", quality=95)
+    raw = buf.getvalue()
+    if len(raw) < 25 * 1024:
+        raw = raw + b"\x00" * (25 * 1024 - len(raw))
+    return raw
+
+
+def test_vision_keep_uses_generated_title_and_tags(scraper, monkeypatch):
+    monkeypatch.setenv("X_VISION_ENABLED", "1")
+    monkeypatch.setenv("X_VISION_API_KEY", "test-key")
+    img_bytes = _jpeg_bytes()
+    mock_timeline(scraper, monkeypatch, [entry("201")])
+
+    def fake_get(url, **kwargs):
+        if "pbs.twimg.com" in url:
+            return img_bytes, "image/jpeg", url
+        return timeline([entry("201")]), "text/html", "https://x.com/demo"
+
+    monkeypatch.setattr(scraper, "http_get", fake_get)
+    monkeypatch.setattr(scraper.vision_filter, "analyze_media", lambda path, kind, cfg: {
+        "keep": True,
+        "reason": "单人女性街拍",
+        "title": "街头温柔穿搭写真",
+        "tags": ["街拍", "穿搭", "人物", "清纯"],
+    })
+    uploaded = []
+
+    def fake_upload(path, name, tags, title="", source=""):
+        uploaded.append({"name": name, "tags": tags, "title": title, "source": source})
+        return {"id": "item201"}
+
+    monkeypatch.setattr(scraper, "upload", fake_upload)
+    st = scraper.load_state()
+    s = stats()
+    scraper.scrape_account("demo", st, args(), s)
+    assert s["new"] == 1
+    assert s["skip_vision"] == 0
+    assert uploaded[0]["title"] == "街头温柔穿搭写真"
+    assert uploaded[0]["tags"] == ["X抓取", "人物", "街拍", "穿搭", "清纯"]
+    assert "201" in st["accounts"]["demo"]["seen_tweets"]
+
+
+def test_vision_reject_skips_upload_and_marks_seen(scraper, monkeypatch):
+    monkeypatch.setenv("X_VISION_ENABLED", "1")
+    monkeypatch.setenv("X_VISION_API_KEY", "test-key")
+    img_bytes = _jpeg_bytes()
+
+    def fake_get(url, **kwargs):
+        if "pbs.twimg.com" in url:
+            return img_bytes, "image/jpeg", url
+        return timeline([entry("202")]), "text/html", "https://x.com/demo"
+
+    monkeypatch.setattr(scraper, "http_get", fake_get)
+    monkeypatch.setattr(scraper.vision_filter, "analyze_media", lambda path, kind, cfg: {
+        "keep": False,
+        "reason": "纯文字截图",
+        "title": "",
+        "tags": [],
+    })
+    uploaded = []
+    monkeypatch.setattr(scraper, "upload", lambda *a, **kw: uploaded.append(a) or {"id": "x"})
+
+    st = scraper.load_state()
+    s = stats()
+    scraper.scrape_account("demo", st, args(), s)
+    assert uploaded == []
+    assert s["skip_vision"] == 1
+    assert s["new"] == 0
+    assert "202" in st["accounts"]["demo"]["seen_tweets"]
+
+
+def test_vision_error_fails_without_marking_seen(scraper, monkeypatch):
+    monkeypatch.setenv("X_VISION_ENABLED", "1")
+    monkeypatch.setenv("X_VISION_API_KEY", "test-key")
+    img_bytes = _jpeg_bytes()
+
+    def fake_get(url, **kwargs):
+        if "pbs.twimg.com" in url:
+            return img_bytes, "image/jpeg", url
+        return timeline([entry("203")]), "text/html", "https://x.com/demo"
+
+    monkeypatch.setattr(scraper, "http_get", fake_get)
+
+    def raise_err(*a, **kw):
+        raise scraper.vision_filter.VisionError("api timeout")
+
+    monkeypatch.setattr(scraper.vision_filter, "analyze_media", raise_err)
+    uploaded = []
+    monkeypatch.setattr(scraper, "upload", lambda *a, **kw: uploaded.append(a) or {"id": "x"})
+
+    st = scraper.load_state()
+    s = stats()
+    scraper.scrape_account("demo", st, args(), s)
+    assert uploaded == []
+    assert s["fail"] == 1
+    assert "203" not in st["accounts"].get("demo", {}).get("seen_tweets", [])
+
+
+def test_no_vision_flag_bypasses_vision_filter(scraper, monkeypatch):
+    monkeypatch.setenv("X_VISION_ENABLED", "1")
+    monkeypatch.delenv("X_VISION_API_KEY", raising=False)
+    img_bytes = _jpeg_bytes()
+
+    def fake_get(url, **kwargs):
+        if "pbs.twimg.com" in url:
+            return img_bytes, "image/jpeg", url
+        return timeline([entry("204")]), "text/html", "https://x.com/demo"
+
+    monkeypatch.setattr(scraper, "http_get", fake_get)
+    monkeypatch.setattr(scraper.vision_filter, "analyze_media", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("should not call")))
+    uploaded = []
+    monkeypatch.setattr(scraper, "upload", lambda path, name, tags, title="", source="": uploaded.append(title) or {"id": "item204"})
+
+    st = scraper.load_state()
+    s = stats()
+    scraper.scrape_account("demo", st, args(no_vision=True), s)
+    assert s["new"] == 1
+    assert uploaded == ["@demo X"]
+
