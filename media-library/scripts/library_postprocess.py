@@ -87,13 +87,19 @@ def compute_video_dhash(path, duration=0.0):
     return ""
 
 
-def backfill_missing_phashes(database, data_dir, dry_run=False):
+def backfill_missing_phashes(database, data_dir, limit=50, dry_run=False):
     """Phase 1a: 为缺失 phash 的活跃图片和视频计算并回填 dHash"""
+    sql = (
+        "SELECT id, file, kind, duration FROM items "
+        "WHERE deleted_at IS NULL AND (phash IS NULL OR phash='') "
+        "ORDER BY ts DESC"
+    )
+    params = ()
+    if limit and limit > 0:
+        sql += " LIMIT ?"
+        params = (limit,)
     with database.connect() as conn:
-        rows = conn.execute(
-            "SELECT id, file, kind, duration FROM items "
-            "WHERE deleted_at IS NULL AND (phash IS NULL OR phash='')"
-        ).fetchall()
+        rows = conn.execute(sql, params).fetchall()
 
     if not rows:
         return 0
@@ -279,7 +285,8 @@ def backfill_vision_metadata(database, data_dir, vision_cfg, batch=15, dry_run=F
 def main():
     global log_fp
     p = argparse.ArgumentParser(description="图库存量后处理：视频指纹回填、全库去重、视觉标题/标签补齐")
-    p.add_argument("--batch", type=int, default=15, help="每轮视觉识别处理上限（0=跳过视觉阶段，默认 15）")
+    p.add_argument("--batch", type=int, default=50, help="每轮视觉识别处理上限（0=跳过视觉阶段，默认 50）")
+    p.add_argument("--phash-limit", type=int, default=50, help="每轮视频/图片 phash 回填上限（0=全部，默认 50）")
     p.add_argument("--max-dist", type=int, default=4, help="近似去重 dHash 最大汉明距离（默认 4）")
     p.add_argument("--skip-dedup", action="store_true", help="跳过 Phase 1 指纹回填与去重")
     p.add_argument("--skip-vision", action="store_true", help="跳过 Phase 2 视觉识别补齐")
@@ -287,8 +294,8 @@ def main():
     p.add_argument("--quiet", action="store_true", help="不往 stderr 打日志")
     args = p.parse_args()
 
-    if args.batch < 0 or args.max_dist < 0:
-        p.error("batch 和 max-dist 不能为负")
+    if args.batch < 0 or args.phash_limit < 0 or args.max_dist < 0:
+        p.error("batch、phash-limit 和 max-dist 不能为负")
 
     db_path = os.path.join(DATA, "media.db")
     if not os.path.exists(db_path):
@@ -317,7 +324,9 @@ def main():
     summary = {"phash_filled": 0, "dedup_removed": 0, "processed": 0, "updated": 0, "rejected": 0, "failed": 0}
     try:
         if not args.skip_dedup:
-            summary["phash_filled"] = backfill_missing_phashes(database, DATA, dry_run=args.dry_run)
+            summary["phash_filled"] = backfill_missing_phashes(
+                database, DATA, limit=args.phash_limit, dry_run=args.dry_run
+            )
             summary["dedup_removed"] = deduplicate_items(database, max_dist=args.max_dist, dry_run=args.dry_run)
 
         if not args.skip_vision and args.batch > 0:

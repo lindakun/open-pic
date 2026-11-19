@@ -46,18 +46,21 @@ def env_db(tmp_path, monkeypatch):
 
 def test_backfill_missing_video_phash(env_db, monkeypatch):
     tmp_path, files_dir, database = env_db
-    f1 = _make_item(database, "vid1", kind="video", duration=5.0, phash="")
-    f2 = _make_item(database, "vid2", kind="video", duration=5.0, phash="0f0f0f0f0f0f0f0f")
+    f1 = _make_item(database, "vid1", kind="video", duration=5.0, phash="", ts=100)
+    f3 = _make_item(database, "vid3", kind="video", duration=5.0, phash="", ts=200)
+    f2 = _make_item(database, "vid2", kind="video", duration=5.0, phash="0f0f0f0f0f0f0f0f", ts=300)
     (files_dir / f1).write_bytes(b"v1")
     (files_dir / f2).write_bytes(b"v2")
+    (files_dir / f3).write_bytes(b"v3")
 
     called = []
     monkeypatch.setattr(lp, "compute_video_dhash", lambda path, dur=0.0: called.append(path) or "aaaaaaaaaaaaaaaa")
 
-    n = lp.backfill_missing_phashes(database, str(tmp_path), dry_run=False)
+    n = lp.backfill_missing_phashes(database, str(tmp_path), limit=1, dry_run=False)
     assert n == 1
     assert len(called) == 1
-    assert database.get_item("vid1")["phash"] == "aaaaaaaaaaaaaaaa"
+    assert database.get_item("vid3")["phash"] == "aaaaaaaaaaaaaaaa"
+    assert database.get_item("vid1")["phash"] == ""
     assert database.get_item("vid2")["phash"] == "0f0f0f0f0f0f0f0f"
 
 

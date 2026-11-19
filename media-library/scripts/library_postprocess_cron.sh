@@ -38,6 +38,7 @@ if [[ "$DRY_RUN" == 0 ]]; then
 fi
 
 "$PY" "$S/library_postprocess.py" \
-  --batch "${X_POSTPROCESS_BATCH:-15}" \
+  --batch "${X_POSTPROCESS_BATCH:-50}" \
+  --phash-limit "${X_POSTPROCESS_PHASH_LIMIT:-50}" \
   --max-dist "${X_POSTPROCESS_MAX_DIST:-4}" \
   "$@"
