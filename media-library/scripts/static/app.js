@@ -534,7 +534,11 @@
   $('#lbClose').onclick = closeLightbox;
   $('#lbPrev').onclick = () => jumpLb(-1);
   $('#lbNext').onclick = () => jumpLb(1);
-  $('#lbToggleDrawer').onclick = () => $('#lbDrawer').classList.toggle('collapsed');
+  const syncDrawerUi = () => {
+    $('#lbShowDrawer').hidden = !$('#lbDrawer').classList.contains('collapsed');
+  };
+  $('#lbToggleDrawer').onclick = () => { $('#lbDrawer').classList.toggle('collapsed'); syncDrawerUi(); };
+  $('#lbShowDrawer').onclick = () => { $('#lbDrawer').classList.remove('collapsed'); syncDrawerUi(); };
 
   document.addEventListener('keydown', e => {
     if ($('#lb').hidden) return;

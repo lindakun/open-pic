@@ -494,6 +494,21 @@ body.select-mode .sel-check { display: grid; }
   padding: 14px;
 }
 .lb-drawer.collapsed { display: none; }
+/* 收起详情后悬浮在舞台右缘的展开入口 */
+.lb-drawer-show {
+  position: absolute;
+  top: 14px;
+  right: 60px;
+  background: rgba(255, 255, 255, .1);
+  border: none;
+  color: #fff;
+  padding: 8px 12px;
+  font-size: 13px;
+  border-radius: 8px;
+  cursor: pointer;
+  z-index: 5;
+}
+.lb-drawer-show:hover { background: rgba(255, 255, 255, .18); }
 .drawer-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; margin-bottom: 12px; }
 .drawer-body { display: flex; flex-direction: column; gap: 12px; font-size: 12.5px; }
 .kv { display: grid; grid-template-columns: 74px 1fr; gap: 6px; color: var(--text-muted); }
