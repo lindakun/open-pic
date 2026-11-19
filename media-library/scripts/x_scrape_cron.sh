@@ -40,7 +40,7 @@ fi
 
 "$PY" "$S/x_scrape.py" \
   --file "$DATA/x_accounts.txt" \
-  --batch "${X_SCRAPE_BATCH:-7}" \
+  --batch "${X_SCRAPE_BATCH:-14}" \
   --limit "${X_SCRAPE_LIMIT:-4}" \
   --max-mb "${X_SCRAPE_MAX_MB:-30}" \
   --tags "${X_SCRAPE_TAGS:-X抓取,人物}" \

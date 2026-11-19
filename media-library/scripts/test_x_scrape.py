@@ -297,7 +297,7 @@ def test_wrapper_defaults_and_paths_with_spaces(wrapper):
     assert result.returncode == 0, result.stderr
     cron, data, env = wrapper
     captured = Path(env["CAPTURE"]).read_text().splitlines()
-    assert captured == [str(cron.with_name("x_scrape.py")), "--file", str(data / "x_accounts.txt"), "--batch", "7", "--limit", "4", "--max-mb", "30", "--tags", "X抓取,人物"]
+    assert captured == [str(cron.with_name("x_scrape.py")), "--file", str(data / "x_accounts.txt"), "--batch", "14", "--limit", "4", "--max-mb", "30", "--tags", "X抓取,人物"]
     assert Path(env["STARTED"]).exists()
 
 

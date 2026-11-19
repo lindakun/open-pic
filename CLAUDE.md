@@ -92,7 +92,7 @@ open-pic/
 | 存量后处理（去重与标注） | `45 */2 * * *` | `media-library/scripts/library_postprocess_cron.sh` → `library_postprocess.py` | 视频指纹回填、全库去重、分批视觉补齐 |
 | 图片库服务守护 | `0 * * * *` | `media-library/scripts/ensure.sh` | 服务不可用时拉起，不负责抓取 |
 
-X 抓取入口默认每次轮转 7 个账号，每账号最多处理 4 条推文，视频上限 30MB；从运行数据目录读取 `x_accounts.txt` 与 `x_scrape_state.json`，写入 `x_scrape.log`。默认通过 `setsid` 启动独立后台任务，避免受到 PicoClaw 5 分钟命令时限影响；互斥锁由后台任务持有，重复调度不会并发抓取。调度器返回只表示已投递，应以 `x_scrape_runner.log` 的退出码和 `x_scrape.log` 的完成摘要验收。
+X 抓取入口默认每次轮转 14 个账号，每账号最多处理 4 条推文，视频上限 30MB；从运行数据目录读取 `x_accounts.txt` 与 `x_scrape_state.json`，写入 `x_scrape.log`。默认通过 `setsid` 启动独立后台任务，避免受到 PicoClaw 5 分钟命令时限影响；互斥锁由后台任务持有，重复调度不会并发抓取。调度器返回只表示已投递，应以 `x_scrape_runner.log` 的退出码和 `x_scrape.log` 的完成摘要验收。
 
 `--dry-run` 同步执行且不改断点，`--foreground` 可同步执行真实采集用于人工诊断，不应用于有 5 分钟时限的 cron。更新代码不能清空名单或断点，也不能把“未处理的推文”标成已见；主页仅提供有限的最新推文，不保证补齐全部历史。
 

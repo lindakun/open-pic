@@ -33,7 +33,7 @@ description: >
 `ensure.sh` 仅检查图片库并在不可用时拉起服务；**不能以保活成功代替自动采集验证**。`x_scrape_cron.sh` 默认通过 `setsid` / `nohup` 启动独立后台任务并立即返回，避免 PicoClaw 的 5 分钟命令时限中断采集；后台任务使用 `flock` 持锁到结束，先检查服务，再启动 `x_scrape.py`。保活进程不会继承采集锁；重复调度不会重叠采集。
 
 - 名单来自数据目录的 `x_accounts.txt`，每行一个账号，可带 `@`，空行及 `#` 注释忽略；不把生产账号硬编码进脚本。
-- 默认每次处理 **7 个账号、每账号至多 4 条推文**，`x_scrape_state.json` 保存轮转游标及各账号已见推文；失败或达到数量上限而未处理的推文不能误标为已见。
+- 默认每次处理 **14 个账号、每账号至多 4 条推文**，`x_scrape_state.json` 保存轮转游标及各账号已见推文；失败或达到数量上限而未处理的推文不能误标为已见。
 - 解析账号主页的原创与转发媒体；图片取 `name=orig` 原图，视频选择最高码率 MP4，视频默认按 30MB 上限做预估及下载后检查。
 - 图片先检查原始像素，下载后再校验实际像素及体积：短边至少 320px，体积至少 20KB；不要套用手工 `ingest.py` 的 60KB 下限。
 - 入库复用图片库的内容去重与近似图片提示；默认标签为 `X抓取,人物`，视频额外添加 `X视频`。
@@ -128,7 +128,7 @@ python3 $S/server.py --stop
 | `MEDIA_LIB_YTDLP_COOKIES` | 空 | yt-dlp cookies 文件路径 |
 | `YTDLP_BIN` | `/vol1/picoclaw/bin/yt-dlp` | yt-dlp 路径 |
 | `X_SCRAPE_PROXY` | `http://127.0.0.1:7890` | X 账号自动抓取使用的代理，与手工采集代理变量区分 |
-| `X_SCRAPE_BATCH` | `7` | 定时入口每轮处理的账号数，`0` 表示全部 |
+| `X_SCRAPE_BATCH` | `14` | 定时入口每轮处理的账号数，`0` 表示全部 |
 | `X_SCRAPE_LIMIT` | `4` | 定时入口每账号每轮的推文条数上限，`0` 表示本页全部；不是媒体数 |
 | `X_SCRAPE_MAX_MB` | `30` | 定时入口的视频体积上限，目前不对图片应用此大小上限 |
 | `X_SCRAPE_TAGS` | `X抓取,人物` | 定时入口的默认入库标签 |
@@ -138,7 +138,7 @@ python3 $S/server.py --stop
 | `X_VISION_MODEL` | `cloudflare-workers-ai/@cf/qwen/qwen3.8-27b` | 视觉模型 ID |
 | `X_VISION_TIMEOUT` | `45` | 单次视觉识别请求超时秒数 |
 
-`X_SCRAPE_BATCH/LIMIT/MAX_MB/TAGS` 由 shell 入口传给主程序；直接调用 `x_scrape.py` 时用对应命令行参数。主程序默认 `--batch 0`，与定时入口的默认 `7` 区分。`vision_config.json` 置于运行数据目录 `MEDIA_LIB_DIR` 下时，环境变量优先级高于文件配置。
+`X_SCRAPE_BATCH/LIMIT/MAX_MB/TAGS` 由 shell 入口传给主程序；直接调用 `x_scrape.py` 时用对应命令行参数。主程序默认 `--batch 0`，与定时入口的默认 `14` 区分。`vision_config.json` 置于运行数据目录 `MEDIA_LIB_DIR` 下时，环境变量优先级高于文件配置。
 
 ## 已知限制（踩过的坑）
 
