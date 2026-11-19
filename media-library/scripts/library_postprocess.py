@@ -21,6 +21,7 @@ if BASE not in sys.path:
 
 import db as db_mod
 import media_proc
+import pipeline_config
 import vision_filter
 
 DATA = os.environ.get("MEDIA_LIB_DIR", "/vol1/picoclaw/.picoclaw/workspace/media-library")
@@ -222,9 +223,14 @@ def deduplicate_items(database, max_dist=4, dry_run=False):
     return total_removed
 
 
-def backfill_vision_metadata(database, data_dir, vision_cfg, batch=15, dry_run=False):
+def backfill_vision_metadata(database, data_dir, vision_cfg, batch=15, dry_run=False, ai_tag=None):
     """Phase 2: 对尚未带有 AI已标注 标签的活跃素材分批进行视觉识别与元数据补齐"""
-    ai_tag = os.environ.get("X_POSTPROCESS_TAG", "AI已标注").strip() or "AI已标注"
+    if not ai_tag:
+        ai_tag = (
+            os.environ.get("X_POSTPROCESS_TAG", "").strip()
+            or str(pipeline_config.load_pipeline_config(data_dir).get("postprocess", {}).get("ai_tag") or "AI已标注").strip()
+            or "AI已标注"
+        )
     with database.connect() as conn:
         rows = conn.execute(
             "SELECT id FROM items "
@@ -285,14 +291,36 @@ def backfill_vision_metadata(database, data_dir, vision_cfg, batch=15, dry_run=F
 def main():
     global log_fp
     p = argparse.ArgumentParser(description="图库存量后处理：视频指纹回填、全库去重、视觉标题/标签补齐")
-    p.add_argument("--batch", type=int, default=50, help="每轮视觉识别处理上限（0=跳过视觉阶段，默认 50）")
-    p.add_argument("--phash-limit", type=int, default=50, help="每轮视频/图片 phash 回填上限（0=全部，默认 50）")
-    p.add_argument("--max-dist", type=int, default=4, help="近似去重 dHash 最大汉明距离（默认 4）")
+    p.add_argument("--batch", type=int, default=None, help="每轮视觉识别处理上限（0=跳过视觉阶段，默认读取配置或 50）")
+    p.add_argument("--phash-limit", type=int, default=None, help="每轮视频/图片 phash 回填上限（0=全部，默认读取配置或 50）")
+    p.add_argument("--max-dist", type=int, default=None, help="近似去重 dHash 最大汉明距离（默认读取配置或 4）")
     p.add_argument("--skip-dedup", action="store_true", help="跳过 Phase 1 指纹回填与去重")
     p.add_argument("--skip-vision", action="store_true", help="跳过 Phase 2 视觉识别补齐")
     p.add_argument("--dry-run", action="store_true", help="试运行，不修改数据库也不调用视觉 API")
     p.add_argument("--quiet", action="store_true", help="不往 stderr 打日志")
     args = p.parse_args()
+
+    # 四级优先级：CLI > 环境变量 > pipeline_config.json > 默认值
+    pcfg = pipeline_config.load_pipeline_config(DATA)
+    ppcfg = pcfg.get("postprocess", {})
+
+    if args.batch is None:
+        env_b = os.environ.get("X_POSTPROCESS_BATCH", "").strip()
+        args.batch = int(env_b) if env_b else int(ppcfg.get("batch", 50))
+    if args.phash_limit is None:
+        env_p = os.environ.get("X_POSTPROCESS_PHASH_LIMIT", "").strip()
+        args.phash_limit = int(env_p) if env_p else int(ppcfg.get("phash_limit", 50))
+    if args.max_dist is None:
+        env_d = os.environ.get("X_POSTPROCESS_MAX_DIST", "").strip()
+        args.max_dist = int(env_d) if env_d else int(ppcfg.get("max_dist", 4))
+
+    args.skip_dedup = bool(args.skip_dedup or ppcfg.get("skip_dedup", False))
+    args.skip_vision = bool(args.skip_vision or ppcfg.get("skip_vision", False))
+    ai_tag = (
+        os.environ.get("X_POSTPROCESS_TAG", "").strip()
+        or str(ppcfg.get("ai_tag") or "AI已标注").strip()
+        or "AI已标注"
+    )
 
     if args.batch < 0 or args.phash_limit < 0 or args.max_dist < 0:
         p.error("batch、phash-limit 和 max-dist 不能为负")
@@ -331,7 +359,9 @@ def main():
 
         if not args.skip_vision and args.batch > 0:
             if args.dry_run or (vision_cfg and vision_cfg.get("enabled")):
-                vstats = backfill_vision_metadata(database, DATA, vision_cfg, batch=args.batch, dry_run=args.dry_run)
+                vstats = backfill_vision_metadata(
+                    database, DATA, vision_cfg, batch=args.batch, dry_run=args.dry_run, ai_tag=ai_tag
+                )
                 summary.update(vstats)
 
         log(f"完成：{json.dumps(summary, ensure_ascii=False)}", echo=not args.quiet)

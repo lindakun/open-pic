@@ -30,6 +30,8 @@
     zoom: 1,
     panX: 0,
     panY: 0,
+    pipeLogType: 'x_scrape',
+    defaultVisionPrompt: '',
   };
 
   function isMobileViewport() {
@@ -296,7 +298,7 @@
   }
 
   async function loadItems(reset = false) {
-    if (state.nav === 'analytics') return;
+    if (state.nav === 'analytics' || state.nav === 'pipeline') return;
     if (state.loading) return;
     state.loading = true;
     const gal = $('#gallery');
@@ -352,7 +354,7 @@
 
   // 无限滚动
   new IntersectionObserver(es => {
-    if (es[0].isIntersecting && state.offset < state.total && state.nav !== 'analytics') {
+    if (es[0].isIntersecting && state.offset < state.total && state.nav !== 'analytics' && state.nav !== 'pipeline') {
       loadItems(false);
     }
   }, { rootMargin: '600px' }).observe($('#done'));
@@ -909,9 +911,300 @@
     });
     es.addEventListener('library_updated', () => {
       loadStats();
-      if (state.nav !== 'analytics') loadItems(true);
+      if (state.nav !== 'analytics' && state.nav !== 'pipeline') loadItems(true);
     });
   } catch (e) {}
+
+  // ---------- 采集与后处理运维中心 ----------
+
+  function applyPipelineConfigToForm(d) {
+    const s = d.scrape || {};
+    const p = d.postprocess || {};
+    const v = d.vision || {};
+    state.defaultVisionPrompt = (d.defaults && d.defaults.vision_prompt) || v.prompt || '';
+
+    $('#cfgScrapeBatch').value = s.batch ?? 14;
+    $('#cfgScrapeLimit').value = s.limit ?? 4;
+    $('#cfgScrapeMaxMb').value = s.max_mb ?? 30;
+    $('#cfgScrapeTags').value = (s.tags || ['X抓取', '人物']).join(', ');
+    $('#cfgScrapeMinPx').value = s.min_px ?? 320;
+    $('#cfgScrapeMinKb').value = s.min_img_kb ?? 20;
+    $('#cfgScrapeTimeout').value = s.timeout ?? 30;
+    $('#cfgScrapeProxy').value = s.proxy ?? '';
+
+    $('#cfgPpBatch').value = p.batch ?? 50;
+    $('#cfgPpPhashLimit').value = p.phash_limit ?? 50;
+    $('#cfgPpMaxDist').value = p.max_dist ?? 4;
+    $('#cfgPpAiTag').value = p.ai_tag || 'AI已标注';
+    $('#cfgPpEnableDedup').checked = !p.skip_dedup;
+    $('#cfgPpEnableVision').checked = !p.skip_vision;
+
+    $('#cfgVisionEnabled').checked = v.enabled !== false;
+    $('#cfgVisionBaseUrl').value = v.base_url || '';
+    $('#cfgVisionModel').value = v.model || '';
+    $('#cfgVisionTimeout').value = v.timeout ?? 45;
+    $('#cfgVisionApiKey').value = '';
+    $('#cfgVisionClearKey').checked = false;
+    $('#cfgVisionApiKey').placeholder = v.has_api_key
+      ? `已配置 (${v.api_key_masked})，留空保持不变`
+      : '未配置密钥，请输入 sk-...';
+    $('#cfgVisionKeyStatus').textContent = v.has_api_key
+      ? `（当前已保存：${v.api_key_masked}）`
+      : '（当前未配置 API Key）';
+    $('#cfgVisionPrompt').value = v.prompt || '';
+
+    $('#cfgAccountsText').value = d.accounts_text || '';
+    $('#cfgAccountsCount').textContent = `${d.accounts_count || 0} 个有效账号`;
+    if (d.updated_at > 0) {
+      const dt = new Date(d.updated_at * 1000);
+      $('#pipeUpdatedAt').textContent = `上次保存：${dt.toLocaleString()}`;
+    } else {
+      $('#pipeUpdatedAt').textContent = '当前使用默认配置';
+    }
+  }
+
+  async function loadPipelineConfig() {
+    try {
+      const r = await fetch('/api/pipeline/config');
+      if (!r.ok) return toast('加载配置失败');
+      const d = await r.json();
+      applyPipelineConfigToForm(d);
+    } catch (e) {
+      console.error(e);
+      toast('加载配置失败');
+    }
+  }
+
+  async function savePipelineConfig() {
+    const tags = $('#cfgScrapeTags').value
+      .split(/[,，\s]+/)
+      .map(s => s.trim())
+      .filter(Boolean);
+    const payload = {
+      scrape: {
+        batch: +$('#cfgScrapeBatch').value,
+        limit: +$('#cfgScrapeLimit').value,
+        max_mb: +$('#cfgScrapeMaxMb').value,
+        tags,
+        min_px: +$('#cfgScrapeMinPx').value,
+        min_img_kb: +$('#cfgScrapeMinKb').value,
+        timeout: +$('#cfgScrapeTimeout').value,
+        proxy: $('#cfgScrapeProxy').value.trim(),
+      },
+      postprocess: {
+        batch: +$('#cfgPpBatch').value,
+        phash_limit: +$('#cfgPpPhashLimit').value,
+        max_dist: +$('#cfgPpMaxDist').value,
+        ai_tag: $('#cfgPpAiTag').value.trim(),
+        skip_dedup: !$('#cfgPpEnableDedup').checked,
+        skip_vision: !$('#cfgPpEnableVision').checked,
+      },
+      vision: {
+        enabled: $('#cfgVisionEnabled').checked,
+        base_url: $('#cfgVisionBaseUrl').value.trim(),
+        model: $('#cfgVisionModel').value.trim(),
+        timeout: +$('#cfgVisionTimeout').value,
+        api_key: $('#cfgVisionApiKey').value.trim(),
+        clear_api_key: $('#cfgVisionClearKey').checked,
+        prompt: $('#cfgVisionPrompt').value.trim(),
+      },
+      accounts_text: $('#cfgAccountsText').value,
+    };
+
+    try {
+      const r = await fetch('/api/pipeline/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        toast(d.detail || '保存配置失败');
+        return;
+      }
+      applyPipelineConfigToForm(d);
+      toast('配置已保存并生效');
+      loadPipelineStatus();
+    } catch (e) {
+      toast('保存请求异常');
+    }
+  }
+
+  async function loadPipelineStatus(preserveCustomLog = false) {
+    try {
+      const r = await fetch(`/api/pipeline/status?log_type=${encodeURIComponent(state.pipeLogType)}&lines=160`);
+      if (!r.ok) return;
+      const d = await r.json();
+      const s = d.scrape || {};
+      const p = d.postprocess || {};
+
+      const sb = $('#stScrapeBadge');
+      sb.textContent = s.running ? '运行中' : '空闲';
+      sb.classList.toggle('running', Boolean(s.running));
+      const lastStr = s.last_run_ts
+        ? ` · 最近运行 ${new Date(s.last_run_ts * 1000).toLocaleTimeString()}`
+        : '';
+      $('#stScrapeMetrics').textContent =
+        `轮转游标：${s.cursor || 0} / ${s.accounts_count || 0} · 下一顺位：${s.next_account ? '@' + s.next_account : '-'}${lastStr}`;
+
+      const pb = $('#stPpBadge');
+      pb.textContent = p.running ? '运行中' : '空闲';
+      pb.classList.toggle('running', Boolean(p.running));
+      $('#stPpMetrics').textContent =
+        `待回填指纹：${p.missing_phash_count || 0} 项 · 待视觉标注：${p.untagged_vision_count || 0} 项`;
+
+      const anyRunning = Boolean(s.running || p.running);
+      if ($('#badgePipeline')) $('#badgePipeline').hidden = !anyRunning;
+
+      if (!preserveCustomLog && d.log) {
+        const box = $('#pipeLogBox');
+        box.textContent = d.log.content || `（${d.log.path} 暂无日志内容）`;
+        box.scrollTop = box.scrollHeight;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function runPipelineAction(action, extra = {}) {
+    try {
+      const r = await fetch('/api/pipeline/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...extra }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        toast(d.detail || '操作失败');
+        return null;
+      }
+      return d;
+    } catch (e) {
+      toast('请求执行失败');
+      return null;
+    }
+  }
+
+  if ($('#btnPipeSave')) $('#btnPipeSave').onclick = savePipelineConfig;
+  if ($('#btnPipeReload')) {
+    $('#btnPipeReload').onclick = () => {
+      loadPipelineConfig();
+      loadPipelineStatus();
+      toast('已重新加载配置');
+    };
+  }
+  if ($('#btnResetPrompt')) {
+    $('#btnResetPrompt').onclick = () => {
+      if (state.defaultVisionPrompt) {
+        $('#cfgVisionPrompt').value = state.defaultVisionPrompt;
+        toast('已恢复默认视觉 Prompt（请点击保存生效）');
+      }
+    };
+  }
+  if ($('#cfgAccountsText')) {
+    $('#cfgAccountsText').addEventListener('input', () => {
+      const seen = new Set();
+      $('#cfgAccountsText').value.split('\n').forEach(line => {
+        const s = line.trim();
+        if (!s || s.startsWith('#')) return;
+        const a = s.replace(/^@+/, '').toLowerCase();
+        if (a) seen.add(a);
+      });
+      $('#cfgAccountsCount').textContent = `${seen.size} 个有效账号`;
+    });
+  }
+  if ($('#btnTestProxy')) {
+    $('#btnTestProxy').onclick = async () => {
+      const btn = $('#btnTestProxy');
+      const resEl = $('#proxyTestResult');
+      btn.disabled = true;
+      resEl.textContent = '正在测试连接 https://x.com/robots.txt …';
+      const d = await runPipelineAction('test_proxy', { proxy: $('#cfgScrapeProxy').value.trim() });
+      btn.disabled = false;
+      if (!d) {
+        resEl.textContent = '测试请求失败';
+        return;
+      }
+      if (d.ok) {
+        resEl.textContent = `✓ 连通正常（HTTP ${d.status}，耗时 ${d.elapsed_ms} ms）`;
+        toast(`代理可用 (${d.elapsed_ms}ms)`);
+      } else {
+        resEl.textContent = `✗ 连接失败：${d.error || ('HTTP ' + d.status)} (${d.elapsed_ms} ms)`;
+        toast('代理连接失败');
+      }
+    };
+  }
+  if ($('#btnResetCursor')) {
+    $('#btnResetCursor').onclick = async () => {
+      const d = await runPipelineAction('reset_cursor');
+      if (d) {
+        toast(d.message || '游标已重置为 0');
+        loadPipelineStatus();
+      }
+    };
+  }
+  if ($('#btnRunScrape')) {
+    $('#btnRunScrape').onclick = async () => {
+      const d = await runPipelineAction('run_scrape');
+      if (d) {
+        toast(d.message || '已投递后台抓取');
+        setTimeout(() => loadPipelineStatus(), 400);
+      }
+    };
+  }
+  if ($('#btnRunPp')) {
+    $('#btnRunPp').onclick = async () => {
+      const d = await runPipelineAction('run_postprocess');
+      if (d) {
+        toast(d.message || '已投递后台后处理');
+        setTimeout(() => loadPipelineStatus(), 400);
+      }
+    };
+  }
+  if ($('#btnDryScrape')) {
+    $('#btnDryScrape').onclick = async () => {
+      const btn = $('#btnDryScrape');
+      btn.disabled = true;
+      btn.textContent = '试运行中…';
+      $('#pipeLogBox').textContent = '正在执行抓取试运行 (--dry-run --batch 2 --limit 2)…';
+      const d = await runPipelineAction('dry_run_scrape');
+      btn.disabled = false;
+      btn.textContent = '🔍 试运行';
+      if (d) {
+        $('#pipeLogBox').textContent = `[抓取试运行输出 rc=${d.returncode}]\n` + (d.output || '');
+        toast(d.message || '试运行完成');
+      }
+    };
+  }
+  if ($('#btnDryPp')) {
+    $('#btnDryPp').onclick = async () => {
+      const btn = $('#btnDryPp');
+      btn.disabled = true;
+      btn.textContent = '试运行中…';
+      $('#pipeLogBox').textContent = '正在执行存量后处理试运行 (--dry-run)…';
+      const d = await runPipelineAction('dry_run_postprocess');
+      btn.disabled = false;
+      btn.textContent = '🔍 试运行';
+      if (d) {
+        $('#pipeLogBox').textContent = `[后处理试运行输出 rc=${d.returncode}]\n` + (d.output || '');
+        toast(d.message || '试运行完成');
+      }
+    };
+  }
+  $$('#pipeLogTabs .seg-btn').forEach(b => {
+    b.onclick = () => {
+      $$('#pipeLogTabs .seg-btn').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+      state.pipeLogType = b.dataset.log;
+      loadPipelineStatus();
+    };
+  });
+  if ($('#btnRefreshLog')) {
+    $('#btnRefreshLog').onclick = () => loadPipelineStatus();
+  }
+  setInterval(() => {
+    if (state.nav === 'pipeline') loadPipelineStatus(true);
+  }, 6000);
 
   // ---------- 导航与筛选事件绑定 ----------
 
@@ -922,12 +1215,19 @@
       c.classList.toggle('on', state.nav === 'collection' && col && col.id === state.collectionId);
     });
     const isAna = state.nav === 'analytics';
-    $$('[data-gallery-only]').forEach(el => { el.hidden = isAna; });
-    $('#gallery').hidden = isAna;
-    $('#done').hidden = isAna;
-    if (isAna) $('#activeBar').hidden = true;
+    const isPipe = state.nav === 'pipeline';
+    const hideGal = isAna || isPipe;
+    $$('[data-gallery-only]').forEach(el => { el.hidden = hideGal; });
+    $('#gallery').hidden = hideGal;
+    $('#done').hidden = hideGal;
+    if (hideGal) $('#activeBar').hidden = true;
     $('#analyticsView').hidden = !isAna;
+    if ($('#pipelineView')) $('#pipelineView').hidden = !isPipe;
     if (isAna) loadAnalytics();
+    if (isPipe) {
+      loadPipelineConfig();
+      loadPipelineStatus();
+    }
   }
 
   $$('.nav-item').forEach(n => {
@@ -937,7 +1237,7 @@
       exitSelectMode();
       closeMobileSidebar();
       syncNavUI();
-      if (state.nav !== 'analytics') loadItems(true);
+      if (state.nav !== 'analytics' && state.nav !== 'pipeline') loadItems(true);
     };
   });
 

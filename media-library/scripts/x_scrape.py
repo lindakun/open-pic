@@ -34,6 +34,7 @@ import urllib.request
 BASE = os.path.dirname(os.path.abspath(__file__))
 if BASE not in sys.path:
     sys.path.insert(0, BASE)
+import pipeline_config
 import vision_filter
 
 DATA = os.environ.get("MEDIA_LIB_DIR", "/vol1/picoclaw/.picoclaw/workspace/media-library")
@@ -516,7 +517,11 @@ def download_and_store(it, entry, account, args, stats):
                 for vt in vres.get("tags") or []:
                     if vt not in tags:
                         tags.append(vt)
-                ai_tag = os.environ.get("X_POSTPROCESS_TAG", "AI已标注").strip()
+                ai_tag = (
+                    os.environ.get("X_POSTPROCESS_TAG")
+                    or getattr(args, "ai_tag", None)
+                    or "AI已标注"
+                ).strip()
                 if ai_tag and ai_tag not in tags:
                     tags.append(ai_tag)
 
@@ -569,24 +574,63 @@ def load_accounts(args):
 
 
 def main():
-    global log_fp
+    global log_fp, PROXY, MIN_PX, MIN_IMG_BYTES
     p = argparse.ArgumentParser(description="抓取 X 账号最新图片/视频入库")
     p.add_argument("accounts", nargs="*", help="账号名（不含 @），可多个")
     p.add_argument("--file", help="账号白名单文件，一行一个，# 开头为注释")
-    p.add_argument("--limit", type=int, default=4,
-                   help="每账号每轮最多处理**推文条数**（默认 4）")
-    p.add_argument("--batch", type=int, default=0,
-                   help="每轮只处理 N 个账号，游标轮转（0=全部）")
-    p.add_argument("--max-mb", type=float, default=30, help="单个文件上限 MB")
-    p.add_argument("--tags", default="X抓取,人物", help="入库标签，逗号分隔")
-    p.add_argument("--timeout", type=int, default=30, help="单请求超时秒")
+    p.add_argument("--limit", type=int, default=None,
+                   help="每账号每轮最多处理**推文条数**（默认读取配置或 4）")
+    p.add_argument("--batch", type=int, default=None,
+                   help="每轮只处理 N 个账号，游标轮转（0=全部，默认读取配置或 14）")
+    p.add_argument("--max-mb", type=float, default=None, help="单个文件上限 MB")
+    p.add_argument("--tags", default=None, help="入库标签，逗号分隔")
+    p.add_argument("--timeout", type=int, default=None, help="单请求超时秒")
     p.add_argument("--dry-run", action="store_true", help="只看会抓什么，不下载不入库")
     p.add_argument("--no-vision", action="store_true", help="跳过在线视觉识别过滤与元数据生成")
     p.add_argument("--quiet", action="store_true", help="不往 stderr 打日志")
     args = p.parse_args()
+
+    # 四级参数优先级：CLI > 环境变量 > pipeline_config.json > 默认值
+    pcfg = pipeline_config.load_pipeline_config(DATA)
+    scfg = pcfg.get("scrape", {})
+    ppcfg = pcfg.get("postprocess", {})
+
+    if args.limit is None:
+        env_limit = os.environ.get("X_SCRAPE_LIMIT", "").strip()
+        args.limit = int(env_limit) if env_limit else int(scfg.get("limit", 4))
+    if args.batch is None:
+        env_batch = os.environ.get("X_SCRAPE_BATCH", "").strip()
+        args.batch = int(env_batch) if env_batch else int(scfg.get("batch", 14))
+    if args.max_mb is None:
+        env_mb = os.environ.get("X_SCRAPE_MAX_MB", "").strip()
+        args.max_mb = float(env_mb) if env_mb else float(scfg.get("max_mb", 30.0))
+    if args.timeout is None:
+        env_to = os.environ.get("X_SCRAPE_TIMEOUT", "").strip()
+        args.timeout = int(env_to) if env_to else int(scfg.get("timeout", 30))
+
     if args.limit < 0 or args.batch < 0 or args.max_mb <= 0 or args.timeout <= 0:
         p.error("limit/batch 不能为负，max-mb/timeout 必须大于零")
-    args.tags = [t.strip() for t in re.split(r"[,，]", args.tags) if t.strip()]
+
+    if args.tags is not None:
+        args.tags = [t.strip() for t in re.split(r"[,，]", args.tags) if t.strip()]
+    elif os.environ.get("X_SCRAPE_TAGS", "").strip():
+        args.tags = [t.strip() for t in re.split(r"[,，]", os.environ["X_SCRAPE_TAGS"]) if t.strip()]
+    else:
+        args.tags = list(scfg.get("tags") or ["X抓取", "人物"])
+
+    env_proxy = os.environ.get("X_SCRAPE_PROXY")
+    if env_proxy is not None and env_proxy.strip():
+        PROXY = env_proxy.strip()
+    elif "proxy" in scfg:
+        PROXY = str(scfg.get("proxy") or "").strip()
+
+    MIN_PX = int(scfg.get("min_px") or 320)
+    MIN_IMG_BYTES = int(scfg.get("min_img_kb") or 20) * 1024
+    args.ai_tag = (
+        os.environ.get("X_POSTPROCESS_TAG", "").strip()
+        or str(ppcfg.get("ai_tag") or "AI已标注").strip()
+        or "AI已标注"
+    )
 
     try:
         accounts = load_accounts(args)

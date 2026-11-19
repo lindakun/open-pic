@@ -53,6 +53,7 @@ import ai_provider
 import export_seo
 import media_proc
 import img_transform
+import pipeline_config
 from db import MediaDB
 from tasks import TaskManager
 
@@ -1769,6 +1770,53 @@ body{{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-syste
     def api_storage_repair():
         res = repair_library(db, verbose=False)
         return {"ok": True, **res}
+
+    # ---------- 定时采集与存量后处理运维中心 ----------
+
+    class PipelineConfigUpdateReq(BaseModel):
+        scrape: Optional[Dict[str, Any]] = None
+        postprocess: Optional[Dict[str, Any]] = None
+        vision: Optional[Dict[str, Any]] = None
+        accounts_text: Optional[str] = None
+
+    class PipelineActionReq(BaseModel):
+        action: str
+        proxy: Optional[str] = None
+
+    @app.get("/api/pipeline/config")
+    def api_get_pipeline_config():
+        return pipeline_config.get_public_config(DATA)
+
+    @app.put("/api/pipeline/config")
+    def api_put_pipeline_config(req: PipelineConfigUpdateReq):
+        try:
+            return pipeline_config.validate_and_save_config(
+                DATA, req.model_dump(exclude_none=True)
+            )
+        except pipeline_config.ConfigValidationError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @app.get("/api/pipeline/status")
+    def api_get_pipeline_status(
+        log_type: str = Query("x_scrape"),
+        lines: int = Query(120, ge=10, le=500),
+    ):
+        return pipeline_config.get_pipeline_status(
+            DATA, db=db, log_type=log_type, lines=lines
+        )
+
+    @app.post("/api/pipeline/action")
+    def api_post_pipeline_action(req: PipelineActionReq):
+        try:
+            return pipeline_config.trigger_pipeline_action(
+                DATA, BASE, req.action, payload=req.model_dump(exclude_none=True)
+            )
+        except pipeline_config.ConfigValidationError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except pipeline_config.PipelineBusyError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
     return app
 

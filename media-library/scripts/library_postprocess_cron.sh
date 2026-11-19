@@ -37,8 +37,11 @@ if [[ "$DRY_RUN" == 0 ]]; then
   printf '[%s] 后台后处理启动 pid=%s\n' "$(date '+%F %T')" "$$"
 fi
 
+EXTRA_ARGS=()
+[[ -n "${X_POSTPROCESS_BATCH:-}" ]] && EXTRA_ARGS+=(--batch "$X_POSTPROCESS_BATCH")
+[[ -n "${X_POSTPROCESS_PHASH_LIMIT:-}" ]] && EXTRA_ARGS+=(--phash-limit "$X_POSTPROCESS_PHASH_LIMIT")
+[[ -n "${X_POSTPROCESS_MAX_DIST:-}" ]] && EXTRA_ARGS+=(--max-dist "$X_POSTPROCESS_MAX_DIST")
+
 "$PY" "$S/library_postprocess.py" \
-  --batch "${X_POSTPROCESS_BATCH:-50}" \
-  --phash-limit "${X_POSTPROCESS_PHASH_LIMIT:-50}" \
-  --max-dist "${X_POSTPROCESS_MAX_DIST:-4}" \
+  ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} \
   "$@"

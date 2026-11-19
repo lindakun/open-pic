@@ -38,10 +38,13 @@ if [[ "$DRY_RUN" == 0 ]]; then
   bash "$S/ensure.sh" 9>&-
 fi
 
+EXTRA_ARGS=()
+[[ -n "${X_SCRAPE_BATCH:-}" ]] && EXTRA_ARGS+=(--batch "$X_SCRAPE_BATCH")
+[[ -n "${X_SCRAPE_LIMIT:-}" ]] && EXTRA_ARGS+=(--limit "$X_SCRAPE_LIMIT")
+[[ -n "${X_SCRAPE_MAX_MB:-}" ]] && EXTRA_ARGS+=(--max-mb "$X_SCRAPE_MAX_MB")
+[[ -n "${X_SCRAPE_TAGS:-}" ]] && EXTRA_ARGS+=(--tags "$X_SCRAPE_TAGS")
+
 "$PY" "$S/x_scrape.py" \
   --file "$DATA/x_accounts.txt" \
-  --batch "${X_SCRAPE_BATCH:-14}" \
-  --limit "${X_SCRAPE_LIMIT:-4}" \
-  --max-mb "${X_SCRAPE_MAX_MB:-30}" \
-  --tags "${X_SCRAPE_TAGS:-X抓取,人物}" \
+  ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} \
   "$@"

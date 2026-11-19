@@ -297,8 +297,30 @@ def test_wrapper_defaults_and_paths_with_spaces(wrapper):
     assert result.returncode == 0, result.stderr
     cron, data, env = wrapper
     captured = Path(env["CAPTURE"]).read_text().splitlines()
-    assert captured == [str(cron.with_name("x_scrape.py")), "--file", str(data / "x_accounts.txt"), "--batch", "14", "--limit", "4", "--max-mb", "30", "--tags", "X抓取,人物"]
+    assert captured == [str(cron.with_name("x_scrape.py")), "--file", str(data / "x_accounts.txt")]
     assert Path(env["STARTED"]).exists()
+
+    # 显式传入环境变量时转发对应 CLI 参数
+    result2 = run_wrapper(
+        wrapper,
+        "--foreground",
+        extra_env={
+            "X_SCRAPE_BATCH": "14",
+            "X_SCRAPE_LIMIT": "4",
+            "X_SCRAPE_MAX_MB": "30",
+            "X_SCRAPE_TAGS": "X抓取,人物",
+        },
+    )
+    assert result2.returncode == 0
+    captured2 = Path(env["CAPTURE"]).read_text().splitlines()
+    assert captured2 == [
+        str(cron.with_name("x_scrape.py")),
+        "--file", str(data / "x_accounts.txt"),
+        "--batch", "14",
+        "--limit", "4",
+        "--max-mb", "30",
+        "--tags", "X抓取,人物",
+    ]
 
 
 def test_wrapper_does_not_pass_scrape_lock_to_service(wrapper):

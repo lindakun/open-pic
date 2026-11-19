@@ -52,13 +52,22 @@ def _parse_bool(val, default=True):
 
 
 def load_config(data_dir=None):
-    """加载视觉配置，优先级：环境变量 > DATA/vision_config.json > 默认值"""
+    """加载视觉配置，优先级：环境变量 > DATA/pipeline_config.json(vision) > DATA/vision_config.json > 默认值"""
     file_cfg = {}
     if data_dir:
-        cfg_path = os.path.join(data_dir, "vision_config.json")
-        if os.path.exists(cfg_path):
+        p_path = os.path.join(data_dir, "pipeline_config.json")
+        v_path = os.path.join(data_dir, "vision_config.json")
+        if os.path.exists(p_path):
             try:
-                with open(cfg_path, "r", encoding="utf-8") as f:
+                with open(p_path, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict) and isinstance(loaded.get("vision"), dict):
+                    file_cfg = loaded["vision"]
+            except Exception as e:
+                raise VisionError(f"读取 pipeline_config.json 失败: {e}") from e
+        if not file_cfg and os.path.exists(v_path):
+            try:
+                with open(v_path, "r", encoding="utf-8") as f:
                     loaded = json.load(f)
                 if isinstance(loaded, dict):
                     file_cfg = loaded

@@ -61,6 +61,7 @@
         <div class="nav-item on" data-nav="all"><span>🖼 全部资产</span><b id="cntAll">0</b></div>
         <div class="nav-item" data-nav="trash"><span>🗑 回收站</span><b id="cntTrash">0</b></div>
         <div class="nav-item" data-nav="analytics"><span>📊 统计与存储</span></div>
+        <div class="nav-item" data-nav="pipeline"><span>⚙ 采集与后处理</span><b id="badgePipeline" class="nav-pill" hidden>运行中</b></div>
       </div>
 
       <div class="side-section">
@@ -137,6 +138,206 @@
         <div class="panel">
           <h3>热门浏览 Top 10</h3>
           <div id="topViewed" class="top-list"></div>
+        </div>
+      </section>
+
+      <!-- 定时采集与后处理运维工作台 -->
+      <section class="pipeline-view" id="pipelineView" hidden>
+        <div class="pipe-head">
+          <div>
+            <h2>采集与后处理运维中心</h2>
+            <p class="muted">统一配置 X 定时抓取、存量去重与在线视觉标注参数，数据保存在运行目录，代码部署不覆盖。</p>
+          </div>
+          <div class="pipe-head-actions">
+            <span class="muted" id="pipeUpdatedAt"></span>
+            <button class="btn" id="btnPipeReload">↻ 重新加载</button>
+            <button class="btn primary" id="btnPipeSave">💾 保存全部配置</button>
+          </div>
+        </div>
+
+        <!-- 顶部状态与快捷操作卡片 -->
+        <div class="pipe-status-grid">
+          <div class="panel pipe-status-card">
+            <div class="pipe-status-top">
+              <div>
+                <h3>X 定时采集状态 <span class="status-badge" id="stScrapeBadge">空闲</span></h3>
+                <div class="pipe-metrics" id="stScrapeMetrics">轮转游标：0 / 0 · 下一顺位：-</div>
+              </div>
+              <div class="pipe-btn-group">
+                <button class="btn primary" id="btnRunScrape">▶ 立即采集</button>
+                <button class="btn" id="btnDryScrape">🔍 试运行</button>
+                <button class="btn" id="btnResetCursor">↺ 重置游标</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel pipe-status-card">
+            <div class="pipe-status-top">
+              <div>
+                <h3>存量后处理状态 <span class="status-badge" id="stPpBadge">空闲</span></h3>
+                <div class="pipe-metrics" id="stPpMetrics">待回填指纹：0 项 · 待视觉标注：0 项</div>
+              </div>
+              <div class="pipe-btn-group">
+                <button class="btn primary" id="btnRunPp">▶ 立即后处理</button>
+                <button class="btn" id="btnDryPp">🔍 试运行</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 主体双栏：左栏参数配置，右栏账号名单与实时日志 -->
+        <div class="pipe-main-grid">
+          <div class="pipe-col">
+            <!-- 卡片 1：X 定时抓取参数 -->
+            <div class="panel">
+              <h3><span>1. X 定时抓取参数</span><small>调度：15 */2 * * *</small></h3>
+              <div class="form-grid">
+                <label class="field">
+                  <span>每轮轮转账号数 (batch)</span>
+                  <input type="number" id="cfgScrapeBatch" class="inp" min="0" max="500">
+                  <small>0 表示每次跑全量账号</small>
+                </label>
+                <label class="field">
+                  <span>每账号推文上限 (limit)</span>
+                  <input type="number" id="cfgScrapeLimit" class="inp" min="0" max="50">
+                  <small>每账号单次最多处理的推文条数</small>
+                </label>
+                <label class="field">
+                  <span>单视频体积上限 (MB)</span>
+                  <input type="number" id="cfgScrapeMaxMb" class="inp" min="1" max="2048" step="0.5">
+                  <small>超出此体积的视频将跳过下载</small>
+                </label>
+                <label class="field">
+                  <span>默认入库标签 (逗号分隔)</span>
+                  <input type="text" id="cfgScrapeTags" class="inp" placeholder="X抓取,人物">
+                  <small>视频会自动追加「X视频」</small>
+                </label>
+                <label class="field">
+                  <span>图片最小短边像素 (min_px)</span>
+                  <input type="number" id="cfgScrapeMinPx" class="inp" min="64" max="4096">
+                  <small>过滤低于此分辨率的缩略图/表情</small>
+                </label>
+                <label class="field">
+                  <span>图片最小体积 (KB)</span>
+                  <input type="number" id="cfgScrapeMinKb" class="inp" min="1" max="10240">
+                  <small>防 0 字节或损坏图兜底阈值</small>
+                </label>
+                <label class="field">
+                  <span>单请求超时 (秒)</span>
+                  <input type="number" id="cfgScrapeTimeout" class="inp" min="5" max="300">
+                </label>
+                <div class="field field-wide">
+                  <span>住宅代理地址 (proxy)</span>
+                  <div class="inline-row">
+                    <input type="text" id="cfgScrapeProxy" class="inp" placeholder="http://127.0.0.1:7890">
+                    <button type="button" class="btn" id="btnTestProxy">⚡ 测试连通性</button>
+                  </div>
+                  <small id="proxyTestResult">X 抓取必须走住宅代理 IP，机房直连会返回 403</small>
+                </div>
+              </div>
+            </div>
+
+            <!-- 卡片 2：存量后处理参数 -->
+            <div class="panel">
+              <h3><span>2. 存量后处理参数（去重与补齐）</span><small>调度：45 */2 * * *</small></h3>
+              <div class="form-grid">
+                <label class="field">
+                  <span>每轮视觉标注批大小 (batch)</span>
+                  <input type="number" id="cfgPpBatch" class="inp" min="0" max="500">
+                  <small>每次后处理最多调用视觉模型的素材数</small>
+                </label>
+                <label class="field">
+                  <span>每轮指纹回填上限 (phash_limit)</span>
+                  <input type="number" id="cfgPpPhashLimit" class="inp" min="0" max="5000">
+                  <small>为缺失 dHash 的视频/图片回填指纹</small>
+                </label>
+                <label class="field">
+                  <span>近似去重最大汉明距离 (max_dist)</span>
+                  <input type="number" id="cfgPpMaxDist" class="inp" min="0" max="16">
+                  <small>推荐 4（64-bit dHash，保留最高分辨率）</small>
+                </label>
+                <label class="field">
+                  <span>视觉完成标记标签 (ai_tag)</span>
+                  <input type="text" id="cfgPpAiTag" class="inp" placeholder="AI已标注">
+                  <small>带有此标签的素材不再重复调用视觉 API</small>
+                </label>
+              </div>
+              <div class="switch-row">
+                <label class="chk-label">
+                  <input type="checkbox" id="cfgPpEnableDedup">
+                  <span>启用 Phase 1（视频/图片指纹回填与全库近似去重）</span>
+                </label>
+                <label class="chk-label">
+                  <input type="checkbox" id="cfgPpEnableVision">
+                  <span>启用 Phase 2（存量未标注素材分批视觉识别补齐与淘汰）</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- 卡片 3：在线视觉模型配置 -->
+            <div class="panel">
+              <h3>
+                <span>3. 在线视觉模型配置（OpenAI 兼容）</span>
+                <label class="chk-label"><input type="checkbox" id="cfgVisionEnabled"><span>启用在线视觉审核与打标</span></label>
+              </h3>
+              <div class="form-grid">
+                <label class="field field-wide">
+                  <span>接口 Base URL</span>
+                  <input type="text" id="cfgVisionBaseUrl" class="inp" placeholder="https://sub.hhxxttxs.icu:8787">
+                </label>
+                <label class="field">
+                  <span>模型名称 (model)</span>
+                  <input type="text" id="cfgVisionModel" class="inp" placeholder="cloudflare-workers-ai/@cf/qwen/qwen3.8-27b">
+                </label>
+                <label class="field">
+                  <span>超时秒数 (timeout)</span>
+                  <input type="number" id="cfgVisionTimeout" class="inp" min="5" max="300">
+                </label>
+                <div class="field field-wide">
+                  <span>API Key <small id="cfgVisionKeyStatus" class="muted"></small></span>
+                  <div class="inline-row">
+                    <input type="password" id="cfgVisionApiKey" class="inp" autocomplete="new-password" placeholder="留空则保持原密钥不变">
+                    <label class="chk-label"><input type="checkbox" id="cfgVisionClearKey"><span>清空密钥</span></label>
+                  </div>
+                </div>
+                <div class="field field-wide">
+                  <div class="field-head">
+                    <span>视觉审核与打标 Prompt</span>
+                    <button type="button" class="mini-btn" id="btnResetPrompt">恢复默认 Prompt</button>
+                  </div>
+                  <textarea id="cfgVisionPrompt" class="inp code-area" rows="7"></textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="pipe-col">
+            <!-- 右栏上：X 账号白名单编辑器 -->
+            <div class="panel">
+              <h3>
+                <span>X 抓取账号白名单 (`x_accounts.txt`)</span>
+                <small id="cfgAccountsCount">0 个有效账号</small>
+              </h3>
+              <textarea id="cfgAccountsText" class="inp code-area" rows="13" placeholder="# 每行一个 X 账号（不含 @），支持 # 注释&#10;some_account"></textarea>
+              <div class="muted" style="margin-top:6px;margin-bottom:0">
+                每行一个账号（自动剥离前导 `@`，支持 `#` 注释与空行，自动按不区分大小写去重保序）。
+              </div>
+            </div>
+
+            <!-- 右栏下：实时日志查看器 -->
+            <div class="panel pipe-log-panel">
+              <div class="pipe-log-head">
+                <div class="seg" id="pipeLogTabs">
+                  <button type="button" class="seg-btn on" data-log="x_scrape">抓取日志</button>
+                  <button type="button" class="seg-btn" data-log="x_scrape_runner">抓取进程</button>
+                  <button type="button" class="seg-btn" data-log="postprocess">后处理日志</button>
+                  <button type="button" class="seg-btn" data-log="postprocess_runner">后处理进程</button>
+                </div>
+                <button type="button" class="mini-btn" id="btnRefreshLog">↻ 刷新日志</button>
+              </div>
+              <pre class="pipe-log-box" id="pipeLogBox">载入中…</pre>
+            </div>
+          </div>
         </div>
       </section>
     </main>
