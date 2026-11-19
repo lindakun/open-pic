@@ -516,6 +516,9 @@ def download_and_store(it, entry, account, args, stats):
                 for vt in vres.get("tags") or []:
                     if vt not in tags:
                         tags.append(vt)
+                ai_tag = os.environ.get("X_POSTPROCESS_TAG", "AI已标注").strip()
+                if ai_tag and ai_tag not in tags:
+                    tags.append(ai_tag)
 
         rec = upload(dest, it["name"], tags, title=title,
                      source=f"https://x.com/{account}")

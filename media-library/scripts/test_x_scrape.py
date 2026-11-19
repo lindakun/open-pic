@@ -423,7 +423,7 @@ def test_vision_keep_uses_generated_title_and_tags(scraper, monkeypatch):
     assert s["new"] == 1
     assert s["skip_vision"] == 0
     assert uploaded[0]["title"] == "街头温柔穿搭写真"
-    assert uploaded[0]["tags"] == ["X抓取", "人物", "街拍", "穿搭", "清纯"]
+    assert uploaded[0]["tags"] == ["X抓取", "人物", "街拍", "穿搭", "清纯", "AI已标注"]
     assert "201" in st["accounts"]["demo"]["seen_tweets"]
 
 
