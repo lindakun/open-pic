@@ -155,16 +155,19 @@ ssh fnos 'rsync -ai --delete --exclude="venv" --exclude=".pytest_cache" --exclud
   /vol1/picoclaw/.picoclaw/workspace/skills/media-library/'
 ```
 
-4. **按正确身份协调重启**：代码部署后显式重启；纯文档更新无需重启。服务管理应在 NAS 的 `picoclaw` 用户已授权会话中执行，不能假定 `ssh fnos` 的登录用户就是 `picoclaw`，权限不足时交由管理员处理，不绕过权限。
+4. **按正确身份协调重启**：代码部署后显式重启；纯文档更新无需重启。服务属主为 `picoclaw`，`ssh fnos` 登录用户（`lindakun`）无权直接向其进程发信号；重启/停止时用 `ssh fnos 'echo "<sudo密码>" | sudo -S -u picoclaw <命令>'` 以 `picoclaw` 身份执行，sudo 密码见本地凭证文件。
 
-   重启前检查实际进程、PID 记录、抓取任务及整点保活。PID 写入与清理使用独立文件锁，旧进程仅能清理自己的 PID；停止超时必须保留记录并返回失败，不能误报停止成功。状态检测结合健康接口与进程身份，PID 文件缺失不等于服务离线；停止操作必须验证实际服务进程，无权验证或发送信号时明确报错，不绕过权限。升级旧版本时如发现 PID 缺失，应由服务运行用户识别当前监听进程后完成切换，不要反复重启。
+   重启前检查实际进程、PID 记录、抓取任务及整点保活。PID 写入与清理使用独立文件锁，旧进程仅能清理自己的 PID；停止超时必须保留记录并返回失败，不能误报停止成功。状态检测结合健康接口与进程身份，PID 文件缺失不等于服务离线；停止操作必须验证实际服务进程，无权验证或发送信号时明确报错。升级旧版本时如发现 PID 缺失，应由服务运行用户识别当前监听进程后完成切换，不要反复重启。
 
 ```bash
-# 在 NAS 已授权的 picoclaw 会话中、确认无并发保活启动后执行
+# 以 picoclaw 身份执行（sudo 密码见本地凭证文件），确认无并发保活启动
 S=/vol1/picoclaw/.picoclaw/workspace/skills/media-library/scripts
-"$S/../venv/bin/python3" "$S/server.py" --stop
-bash "$S/ensure.sh"
-"$S/../venv/bin/python3" "$S/server.py" --status
+ssh fnos 'echo "<sudo密码>" | sudo -S -u picoclaw sh -c "\
+  /vol1/picoclaw/.picoclaw/workspace/skills/media-library/venv/bin/python3 \
+    $S/server.py --stop && \
+  bash $S/ensure.sh && \
+  /vol1/picoclaw/.picoclaw/workspace/skills/media-library/venv/bin/python3 \
+    $S/server.py --status"'
 ```
 
 5. **验证整条链路**：检查健康接口、用户前台 `/app/`、管理员前台 `/admin/`；涉及抓取脚本时先试运行，再检查实际定时执行日志与断点，不能只凭 `ensure.sh` 或调度状态判定恢复。
