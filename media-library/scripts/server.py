@@ -1980,7 +1980,11 @@ def cmd_start(port: int, host: str) -> int:
     sys.stdout.flush()
     try:
         app = create_app(port=port)
-        uvicorn.run(app, host=host, port=port, log_level="warning")
+        # 优雅退出限时 5 秒：管理台常驻打开 SSE（/api/jobs/stream）连接时，
+        # 默认的无限等待会让 SIGTERM 后的进程长期不退出（--stop 超时失败、
+        # 旧进程占着 PID 记录导致 ensure.sh 无法拉起新实例）
+        uvicorn.run(app, host=host, port=port, log_level="warning",
+                    timeout_graceful_shutdown=5)
     except KeyboardInterrupt:
         pass
     finally:
