@@ -33,6 +33,16 @@
 - 标签: 代理,bilibili,mihomo
 - 置信: 高
 
+### L-5bcc9053 坑
+- 签名: server.py 收到 SIGTERM 后端口已停但进程不退出，--stop 超时报'停止尚未完成'，且旧 PID 记录让 ensure.sh 以'已在运行'拒绝拉起，服务持续离线
+- 权重: 1
+- 首次/最近: 2026-11-19 / 2026-11-19
+- 场景: server.py 收到 SIGTERM 后端口已停但进程不退出，--stop 超时报'停止尚未完成'，且旧 PID 记录让 ensure.sh 以'已在运行'拒绝拉起，服务持续离线
+- 做法: uvicorn.run 增加 timeout_graceful_shutdown=5（SIGTERM 后最多等 5s 强制退出，落在 --stop 的 10s 检测窗口内）；残留实例用 pkill -9 -f 'server[.]py --port 18100' 清理后 rm server.pid 再 ensure.sh
+- 证据: 17:50 SIGTERM 后 18:08 进程仍在且 /healthz offline；本地验证：持有 SSE 连接时 SIGTERM 后 5s 退出；pkill 模式用 server[.]py 防止误杀命令自身
+- 标签: 进程,信号,SSE,优雅退出,stop
+- 置信: 高
+
 ### L-767205a1 坑
 - 签名: YouTube 下载报 Sign in to confirm you're not a bot
 - 权重: 1
