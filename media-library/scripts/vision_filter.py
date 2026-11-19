@@ -7,9 +7,13 @@
 对抓取到的图片及视频抽帧拼图进行宽松女性人像识别，
 同步生成中文画面标题与细分中文标签。
 """
+import base64
+import io
 import json
 import os
 import re
+import subprocess
+import tempfile
 
 DEFAULT_BASE_URL = "https://sub.hhxxttxs.icu:8787"
 DEFAULT_MODEL = "cloudflare-workers-ai/@cf/qwen/qwen3.8-27b"
@@ -159,3 +163,118 @@ def parse_vision_response(raw):
         "title": title,
         "tags": tags,
     }
+
+
+def _pil_to_jpeg_data_url(im, max_side=768, quality=82):
+    """将 PIL Image 转为 RGB 并限制最大边长，编码为 JPEG data URL"""
+    from PIL import Image, ImageOps
+
+    im = ImageOps.exif_transpose(im)
+    if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+        bg = Image.new("RGB", im.size, (255, 255, 255))
+        rgba = im.convert("RGBA")
+        bg.paste(rgba, mask=rgba.split()[3])
+        im = bg
+    elif im.mode != "RGB":
+        im = im.convert("RGB")
+
+    w, h = im.size
+    if max(w, h) > max_side:
+        scale = max_side / float(max(w, h))
+        im = im.resize((max(1, int(round(w * scale))), max(1, int(round(h * scale)))), Image.LANCZOS)
+
+    buf = io.BytesIO()
+    im.save(buf, format="JPEG", quality=quality)
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/jpeg;base64,{b64}"
+
+
+def encode_image_base64(path, max_side=768):
+    """读取本地图片并缩放编码为 JPEG data URL"""
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            return _pil_to_jpeg_data_url(im, max_side=max_side)
+    except Exception as e:
+        raise VisionError(f"图片预处理失败: {type(e).__name__}: {e}") from e
+
+
+def _probe_video_duration(path):
+    """探测视频时长（秒），失败返回 0.0"""
+    try:
+        r = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                path,
+            ],
+            capture_output=True, text=True, timeout=15,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return max(0.0, float(r.stdout.strip()))
+    except Exception:
+        pass
+    return 0.0
+
+
+def encode_video_frames_base64(path, frame_height=360, max_side=1024):
+    """抽取视频 20%/50%/80% 三帧横向拼接为一张图（失败降级首帧），节省 API 费用"""
+    from PIL import Image
+
+    duration = _probe_video_duration(path)
+    with tempfile.TemporaryDirectory(prefix="xvision-") as tmpdir:
+        frames = []
+        if duration > 1.0:
+            for idx, ratio in enumerate((0.2, 0.5, 0.8)):
+                ts = f"{duration * ratio:.2f}"
+                out = os.path.join(tmpdir, f"f{idx}.jpg")
+                try:
+                    r = subprocess.run(
+                        [
+                            "ffmpeg", "-y", "-ss", ts, "-i", path,
+                            "-frames:v", "1", "-q:v", "3", out,
+                        ],
+                        capture_output=True, text=True, timeout=20,
+                    )
+                    if r.returncode == 0 and os.path.exists(out) and os.path.getsize(out) > 0:
+                        frames.append(out)
+                except Exception:
+                    pass
+
+        if len(frames) >= 2:
+            imgs = []
+            try:
+                for fp in frames:
+                    im = Image.open(fp).convert("RGB")
+                    w, h = im.size
+                    if h > 0:
+                        nw = max(1, int(round(w * (frame_height / float(h)))))
+                        im = im.resize((nw, frame_height), Image.LANCZOS)
+                    imgs.append(im)
+                total_w = sum(im.width for im in imgs)
+                canvas = Image.new("RGB", (total_w, frame_height))
+                x = 0
+                for im in imgs:
+                    canvas.paste(im, (x, 0))
+                    x += im.width
+                return _pil_to_jpeg_data_url(canvas, max_side=max_side)
+            finally:
+                for im in imgs:
+                    try:
+                        im.close()
+                    except Exception:
+                        pass
+
+        # 降级：抽取首帧
+        first_out = os.path.join(tmpdir, "first.jpg")
+        try:
+            r = subprocess.run(
+                ["ffmpeg", "-y", "-i", path, "-frames:v", "1", "-q:v", "3", first_out],
+                capture_output=True, text=True, timeout=20,
+            )
+        except Exception as e:
+            raise VisionError(f"视频抽帧失败: {type(e).__name__}: {e}") from e
+        if r.returncode != 0 or not os.path.exists(first_out) or os.path.getsize(first_out) == 0:
+            raise VisionError("视频抽帧失败：ffmpeg 未产出有效帧")
+        return encode_image_base64(first_out, max_side=768)
