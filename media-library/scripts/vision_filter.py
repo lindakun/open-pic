@@ -14,6 +14,9 @@ import os
 import re
 import subprocess
 import tempfile
+import time
+import urllib.error
+import urllib.request
 
 DEFAULT_BASE_URL = "https://sub.hhxxttxs.icu:8787"
 DEFAULT_MODEL = "cloudflare-workers-ai/@cf/qwen/qwen3.8-27b"
@@ -278,3 +281,87 @@ def encode_video_frames_base64(path, frame_height=360, max_side=1024):
         if r.returncode != 0 or not os.path.exists(first_out) or os.path.getsize(first_out) == 0:
             raise VisionError("视频抽帧失败：ffmpeg 未产出有效帧")
         return encode_image_base64(first_out, max_side=768)
+
+
+def call_vision_api(image_data_url, config):
+    """调用 OpenAI 兼容 /v1/chat/completions 接口，瞬时失败最多重试 1 次"""
+    api_key = (config.get("api_key") or "").strip()
+    if not api_key:
+        raise VisionError("未配置视觉模型 API Key")
+
+    base_url = (config.get("base_url") or DEFAULT_BASE_URL).rstrip("/")
+    url = f"{base_url}/v1/chat/completions"
+    model = config.get("model") or DEFAULT_MODEL
+    timeout = int(config.get("timeout") or DEFAULT_TIMEOUT)
+    prompt = config.get("prompt") or DEFAULT_PROMPT
+
+    payload = {
+        "model": model,
+        "temperature": 0.1,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": image_data_url}},
+                ],
+            }
+        ],
+    }
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+    last_err = None
+    for attempt in range(2):
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw_resp = resp.read().decode("utf-8", "replace")
+            parsed_resp = json.loads(raw_resp)
+            content = (
+                parsed_resp.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "")
+            )
+            return parse_vision_response(content)
+        except urllib.error.HTTPError as e:
+            err_body = ""
+            try:
+                err_body = e.read().decode("utf-8", "replace")[:200]
+            except Exception:
+                pass
+            last_err = VisionError(f"视觉 API HTTP {e.code}: {err_body or e.reason}")
+            if e.code in (429, 500, 502, 503, 504) and attempt == 0:
+                time.sleep(2)
+                continue
+            raise last_err from e
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            last_err = VisionError(f"视觉 API 网络异常 {type(e).__name__}: {e}")
+            if attempt == 0:
+                time.sleep(2)
+                continue
+            raise last_err from e
+        except VisionError:
+            raise
+        except Exception as e:
+            raise VisionError(f"视觉 API 响应处理失败 {type(e).__name__}: {e}") from e
+
+    raise last_err
+
+
+def analyze_media(path, kind, config):
+    """对本地图片或视频文件执行视觉判定与标题/标签生成"""
+    if not (config.get("api_key") or "").strip():
+        raise VisionError("未配置视觉模型 API Key（X_VISION_API_KEY 或 vision_config.json）")
+    if kind == "video":
+        data_url = encode_video_frames_base64(path)
+    else:
+        data_url = encode_image_base64(path)
+    return call_vision_api(data_url, config)

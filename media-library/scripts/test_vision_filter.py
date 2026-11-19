@@ -128,3 +128,102 @@ def test_encode_video_frames_triplet_and_fallback(tmp_path, monkeypatch):
     fallback_url = vf.encode_video_frames_base64(str(video_path))
     assert fallback_url.startswith("data:image/jpeg;base64,")
 
+
+class _FakeResp:
+    def __init__(self, body):
+        self._body = body.encode("utf-8")
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def test_call_vision_api_success(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(req, timeout=0):
+        captured["url"] = req.full_url
+        captured["auth"] = req.get_header("Authorization")
+        captured["timeout"] = timeout
+        captured["payload"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResp(json.dumps({
+            "choices": [{"message": {"content": '{"keep": true, "reason": "人像", "title": "街拍日常", "tags": ["街拍", "日常"]}'}}]
+        }))
+
+    monkeypatch.setattr(vf.urllib.request, "urlopen", fake_urlopen)
+    cfg = {
+        "enabled": True,
+        "base_url": "https://api.example.com",
+        "api_key": "secret-123",
+        "model": "qwen3.8-27b",
+        "timeout": 30,
+        "prompt": "check",
+    }
+    res = vf.call_vision_api("data:image/jpeg;base64,AAAA", cfg)
+    assert captured["url"] == "https://api.example.com/v1/chat/completions"
+    assert captured["auth"] == "Bearer secret-123"
+    assert captured["timeout"] == 30
+    assert captured["payload"]["model"] == "qwen3.8-27b"
+    assert res == {"keep": True, "reason": "人像", "title": "街拍日常", "tags": ["街拍", "日常"]}
+
+
+def test_call_vision_api_retries_once_on_transient_error(monkeypatch):
+    import urllib.error
+    calls = {"n": 0}
+
+    def fake_urlopen(req, timeout=0):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {}, None)
+        return _FakeResp(json.dumps({
+            "choices": [{"message": {"content": '{"keep": false, "reason": "风景", "title": "", "tags": []}'}}]
+        }))
+
+    monkeypatch.setattr(vf.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(vf.time, "sleep", lambda *_: None)
+    cfg = {
+        "enabled": True,
+        "base_url": "https://api.example.com",
+        "api_key": "secret-123",
+        "model": "qwen3.8-27b",
+        "timeout": 30,
+        "prompt": "check",
+    }
+    res = vf.call_vision_api("data:image/jpeg;base64,AAAA", cfg)
+    assert calls["n"] == 2
+    assert res["keep"] is False
+
+
+def test_call_vision_api_raises_after_retry_exhausted(monkeypatch):
+    import urllib.error
+
+    def fake_urlopen(req, timeout=0):
+        raise urllib.error.URLError("network down")
+
+    monkeypatch.setattr(vf.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(vf.time, "sleep", lambda *_: None)
+    cfg = {
+        "enabled": True,
+        "base_url": "https://api.example.com",
+        "api_key": "secret-123",
+        "model": "qwen3.8-27b",
+        "timeout": 30,
+        "prompt": "check",
+    }
+    with pytest.raises(vf.VisionError):
+        vf.call_vision_api("data:image/jpeg;base64,AAAA", cfg)
+
+
+def test_analyze_media_requires_api_key(tmp_path):
+    from PIL import Image
+    img = tmp_path / "a.jpg"
+    Image.new("RGB", (400, 400), (1, 2, 3)).save(img)
+    with pytest.raises(vf.VisionError):
+        vf.analyze_media(str(img), "photo", {"enabled": True, "api_key": ""})
+
+
