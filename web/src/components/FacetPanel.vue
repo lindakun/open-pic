@@ -7,6 +7,7 @@
  */
 import { computed, ref } from 'vue'
 import MLChip from './MLChip.vue'
+import { INTERNAL_TAGS } from '@/api/tags'
 import { useFilterStore } from '@/stores/filters'
 import { useI18n } from '@/composables/useI18n'
 import type { Facets, FacetOption } from '@/stores/filters'
@@ -114,7 +115,8 @@ const groups = computed(() => {
     { key: 'size_class', title: t('facet.sizeClass'), options: f.size_class },
     { key: 'ext', title: t('facet.ext'), options: f.ext },
     { key: 'platform', title: t('facet.platform'), options: f.platform },
-    { key: 'tag', title: t('facet.tag'), options: f.tag },
+    // 内部处理状态标签（AI已标注）不参与用户筛选
+    { key: 'tag', title: t('facet.tag'), options: f.tag.filter((o) => !INTERNAL_TAGS.has(o.value)) },
   ].filter((g) => g.options && g.options.length > 0)
 })
 
@@ -307,6 +309,7 @@ function groupActiveCount(key: string): number {
   gap: var(--p-space-1);
   font-size: var(--p-step--1);
   overflow-x: hidden;
+  min-width: 0;
 }
 
 .facets__head {
@@ -401,6 +404,7 @@ function groupActiveCount(key: string): number {
   list-style: none;
   color: var(--ink);
   font-weight: 500;
+  min-width: 0;
 }
 
 /* 隐藏原生三角，改用自定义箭头 */
@@ -411,8 +415,11 @@ function groupActiveCount(key: string): number {
 .facet__name {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--p-space-2);
   font-size: var(--p-step--1);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .facet__active-dot {
@@ -450,6 +457,12 @@ function groupActiveCount(key: string): number {
   align-items: center;
   gap: 2px;
   max-width: 100%;
+  min-width: 0;
+}
+
+/* 为右侧「排除」按钮预留宽度，避免长标签把行撑出容器 */
+.facet__item > .ml-chip {
+  max-width: calc(100% - 24px);
 }
 
 .facet__exclude {
@@ -474,9 +487,14 @@ function groupActiveCount(key: string): number {
 
 @media (hover: none) {
   .facet__exclude {
-    opacity: 0.72;
-    min-width: 28px;
-    min-height: 28px;
+    opacity: 0.8;
+    min-width: 36px;
+    min-height: 36px;
+    font-size: 1rem;
+  }
+
+  .facet__item > .ml-chip {
+    max-width: calc(100% - 40px);
   }
 
   /* 触屏没有悬停提示，扩大分面行与色点的可点区域 */
@@ -490,16 +508,23 @@ function groupActiveCount(key: string): number {
     font-size: 16px;
   }
 
-  .facet__color-dot {
-    width: 26px;
-    height: 26px;
+  /* 触屏色点放大到 36px 的可稳定点按尺寸（选择器需压过下方基础样式） */
+  .facet__colors .facet__color-dot {
+    width: 36px;
+    height: 36px;
   }
 
-  .facet__colors {
-    gap: var(--p-space-2);
+  .facet__body.facet__colors {
+    gap: var(--p-space-3);
   }
 
-  .facet__color-clear {
+  .facet__more {
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+  }
+
+  .facet__color-current .facet__color-clear {
     min-width: 32px;
     min-height: 32px;
   }

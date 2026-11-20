@@ -18,7 +18,7 @@ defineEmits<{
 }>()
 
 const { t } = useI18n()
-const { pause, resume } = useToast()
+const { pause, resume, runAction } = useToast()
 </script>
 
 <template>
@@ -35,6 +35,14 @@ const { pause, resume } = useToast()
         {{ toast.tone === 'success' ? '✓' : toast.tone === 'error' ? '!' : 'i' }}
       </span>
       <span class="ml-toast__msg">{{ toast.message }}</span>
+      <button
+        v-if="toast.action"
+        type="button"
+        class="ml-toast__action"
+        @click="runAction(toast.id)"
+      >
+        {{ toast.action.label }}
+      </button>
       <button
         type="button"
         class="ml-toast__close"
@@ -152,6 +160,21 @@ const { pause, resume } = useToast()
   overflow-wrap: anywhere;
 }
 
+.ml-toast__action {
+  flex-shrink: 0;
+  padding: 2px var(--p-space-2);
+  min-height: 28px;
+  border-radius: var(--p-radius-sm);
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.ml-toast__action:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
 .ml-toast__close {
   color: inherit;
   opacity: 0.65;
@@ -172,6 +195,11 @@ const { pause, resume } = useToast()
     min-width: 32px;
     min-height: 32px;
     font-size: 1.25rem;
+  }
+
+  .ml-toast__action {
+    min-height: 40px;
+    padding: 0 var(--p-space-3);
   }
 }
 

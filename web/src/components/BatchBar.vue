@@ -7,6 +7,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
+import { userTags } from '@/api/tags'
 import { useI18n } from '@/composables/useI18n'
 import { useToast } from '@/composables/useToast'
 import MLButton from './MLButton.vue'
@@ -59,7 +60,7 @@ const candidateTags = computed(() => {
   const tags = tagMode.value === 'remove' && props.selectedTags?.length
     ? props.selectedTags
     : props.availableTags ?? []
-  return tags.filter((tag) => tag !== 'AI已标注')
+  return userTags(tags)
 })
 
 /**
@@ -168,6 +169,17 @@ async function setFeatured() {
   }
 }
 
+/** 批量删除后保留一次撤销机会：回收站为软删除，可原样恢复 */
+async function restoreTrashed(ids: string[]) {
+  try {
+    const res = await api.batch(ids, 'restore')
+    toast.success(t('batch.undone', { count: res.count ?? ids.length }))
+    emit('done', 'restore', res.count ?? ids.length)
+  } catch {
+    toast.error(t('batch.undoFailed'))
+  }
+}
+
 async function trash() {
   if (!trashConfirm.value) {
     trashConfirm.value = true
@@ -179,8 +191,23 @@ async function trash() {
   }
   trashConfirm.value = false
   if (trashTimer !== undefined) window.clearTimeout(trashTimer)
-  const ok = await run('delete')
-  if (ok) emit('clear')
+  if (!count.value || busy.value) return
+  const ids = [...props.selected]
+  busy.value = true
+  try {
+    const res = await api.batch(ids, 'delete')
+    const n = res.count ?? ids.length
+    toast.success(t('batch.trashed', { count: n }), {
+      duration: 8000,
+      action: { label: t('batch.undoTrash'), run: () => void restoreTrashed(ids) },
+    })
+    emit('done', 'delete', n)
+    emit('clear')
+  } catch (e) {
+    toast.error((e as Error).message)
+  } finally {
+    busy.value = false
+  }
 }
 
 async function exportZip() {

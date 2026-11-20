@@ -18,6 +18,7 @@ import { useAiStatus } from '@/composables/useAiStatus'
 import { pushRecent } from '@/composables/useRecent'
 import { track, useEventFlush, useImpressionTracker } from '@/composables/useAnalytics'
 import { api } from '@/api/client'
+import { userTags } from '@/api/tags'
 import { useI18n } from '@/composables/useI18n'
 import MasonryGrid from '@/components/MasonryGrid.vue'
 import LightboxViewer from '@/components/LightboxViewer.vue'
@@ -308,8 +309,8 @@ const selectedItemTags = computed(() => {
   const freq = new Map<string, number>()
   for (const it of store.items) {
     if (!picked.has(it.id)) continue
-    for (const tag of it.tags ?? []) {
-      if (tag && tag !== 'AI已标注') freq.set(tag, (freq.get(tag) ?? 0) + 1)
+    for (const tag of userTags(it.tags)) {
+      freq.set(tag, (freq.get(tag) ?? 0) + 1)
     }
   }
   return Array.from(freq.entries())
@@ -490,7 +491,10 @@ async function refreshWithFeatured() {
 async function applyAndRefresh() {
   aiSearchActive.value = false
   clearScrollAnchor()
+  // 筛选变化后旧选择多半不再可见：清空并明确告知，避免批量操作作用到看不见的条目
+  const dropped = selectedIds.value.length
   clearSelection()
+  if (dropped) toast.info(t('browse.selectionCleared', { count: dropped }))
   window.scrollTo({ top: 0, behavior: 'auto' })
   await refreshWithFeatured()
 }
@@ -690,20 +694,18 @@ watch(
   () => store.facets?.tag,
   (list) => {
     if (!list?.length || filters.hasFilters) return
-    cachedTopTags.value = list
-      .filter((x) => x.count > 0)
-      .slice(0, 6)
-      .map((x) => x.value)
+    cachedTopTags.value = userTags(
+      list.filter((x) => x.count > 0).slice(0, 6).map((x) => x.value),
+    )
   },
   { immediate: true },
 )
 
 const emptySuggestedTags = computed(() => {
   if (cachedTopTags.value.length) return cachedTopTags.value
-  return (store.facets?.tag ?? [])
-    .filter((x) => x.count > 0)
-    .slice(0, 6)
-    .map((x) => x.value)
+  return userTags(
+    (store.facets?.tag ?? []).filter((x) => x.count > 0).slice(0, 6).map((x) => x.value),
+  )
 })
 
 function jumpToSuggestedTag(tag: string) {
@@ -1634,14 +1636,14 @@ watch(
     <UploadPanel
       ref="uploadPanelRef"
       v-model:open="uploadOpen"
-      :suggested-tags="(store.facets?.tag ?? []).filter((x) => x.count > 0).slice(0, 8).map((x) => x.value)"
+      :suggested-tags="userTags((store.facets?.tag ?? []).filter((x) => x.count > 0).slice(0, 8).map((x) => x.value))"
       @uploaded="onUploaded"
     />
 
     <BatchBar
       :selected="selectedIds"
       :collections="collections"
-      :available-tags="(store.facets?.tag ?? []).filter((x) => x.count > 0).slice(0, 12).map((x) => x.value)"
+      :available-tags="userTags((store.facets?.tag ?? []).filter((x) => x.count > 0).slice(0, 12).map((x) => x.value))"
       :selected-tags="selectedItemTags"
       @clear="clearSelection"
       @done="onBatchDone"
@@ -2500,6 +2502,18 @@ watch(
     column-gap: var(--p-space-3);
   }
 
+  .wall__select-hint {
+    display: none;
+  }
+
+  .wall__top {
+    bottom: calc(var(--p-space-5) + env(safe-area-inset-bottom, 0px) + var(--batch-bar-offset, 0px));
+  }
+}
+
+/* 平板与手机统一使用分面抽屉（≤900px），避免侧栏把图墙推到屏幕下方；
+   工具条同步收紧为单行横滑，横屏手机也不至被两行工具条吃掉首屏 */
+@media (max-width: 900px) {
   .wall__bar {
     flex-wrap: nowrap;
     overflow-x: auto;
@@ -2548,8 +2562,17 @@ watch(
     margin-left: auto;
   }
 
-  .wall__select-hint {
-    display: none;
+  /* 选择模式下用实底「退出选择」替代图标，明确告诉用户如何离开多选 */
+  .wall__bar--selecting .wall__select-toggle {
+    min-width: auto;
+    padding: 2px 12px;
+    background: var(--accent);
+    color: var(--on-accent);
+    border-color: var(--accent);
+  }
+
+  .wall__bar--selecting .wall__select-toggle .wall__pill-label {
+    display: inline;
   }
 
   .wall__pill-btn {
@@ -2661,80 +2684,6 @@ watch(
     font-size: var(--p-step--1);
   }
 
-  /* 抽屉自带标题与清空入口，隐藏面板内重复头部 */
-  .wall__facets :deep(.facets__head) {
-    display: none;
-  }
-
-  .wall__top {
-    bottom: calc(var(--p-space-5) + env(safe-area-inset-bottom, 0px) + var(--batch-bar-offset, 0px));
-  }
-}
-
-/* 平板与手机统一使用分面抽屉（≤900px），避免侧栏把图墙推到屏幕下方 */
-@media (max-width: 900px) {
-  .wall__facets-scrim {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: calc(var(--p-z-sheet) - 1);
-    background: rgba(26, 24, 21, 0.44);
-    backdrop-filter: blur(2px);
-    animation: wall-scrim-in var(--p-dur-base) var(--p-ease-out);
-  }
-
-  .wall__facets {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    top: auto;
-    z-index: var(--p-z-sheet);
-    max-height: min(78dvh, 640px);
-    padding: 0 var(--p-space-4) calc(var(--p-space-3) + env(safe-area-inset-bottom, 0px));
-    background: var(--surface);
-    border-radius: var(--p-radius-lg) var(--p-radius-lg) 0 0;
-    box-shadow: var(--sheet-shadow);
-    animation: wall-sheet-in var(--p-dur-base) var(--p-ease-spring);
-  }
-
-  .wall__facets-head {
-    display: flex;
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--p-space-3);
-    padding: var(--p-space-3) 0;
-    margin-bottom: var(--p-space-1);
-    background: var(--surface);
-    border-bottom: 1px solid var(--rule);
-  }
-
-  .wall__facets-actions {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--p-space-2);
-  }
-
-  .wall__facets-reset {
-    min-height: 36px;
-    padding: 0 var(--p-space-2);
-    color: var(--ink-muted);
-    font-size: var(--p-step--1);
-  }
-
-  .wall__facets-done {
-    min-height: 40px;
-    padding: 0 var(--p-space-4);
-    border-radius: var(--p-radius-full);
-    background: var(--accent);
-    color: var(--on-accent);
-    font-weight: 500;
-    font-size: var(--p-step--1);
-  }
-
   .wall__facets :deep(.facets__head) {
     display: none;
   }
@@ -2760,7 +2709,8 @@ watch(
   }
 }
 
-@media (max-width: 680px) {
+/* 分面抽屉在 ≤900px 出现，锁滚动也必须同范围生效，否则平板与横屏手机会在抽屉下滚走 */
+@media (max-width: 900px) {
   html.facets-open,
   html.facets-open body {
     overflow: hidden;

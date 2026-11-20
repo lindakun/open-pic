@@ -11,6 +11,7 @@
  */
 import { computed, ref } from 'vue'
 import type { MediaItem } from '@/api/types'
+import { userTags } from '@/api/tags'
 import SmartImage from './SmartImage.vue'
 import { useI18n } from '@/composables/useI18n'
 
@@ -98,7 +99,7 @@ const altText = computed(() =>
 )
 
 /** 后处理状态标签属于内部元数据，不占用用户可见的标签位置 */
-const visibleTags = computed(() => (props.item.tags ?? []).filter((tag) => tag !== 'AI已标注'))
+const visibleTags = computed(() => userTags(props.item.tags))
 
 /** 底部主胶囊：有标签显示首标签，无标签时回退作者或外链平台，让卡片底栏左右均衡 */
 const primaryPill = computed(() => {

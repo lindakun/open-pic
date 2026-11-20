@@ -6,11 +6,23 @@
  */
 import { readonly, ref } from 'vue'
 
+export interface ToastAction {
+  label: string
+  run: () => void
+}
+
 export interface ToastItem {
   id: number
   message: string
   tone: 'info' | 'success' | 'error'
   duration: number
+  action?: ToastAction
+}
+
+export interface ToastOptions {
+  /** 覆盖默认停留时长；带撤销类操作时通常需要更久 */
+  duration?: number
+  action?: ToastAction
 }
 
 const toasts = ref<ToastItem[]>([])
@@ -57,12 +69,20 @@ function resume(id: number) {
   scheduleTimer(id, entry.remaining)
 }
 
-function push(message: string, tone: ToastItem['tone'] = 'info') {
+function push(message: string, tone: ToastItem['tone'] = 'info', opts: ToastOptions = {}) {
   const id = nextId++
-  const duration = DURATION[tone]
-  toasts.value.push({ id, message, tone, duration })
+  const duration = opts.duration ?? DURATION[tone]
+  toasts.value.push({ id, message, tone, duration, action: opts.action })
   scheduleTimer(id, duration)
   return id
+}
+
+/** 关闭提示并执行其快捷操作（如撤销批量删除） */
+function runAction(id: number) {
+  const item = toasts.value.find((t) => t.id === id)
+  if (!item?.action) return
+  dismiss(id)
+  item.action.run()
 }
 
 export function useToast() {
@@ -71,8 +91,9 @@ export function useToast() {
     dismiss,
     pause,
     resume,
-    info: (msg: string) => push(msg, 'info'),
-    success: (msg: string) => push(msg, 'success'),
-    error: (msg: string) => push(msg, 'error'),
+    runAction,
+    info: (msg: string, opts?: ToastOptions) => push(msg, 'info', opts),
+    success: (msg: string, opts?: ToastOptions) => push(msg, 'success', opts),
+    error: (msg: string, opts?: ToastOptions) => push(msg, 'error', opts),
   }
 }

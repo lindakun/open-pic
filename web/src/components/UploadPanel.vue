@@ -803,6 +803,21 @@ defineExpose({ addFiles })
   border-radius: var(--p-radius-sm);
 }
 
+@media (hover: none) {
+  /* 触屏上传面板：建议标签与移除按钮放大到可稳定点按的尺寸 */
+  .up__tag-pill {
+    min-height: 36px;
+    padding: 6px 12px;
+    font-size: 0.8125rem;
+  }
+
+  .up__remove {
+    min-width: 40px;
+    min-height: 40px;
+    font-size: 1.125rem;
+  }
+}
+
 @media (max-width: 680px) {
   /* 移动端上传面板：标签页与移除按钮放大，标签胶囊便于点选 */
   .up__tab {
@@ -810,13 +825,13 @@ defineExpose({ addFiles })
   }
 
   .up__remove {
-    min-width: 36px;
-    min-height: 36px;
+    min-width: 40px;
+    min-height: 40px;
   }
 
   .up__tag-pill {
-    min-height: 30px;
-    padding: 3px 10px;
+    min-height: 36px;
+    padding: 6px 12px;
   }
 
   .up__suggested-label {

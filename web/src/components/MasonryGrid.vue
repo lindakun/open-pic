@@ -7,6 +7,7 @@
  */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { MediaItem, ViewMode } from '@/api/types'
+import { userTags } from '@/api/tags'
 import { useI18n } from '@/composables/useI18n'
 import MLMediaCard from './MLMediaCard.vue'
 import SmartImage from './SmartImage.vue'
@@ -386,10 +387,10 @@ defineExpose({ renderedCount, isVisible, visibleRange })
           </span>
           <span class="list-row__tags">
             <span
-              v-for="tag in (item.tags ?? []).filter((value) => value !== 'AI已标注').slice(0, 4)"
+              v-for="tag in userTags(item.tags).slice(0, 4)"
               :key="tag"
               class="list-row__tag"
-              @click.stop="!selectable && emit('filter-tag', tag)"
+              @click.stop="selectable ? emit('toggle', item.id, $event.shiftKey) : emit('filter-tag', tag)"
             >
               {{ tag }}
             </span>

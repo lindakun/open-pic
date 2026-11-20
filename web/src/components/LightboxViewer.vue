@@ -17,6 +17,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { MediaItem } from '@/api/types'
 import { api } from '@/api/client'
+import { userTags } from '@/api/tags'
 import { useI18n } from '@/composables/useI18n'
 import { copyText } from '@/composables/useClipboard'
 import { useZoomPan } from '@/composables/useZoomPan'
@@ -544,7 +545,7 @@ async function copyColor(color: string) {
 }
 
 async function copyTags() {
-  const list = props.item.tags ?? []
+  const list = userTags(props.item.tags)
   if (!list.length) return
   if (await copyText(list.join(' '))) await flash('tags')
   else await flash('copy-failed')
@@ -1149,10 +1150,10 @@ onUnmounted(() => {
         </div>
       </dl>
 
-      <div v-if="item.tags?.length" class="panel__tags-wrap">
+      <div v-if="userTags(item.tags).length" class="panel__tags-wrap">
         <div class="panel__tags">
           <button
-            v-for="tag in item.tags"
+            v-for="tag in userTags(item.tags)"
             :key="tag"
             type="button"
             class="panel__tag"
