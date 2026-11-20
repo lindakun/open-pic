@@ -827,3 +827,8 @@ body.has-batch-bar .toast {
   text-align: center;
   line-height: 1.6;
 }
+
+.btn:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}

@@ -158,7 +158,7 @@
         const div = document.createElement('div');
         div.className = 'col-item' + (state.nav === 'collection' && state.collectionId === c.id ? ' on' : '');
         const cover = c.resolved_cover
-          ? `<img class="col-item__cover" src="/t/${esc(c.resolved_cover)}_sm.webp" alt="" loading="lazy" decoding="async" onerror="this.hidden=true">`
+          ? `<img class="col-item__cover" src="/t/${esc(c.resolved_cover)}_sm.webp" alt="" loading="lazy" decoding="async" onerror="if(!this.dataset.fb){this.dataset.fb='1';this.src='/t/${esc(c.resolved_cover)}.jpg'}else{this.hidden=true}">`
           : `<span class="col-item__cover col-item__cover--ph" aria-hidden="true">📁</span>`;
         div.innerHTML = `${cover}
           <span class="col-item__name">${esc(c.name)}</span>
@@ -708,6 +708,9 @@
       if (r.ok) {
         closeModal('urlModal');
         $('#inUrl').value = '';
+        // 标题/标签是“本次投递”的元数据，成功后再采集下一批时不能沿用
+        $('#inUrlTags').value = '';
+        $('#inUrlTitle').value = '';
         toast('已加入后台抓取队列');
         $('#jobDot').hidden = false;
         loadJobs();
@@ -721,8 +724,9 @@
       btn.disabled = false;
     }
   };
-  $('#inUrl').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
+  $('#urlModal').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeModal('urlModal');
+    else if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
       e.preventDefault();
       $('#btnSubmitUrl').click();
     }
@@ -999,7 +1003,7 @@
     $('#topViewed').innerHTML = (an.top_viewed || []).map(it => `
       <div class="top-item" onclick="window.open('/s/${it.id}','_blank')">
         <img loading="lazy" decoding="async" src="${it.thumb ? `/t/${it.id}_sm.webp` : `/f/${it.file}`}"
-             onerror="this.onerror=null;this.src='/f/${it.file}'">
+             onerror="if(this.dataset.fb){this.hidden=true}else{this.dataset.fb=1;this.src='/f/${it.file}'}">
         <div style="min-width:0">
           <div class="meta-title">${esc(it.title)}</div>
           <div class="muted">👁 ${it.views} · ⬇ ${it.downloads}</div>
@@ -1394,6 +1398,7 @@
   function resetFilters() {
     state.q = '';
     state.kind = '';
+    state.sort = 'newest';
     state.tags = [];
     state.excludeTags = [];
     state.orientation = '';
@@ -1408,6 +1413,7 @@
     $('#btnClearQ').hidden = true;
     $('#orientFilter').value = '';
     $('#platformFilter').value = '';
+    $('#sortSelect').value = 'newest';
     $$('#kindTabs .seg-btn').forEach(b => b.classList.toggle('on', b.dataset.k === ''));
     $$('.swatch').forEach(s => s.classList.remove('on'));
     loadStats();

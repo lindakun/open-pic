@@ -483,7 +483,10 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
         """
         ua = request.headers.get("user-agent", "").lower()
         is_bot = any(s in ua for s in ("bot", "spider", "crawl", "slurp"))
-        if not is_bot:
+        status = it.get("status") or "published"
+        due = status == "draft" and int(it.get("publish_at") or 0) <= int(time.time())
+        # 预览未发布/已归档资产不应污染公开浏览量（仅统计与前台可见口径一致的访问）
+        if not is_bot and (status == "published" or due):
             db.increment_counter(it["id"], "views")
         base_url = str(request.base_url).rstrip("/")
         title_esc = html.escape(it["title"] or it["name"])
@@ -518,6 +521,11 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
         else:
             size_info = ""
         spec_parts = [p for p in (dim_info, ext_info, size_info) if p]
+        if it["kind"] == "video" and it.get("duration"):
+            total = int(round(float(it["duration"])))
+            h, rem = divmod(total, 3600)
+            m, s = divmod(rem, 60)
+            spec_parts.insert(0, f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}")
         spec_esc = html.escape(" · ".join(spec_parts))
         desc_esc = html.escape(f"{it['kind'].upper()} · {dim_info} · {tags_esc}".strip(" ·"))
         og_type = "video.other" if it["kind"] == "video" else "website"

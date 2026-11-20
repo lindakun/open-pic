@@ -271,6 +271,9 @@ async function submitUrl() {
       })
     }
     url.value = ''
+    // 标题与标签随本次链接一并提交；成功后清空，避免下一批采集误带旧元数据
+    title.value = ''
+    tags.value = ''
     toast.info(lines.length > 1 ? t('upload.queuedMulti', { count: lines.length }) : t('upload.queued'))
     emit('update:open', false)
   } catch (e) {

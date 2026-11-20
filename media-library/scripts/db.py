@@ -1279,8 +1279,14 @@ class MediaDB:
 
             def facet_where(exclude: str) -> Tuple[str, List[Any]]:
                 """构造聚合 where：应用除 exclude 维度外的全部筛选条件。"""
-                where = ["i.deleted_at IS NULL"]
-                params: List[Any] = []
+                now = int(time.time())
+                where = [
+                    "i.deleted_at IS NULL",
+                    # 与列表查询同口径：未到期草稿/归档不应出现在前台分面计数里
+                    "(i.status = 'published' OR (i.status = 'draft'"
+                    " AND i.publish_at IS NOT NULL AND i.publish_at <= ?))",
+                ]
+                params: List[Any] = [now]
                 if exclude != "kind" and kind in ("image", "video"):
                     where.append("i.kind = ?")
                     params.append(kind)
