@@ -97,14 +97,6 @@ const altText = computed(() =>
   props.item.title ? '' : t('card.mediaAlt', { name: props.item.name }),
 )
 
-/** 高清/动图角标：4K+ 优先标识画质，GIF/RAW/AVIF 等标识格式，仅在悬停时轻显 */
-const cornerBadge = computed(() => {
-  const ext = (props.item.ext || '').replace(/^\./, '').toUpperCase()
-  if (ext === 'GIF') return 'GIF'
-  if (Math.max(props.item.width || 0, props.item.height || 0) >= 3840) return '4K'
-  return ext
-})
-
 /** 底部主胶囊：有标签显示首标签，无标签时回退作者或外链平台，让卡片底栏左右均衡 */
 const primaryPill = computed(() => {
   if (props.item.tags?.length) return props.item.tags[0]
@@ -157,22 +149,17 @@ const extraTagCount = computed(() => {
         />
         <!-- 悬停边缘保护渐变：确保浅色图上的喜欢心形与色点清晰可辨 -->
         <span class="ml-card__scrim" aria-hidden="true" />
-        <!-- 悬停格式/4K 角标（非选择模式下） -->
+        <!-- 视频只保留右上角小三角播放标记（参考小红书），不再堆叠格式与时长胶囊 -->
         <span
-          v-if="!selectable && cornerBadge"
-          class="ml-card__fmt mono"
-          aria-hidden="true"
+          v-if="item.kind === 'video' && !selectable"
+          class="ml-card__video-mark"
+          role="img"
+          :aria-label="t('facet.kindVideo')"
+          :title="item.duration ? `${t('facet.kindVideo')} · ${formatDuration(item.duration)}` : t('facet.kindVideo')"
         >
-          {{ cornerBadge }}
-        </span>
-        <!-- 视频徽标：带播放符号，一眼可辨；时长同时给出 -->
-        <span
-          v-if="item.kind === 'video'"
-          class="ml-card__badge mono"
-          :aria-label="`${t('facet.kindVideo')} ${formatDuration(item.duration)}`"
-        >
-          <span class="ml-card__play" aria-hidden="true">▶</span>
-          {{ item.duration ? formatDuration(item.duration) : t('facet.kindVideo') }}
+          <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M8 5.2v13.6L19.2 12 8 5.2Z" fill="currentColor" />
+          </svg>
         </span>
         <!-- 不可商用授权提示：卡片态一目了然，避免选图后才发现受限 -->
         <span
@@ -232,9 +219,17 @@ const extraTagCount = computed(() => {
   border-radius: var(--p-radius-lg);
 }
 
-.ml-card__play {
-  font-size: 0.5625rem;
-  margin-right: 2px;
+/* 视频角标：只用右上角小三角，不叠加格式/时长胶囊 */
+.ml-card__video-mark {
+  position: absolute;
+  top: var(--p-space-2);
+  right: var(--p-space-2);
+  z-index: 1;
+  display: inline-flex;
+  color: rgba(255, 255, 255, 0.96);
+  line-height: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 3px rgba(18, 16, 13, 0.65));
 }
 
 /* 悬停动态预览叠加层：铺满媒体区，覆盖海报帧 */
@@ -265,32 +260,6 @@ const extraTagCount = computed(() => {
 .ml-card:hover .ml-card__scrim,
 .ml-card:focus-within .ml-card__scrim {
   opacity: 1;
-}
-
-.ml-card__fmt {
-  position: absolute;
-  top: var(--p-space-2);
-  right: var(--p-space-2);
-  padding: 1px 6px;
-  border-radius: var(--p-radius-sm);
-  background: rgba(26, 24, 21, 0.62);
-  color: #faf8f5;
-  font-size: 0.625rem;
-  letter-spacing: 0.04em;
-  line-height: 1.5;
-  backdrop-filter: blur(4px);
-  opacity: 0;
-  transform: translateY(-2px);
-  pointer-events: none;
-  transition:
-    opacity var(--p-dur-fast) var(--p-ease-out),
-    transform var(--p-dur-fast) var(--p-ease-out);
-}
-
-.ml-card:hover .ml-card__fmt,
-.ml-card:focus-within .ml-card__fmt {
-  opacity: 1;
-  transform: translateY(0);
 }
 
 @media (hover: none) {
@@ -454,20 +423,6 @@ const extraTagCount = computed(() => {
   transition: opacity var(--p-dur-base) var(--p-ease-out);
 }
 
-.ml-card__badge {
-  position: absolute;
-  right: var(--p-space-2);
-  bottom: var(--p-space-2);
-  padding: 2px var(--p-space-2);
-  font-size: 0.6875rem;
-  background: rgba(26, 24, 21, 0.72);
-  color: #faf8f5;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: var(--p-radius-full);
-  backdrop-filter: blur(4px);
-  letter-spacing: 0.02em;
-}
-
 .ml-card__personal {
   position: absolute;
   left: var(--p-space-2);
@@ -570,12 +525,6 @@ const extraTagCount = computed(() => {
   .ml-card__swatch {
     display: none;
   }
-
-  /* 触屏看不到 4K/GIF 角标会缺失画质信息，这里低调常显 */
-  .ml-card__fmt {
-    opacity: 0.88;
-    transform: none;
-  }
 }
 
 @media (max-width: 680px) {
@@ -588,14 +537,6 @@ const extraTagCount = computed(() => {
 
   .ml-card__tag-more {
     font-size: 0.6875rem;
-  }
-
-  .ml-card__badge {
-    font-size: 0.75rem;
-  }
-
-  .ml-card__play {
-    font-size: 0.625rem;
   }
 
   .ml-card__personal {

@@ -1,15 +1,14 @@
 /**
  * MLMediaCard 显示逻辑测试（R2）
  *
- * 覆盖本轮修复的两个真实显示缺陷：
+ * 覆盖：
  *   1. 长标题必须两行截断（卡片高度依赖两行计算，行数变动会让瀑布流参差）
- *   2. 视频徽标需带播放语义与时长
+ *   2. 视频只在右上角展示播放三角，时长保留在底部规格行
  */
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import MLMediaCard from './MLMediaCard.vue'
 import type { MediaItem } from '@/api/types'
-
 function makeItem(overrides: Partial<MediaItem> = {}): MediaItem {
   return {
     id: 'a1', file: 'a1.jpg', thumb: 'a1.jpg', play_file: null, preview_file: null,
@@ -23,18 +22,20 @@ function makeItem(overrides: Partial<MediaItem> = {}): MediaItem {
 }
 
 describe('MLMediaCard 显示逻辑', () => {
-  it('视频卡片显示播放符号与时长', () => {
+  it('视频卡片显示右上角播放三角，时长保留在规格行', () => {
     const wrapper = mount(MLMediaCard, {
       props: { item: makeItem({ kind: 'video', duration: 12.6, play_file: 'v.mp4' }) },
     })
-    const badge = wrapper.find('.ml-card__badge')
-    expect(badge.exists()).toBe(true)
-    expect(badge.find('.ml-card__play').exists()).toBe(true)
-    expect(badge.text()).toContain('0:13')
+    expect(wrapper.find('.ml-card__badge').exists()).toBe(false)
+    expect(wrapper.find('.ml-card__fmt').exists()).toBe(false)
+    expect(wrapper.find('.ml-card__video-mark').exists()).toBe(true)
+    expect(wrapper.find('.ml-card__video-mark').attributes('aria-label')).toContain('视频')
+    expect(wrapper.find('.ml-card__spec').text()).toContain('0:13')
   })
 
-  it('图片卡片不显示视频徽标', () => {
+  it('图片卡片不显示视频标记', () => {
     const wrapper = mount(MLMediaCard, { props: { item: makeItem() } })
+    expect(wrapper.find('.ml-card__video-mark').exists()).toBe(false)
     expect(wrapper.find('.ml-card__badge').exists()).toBe(false)
   })
 

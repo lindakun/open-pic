@@ -98,15 +98,22 @@ describe('Round 1: FacetPanel 标签快速筛选', () => {
   })
 })
 
-describe('Round 1: MLMediaCard 画质与格式角标', () => {
-  it('4K 图片渲染 4K 角标，GIF 渲染 GIF 角标', () => {
+describe('Round 1: MLMediaCard 角标规范', () => {
+  it('不再渲染右上角格式标签，视频只用播放三角标识', () => {
     const card4k = mount(MLMediaCard, { props: { item: makeItem({ width: 3840, height: 2160 }) } })
-    expect(card4k.find('.ml-card__fmt').text()).toBe('4K')
+    expect(card4k.find('.ml-card__fmt').exists()).toBe(false)
     card4k.unmount()
 
     const cardGif = mount(MLMediaCard, { props: { item: makeItem({ ext: '.gif', width: 640, height: 480 }) } })
-    expect(cardGif.find('.ml-card__fmt').text()).toBe('GIF')
+    expect(cardGif.find('.ml-card__fmt').exists()).toBe(false)
     cardGif.unmount()
+
+    const cardVideo = mount(MLMediaCard, {
+      props: { item: makeItem({ kind: 'video', duration: 8, play_file: 'v.mp4' }) },
+    })
+    expect(cardVideo.find('.ml-card__fmt').exists()).toBe(false)
+    expect(cardVideo.find('.ml-card__video-mark').exists()).toBe(true)
+    cardVideo.unmount()
   })
 })
 
