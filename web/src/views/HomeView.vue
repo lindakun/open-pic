@@ -52,6 +52,7 @@ const facetsOpen = ref(false)
 const toolbarDim = ref(false)
 const toolbarScrolled = ref(false)
 const showBackTop = ref(false)
+const toolbarEl = ref<HTMLElement | null>(null)
 
 // ---------- 搜索与历史 ----------
 const searchInput = ref(filters.q)
@@ -297,7 +298,7 @@ function clearSelection() {
 const allSelected = computed(
   () =>
     visibleItems.value.length > 0 &&
-    selectedIds.value.length >= visibleItems.value.length,
+    visibleItems.value.every((item) => selectedIds.value.includes(item.id)),
 )
 
 /** 提取当前已选条目实际包含的标签集合（按频次排序），供批量移除标签直接点选 */
@@ -308,7 +309,7 @@ const selectedItemTags = computed(() => {
   for (const it of store.items) {
     if (!picked.has(it.id)) continue
     for (const tag of it.tags ?? []) {
-      if (tag) freq.set(tag, (freq.get(tag) ?? 0) + 1)
+      if (tag && tag !== 'AI已标注') freq.set(tag, (freq.get(tag) ?? 0) + 1)
     }
   }
   return Array.from(freq.entries())
@@ -322,9 +323,20 @@ function toggleSelectAll() {
   else selectedIds.value = visibleItems.value.map((i) => i.id)
 }
 
+function invertSelection() {
+  const selected = new Set(selectedIds.value)
+  selectedIds.value = visibleItems.value
+    .filter((item) => !selected.has(item.id))
+    .map((item) => item.id)
+  lastSelectedId.value = null
+}
+
 function toggleSelectMode() {
   selectMode.value = !selectMode.value
   if (!selectMode.value) clearSelection()
+  void nextTick(() => {
+    toolbarEl.value?.scrollTo?.({ left: 0, behavior: 'auto' })
+  })
 }
 
 async function onUploaded() {
@@ -738,7 +750,7 @@ function focusSearchBar() {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (store.currentItem || uploadOpen.value) return
+  if (store.currentItem || uploadOpen.value || document.querySelector('dialog[open]')) return
   // 移动端分面抽屉是模态层：即使焦点在标签搜索框，Esc 也应关闭抽屉
   if (e.key === 'Escape' && facetsOpen.value && isMobile.value) {
     e.preventDefault()
@@ -1117,15 +1129,20 @@ watch(
 
     <!-- 轻量悬浮控制条：一排容纳快筛、漫步、视图密度与低频工具 -->
     <div
+      ref="toolbarEl"
       :class="[
         'wall__bar',
         {
           'wall__bar--scrolled': toolbarScrolled,
           'wall__bar--dim': toolbarDim && !facetsOpen && !selectMode,
+          'wall__bar--selecting': selectMode,
         },
       ]"
     >
       <div class="wall__bar-left">
+        <span v-if="selectMode" class="wall__select-summary mono">
+          {{ t('batch.selected', { count: selectedIds.length }) }}
+        </span>
         <button
           ref="filterToggleEl"
           type="button"
@@ -1384,6 +1401,14 @@ watch(
       >
         {{ allSelected ? t('batch.unselectAll') : `${t('batch.selectAll')} (${visibleItems.length})` }}
       </button>
+      <button
+        v-if="visibleItems.length > 1"
+        type="button"
+        class="wall__pill-btn"
+        @click="invertSelection"
+      >
+        {{ t('batch.invert') }}
+      </button>
       <span v-if="selectedIds.length" class="wall__select-count mono">
         {{ t('batch.selected', { count: selectedIds.length }) }}
       </span>
@@ -1629,8 +1654,9 @@ watch(
   position: relative;
   max-width: 1720px;
   margin: 0 auto;
-  padding: var(--p-space-2) var(--p-space-5) var(--p-space-8);
+  padding: var(--p-space-2) var(--p-space-5) calc(var(--p-space-8) + var(--batch-bar-offset, 0px));
   min-height: 100vh;
+  transition: padding-bottom var(--p-dur-base) var(--p-ease-out);
 }
 
 .wall__drop-overlay {
@@ -2140,10 +2166,16 @@ watch(
   max-width: 100%;
 }
 
+.wall__select-summary,
 .wall__select-count {
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--accent-hover);
+  white-space: nowrap;
+}
+
+.wall__select-summary {
+  display: none;
 }
 
 .wall__select-hint {
@@ -2393,7 +2425,7 @@ watch(
 
 @media (max-width: 900px) {
   .wall {
-    padding: var(--p-space-2) var(--p-space-3) var(--p-space-8);
+    padding: var(--p-space-2) var(--p-space-3) calc(var(--p-space-8) + var(--batch-bar-offset, 0px));
   }
 
   .wall__layout--facets {
@@ -2493,6 +2525,31 @@ watch(
 
   .wall__bar-right {
     margin-left: 0;
+  }
+
+  .wall__bar--selecting {
+    overflow: visible;
+    justify-content: space-between;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
+  .wall__bar--selecting .wall__bar-left > :not(.wall__select-summary),
+  .wall__bar--selecting .wall__bar-right > :not(.wall__select-toggle) {
+    display: none;
+  }
+
+  .wall__bar--selecting .wall__select-summary {
+    display: inline;
+    padding-left: var(--p-space-2);
+  }
+
+  .wall__bar--selecting .wall__bar-right {
+    margin-left: auto;
+  }
+
+  .wall__select-hint {
+    display: none;
   }
 
   .wall__pill-btn {

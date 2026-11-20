@@ -386,7 +386,7 @@ defineExpose({ renderedCount, isVisible, visibleRange })
           </span>
           <span class="list-row__tags">
             <span
-              v-for="tag in (item.tags ?? []).slice(0, 4)"
+              v-for="tag in (item.tags ?? []).filter((value) => value !== 'AI已标注').slice(0, 4)"
               :key="tag"
               class="list-row__tag"
               @click.stop="!selectable && emit('filter-tag', tag)"

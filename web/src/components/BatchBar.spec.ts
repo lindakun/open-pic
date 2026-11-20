@@ -43,10 +43,28 @@ describe('BatchBar 展示', () => {
     wrapper.unmount()
   })
 
-  it('关闭按钮发出 clear', async () => {
+  it('清空选择固定在横向操作轨道外并发出 clear', async () => {
     const wrapper = mountBar()
-    await wrapper.find('.batch__clear').trigger('click')
+    const clear = wrapper.find('.batch__clear')
+    expect(clear.element.parentElement).toBe(wrapper.find('.batch').element)
+    await clear.trigger('click')
     expect(wrapper.emitted('clear')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('不向用户暴露内部后处理状态标签', async () => {
+    const wrapper = mount(BatchBar, {
+      props: {
+        selected: ['a'],
+        selectedTags: ['AI已标注', '人物'],
+        availableTags: ['AI已标注', '风景'],
+      },
+      attachTo: document.body,
+    })
+    const remove = wrapper.findAll('.batch__actions button').find((button) => button.text().includes('移除标签'))!
+    await remove.trigger('click')
+    expect(wrapper.find('.batch__tag-picks').text()).toContain('人物')
+    expect(wrapper.find('.batch__tag-picks').text()).not.toContain('AI已标注')
     wrapper.unmount()
   })
 })

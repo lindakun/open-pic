@@ -212,6 +212,41 @@ describe('单主页融合（无顶栏重复页签 + 默认全屏看图 + 按需�
     wrapper.unmount()
   })
 
+  it('多选支持反选，打开批量弹层时 Esc 不退出选择模式', async () => {
+    stubLibraryFetch([
+      makeItem({ id: 'pick0001' }),
+      makeItem({ id: 'pick0002' }),
+      makeItem({ id: 'pick0003' }),
+    ])
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const router = makeTestRouter()
+    await router.push('/')
+    await router.isReady()
+    const wrapper = mount(HomeView, {
+      global: { plugins: [pinia, router] },
+      attachTo: document.body,
+    })
+    await flushPromises()
+
+    await wrapper.find('.wall__select-toggle').trigger('click')
+    await wrapper.findAll('.ml-card__trigger')[0].trigger('click')
+    expect(wrapper.find('.wall__select-summary').text()).toContain('1')
+    await wrapper.find('.wall__select-bar').findAll('button')[1].trigger('click')
+    expect(wrapper.find('.wall__select-summary').text()).toContain('2')
+
+    const dialog = document.createElement('dialog')
+    dialog.open = true
+    document.body.appendChild(dialog)
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.wall__select-toggle').attributes('aria-pressed')).toBe('true')
+    dialog.remove()
+
+    vi.unstubAllGlobals()
+    wrapper.unmount()
+  })
+
   it('旧 /browse?tag=自然 链接自动携带查询参数归并到主页 /', async () => {
     stubLibraryFetch([makeItem()])
     const router = makeTestRouter()

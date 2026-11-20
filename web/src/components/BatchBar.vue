@@ -56,10 +56,10 @@ const count = computed(() => props.selected.length)
 
 /** 候选标签列表：移除模式优先展示当前已选项拥有的标签，无则回退全库标签 */
 const candidateTags = computed(() => {
-  if (tagMode.value === 'remove' && props.selectedTags?.length) {
-    return props.selectedTags
-  }
-  return props.availableTags ?? []
+  const tags = tagMode.value === 'remove' && props.selectedTags?.length
+    ? props.selectedTags
+    : props.availableTags ?? []
+  return tags.filter((tag) => tag !== 'AI已标注')
 })
 
 /**
@@ -68,7 +68,7 @@ const candidateTags = computed(() => {
  */
 function syncBatchOffset(visible: boolean) {
   const root = document.documentElement
-  if (visible) root.style.setProperty('--batch-bar-offset', '56px')
+  if (visible) root.style.setProperty('--batch-bar-offset', '72px')
   else root.style.removeProperty('--batch-bar-offset')
 }
 
@@ -263,10 +263,11 @@ async function exportZip() {
       >
         {{ trashConfirm ? t('batch.trashConfirm', { count }) : t('batch.trash') }}
       </MLButton>
-      <button type="button" class="batch__clear" :aria-label="t('batch.clear')" @click="emit('clear')">
-        ✕
-      </button>
     </div>
+
+    <button type="button" class="batch__clear" :aria-label="t('batch.clear')" @click="emit('clear')">
+      ✕
+    </button>
 
     <!-- 批量打标 / 移除标签 -->
     <MLSheet
@@ -422,6 +423,8 @@ async function exportZip() {
   display: flex;
   align-items: center;
   gap: var(--p-space-1);
+  flex: 1;
+  min-width: 0;
   flex-wrap: nowrap;
   overflow-x: auto;
   scrollbar-width: none;
@@ -595,8 +598,22 @@ async function exportZip() {
 
   .batch__clear,
   .batch__export-more {
-    min-width: 36px;
-    min-height: 36px;
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .batch__tag-pick {
+    min-height: 40px;
+    padding: 6px 12px;
+    font-size: 0.8125rem;
+  }
+
+  .batch__preset-item {
+    min-height: 48px;
+  }
+
+  .batch__form-actions :deep(.ml-button) {
+    min-height: 44px;
   }
 }
 

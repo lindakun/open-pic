@@ -97,9 +97,12 @@ const altText = computed(() =>
   props.item.title ? '' : t('card.mediaAlt', { name: props.item.name }),
 )
 
+/** 后处理状态标签属于内部元数据，不占用用户可见的标签位置 */
+const visibleTags = computed(() => (props.item.tags ?? []).filter((tag) => tag !== 'AI已标注'))
+
 /** 底部主胶囊：有标签显示首标签，无标签时回退作者或外链平台，让卡片底栏左右均衡 */
 const primaryPill = computed(() => {
-  if (props.item.tags?.length) return props.item.tags[0]
+  if (visibleTags.value.length) return visibleTags.value[0]
   if (props.item.author) return props.item.author
   if (props.item.source_platform && props.item.source_platform !== 'local') {
     return props.item.source_platform
@@ -107,10 +110,7 @@ const primaryPill = computed(() => {
   return ''
 })
 
-const extraTagCount = computed(() => {
-  const len = props.item.tags?.length ?? 0
-  return len > 1 ? len - 1 : 0
-})
+const extraTagCount = computed(() => Math.max(0, visibleTags.value.length - 1))
 </script>
 
 <template>

@@ -100,6 +100,10 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.ml-sheet:not([open]) {
+  display: none;
+}
+
 .ml-sheet {
   padding: 0;
   border: none;
