@@ -501,6 +501,15 @@ onUnmounted(() => {
         <span class="review__progress-text mono">
           {{ t('review.progressText', { done: items.length - counts.unmarked, total: items.length }) }}
         </span>
+        <!-- 手机端底部统计与筛选条重复，把「复制清单」挪到进度行，选中后即时可用 -->
+        <button
+          v-if="counts.selected > 0"
+          type="button"
+          class="review__copy-progress"
+          @click="copySelectedSummary"
+        >
+          {{ summaryCopied ? `✓ ${t('review.summaryCopied')}` : t('review.copySummary') }}
+        </button>
       </div>
 
       <main class="review__stage">
@@ -774,6 +783,21 @@ onUnmounted(() => {
 .review__progress-text {
   font-size: 0.75rem;
   color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+/* 仅手机/横屏显示：桌面端仍使用底部统计行里的复制按钮 */
+.review__copy-progress {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 var(--p-space-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--p-radius-full);
+  background: var(--surface);
+  color: var(--ink-muted);
+  font-size: 0.75rem;
   white-space: nowrap;
 }
 
@@ -1120,6 +1144,8 @@ onUnmounted(() => {
   border-radius: var(--p-radius-full);
   font-size: 0.75rem;
   color: var(--ink-muted);
+  /* 320px 下按钮变窄时「全部」会折成两行，把整条筛选撑高 20px */
+  white-space: nowrap;
   transition:
     background-color var(--p-dur-fast) var(--p-ease-out),
     color var(--p-dur-fast) var(--p-ease-out);
@@ -1225,8 +1251,15 @@ onUnmounted(() => {
     gap: 6px;
   }
   .review__img {
-    /* 为更高的操作按钮与胶片筛选让出 30px，维持一屏完整露出 */
-    max-height: clamp(170px, calc(100dvh - 405px), 380px);
+    /* 为更高的操作按钮与胶片筛选让出空间，并扣除刘海/Home 指示条安全区；
+       否则真机 393×852 会正好多出 80px 左右，底部胶片与统计被挤出屏幕 */
+    max-height: clamp(
+      150px,
+      calc(
+        100dvh - 470px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)
+      ),
+      380px
+    );
   }
   .film {
     width: 44px;
@@ -1234,11 +1267,37 @@ onUnmounted(() => {
   }
   .review__film,
   .review__film-bar {
+    /* 320px 下五个筛选项会换行成两行并顶掉胶片与统计；改为单行横滑 */
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    scrollbar-width: none;
     padding: 4px var(--p-space-3);
   }
+
+  .review__film-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 名字输入固定 136px 会把「选填，便于库主识别」截断；让它吃掉剩余宽度 */
+  .review__who {
+    flex: 1 1 160px;
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  .review__who input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* 底部统计与筛选条重复，手机上隐藏；复制清单移到进度行 */
   .review__counts {
-    gap: var(--p-space-2);
-    padding: 4px var(--p-space-3) calc(8px + env(safe-area-inset-bottom, 0px));
+    display: none;
+  }
+
+  .review__copy-progress {
+    display: inline-flex;
   }
 
   /* 触屏操作台：按钮与输入框加高到 36–40px，避免选片时误触 */
@@ -1277,6 +1336,125 @@ onUnmounted(() => {
   }
   .review__copy-summary {
     min-height: 32px;
+  }
+}
+
+/* 短屏手机（320×568 / 375×667）：压缩非关键留白，保证操作台与统计仍在一屏内 */
+@media (max-height: 680px) and (orientation: portrait) {
+  .review__sub {
+    display: none;
+  }
+
+  .review__head {
+    padding-top: calc(4px + env(safe-area-inset-top, 0px));
+    padding-bottom: 4px;
+  }
+
+  .review__head-bar {
+    gap: 6px;
+  }
+
+  .review__progress-wrap {
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+
+  .review__stage {
+    gap: 4px;
+    padding-top: 0;
+    padding-bottom: 2px;
+  }
+
+  .review__counts {
+    padding-top: 2px;
+    padding-bottom: calc(2px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .review__img {
+    max-height: clamp(
+      128px,
+      calc(
+        100dvh - 470px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)
+      ),
+      380px
+    );
+  }
+}
+
+/* 320px 小屏：收紧筛选胶囊，让五个状态在一行内完整露出 */
+@media (max-width: 360px) {
+  .review__film-bar {
+    gap: 4px;
+    padding-left: var(--p-space-2);
+    padding-right: var(--p-space-2);
+  }
+
+  .film-filter {
+    padding: 4px 8px;
+  }
+}
+
+/* 横屏选片：图片与操作台并排，隐藏胶片与统计，避免纵向堆叠溢出 */
+@media (max-height: 520px) and (orientation: landscape) {
+  .review__head {
+    padding-top: calc(2px + env(safe-area-inset-top, 0px));
+    padding-bottom: 2px;
+  }
+
+  .review__sub,
+  .review__hint,
+  .review__film-bar,
+  .review__film,
+  .review__counts {
+    display: none;
+  }
+
+  .review__stage {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--p-space-3);
+    padding: 4px var(--p-space-3);
+  }
+
+  .review__viewer {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    justify-content: center;
+  }
+
+  .review__workbench {
+    flex: 0 0 300px;
+    max-width: 300px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  /* 纵向排列后 flex-basis 会作用到高度，批注区不能沿用 320px 的横向 basis */
+  .review__note {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: none;
+  }
+
+  .review__note textarea {
+    flex: 1 1 auto;
+    max-height: 72px;
+  }
+
+  .review__actions {
+    width: 100%;
+  }
+
+  .review__img {
+    max-height: calc(
+      100dvh - 140px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)
+    );
+  }
+
+  .review__copy-progress {
+    display: inline-flex;
   }
 }
 </style>

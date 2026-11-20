@@ -2819,6 +2819,14 @@ watch(
   }
 }
 
+/* 320px 小屏：类型快筛与排序下拉无法同时完整露出。
+   排序是更常用的主操作，类型筛选仍可从分面抽屉的「类型」分组进入。 */
+@media (max-width: 360px) {
+  .wall__kinds {
+    display: none;
+  }
+}
+
 @keyframes wall-sheet-in {
   from {
     transform: translateY(24px);

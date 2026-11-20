@@ -257,6 +257,13 @@ watch(
   opacity: 0.9;
 }
 
+/* 触屏没有 hover，失败态必须常显「点击重试」，否则灰色块容易被当成加载中 */
+@media (hover: none) {
+  .smart-image__failed-label {
+    opacity: 0.9;
+  }
+}
+
 .smart-image__img {
   width: 100%;
   height: 100%;

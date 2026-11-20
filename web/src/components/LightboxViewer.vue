@@ -1358,7 +1358,7 @@ onUnmounted(() => {
         <button
           v-if="(candidates?.length ?? 0) > 1 && !compareOn"
           type="button"
-          class="lb-btn"
+          class="lb-btn lb-film-toggle"
           :class="{ 'lb-btn--on': filmstripOpen }"
           :aria-pressed="filmstripOpen"
           :aria-label="t('lightbox.filmstripToggle')"
@@ -1980,7 +1980,8 @@ onUnmounted(() => {
   right: 0;
   bottom: 0;
   width: min(360px, 88vw);
-  padding: var(--p-space-6) var(--p-space-5) 112px;
+  /* 详情面板贴顶，必须让出刘海/灵动岛，否则标题与关闭按钮会被状态栏压住 */
+  padding: calc(var(--p-space-6) + env(safe-area-inset-top, 0px)) var(--p-space-5) 112px;
   overflow-y: auto;
   background: rgba(18, 16, 13, 0.88);
   backdrop-filter: blur(10px);
@@ -2006,7 +2007,7 @@ onUnmounted(() => {
 
 .panel__close {
   position: absolute;
-  top: var(--p-space-2);
+  top: calc(var(--p-space-2) + env(safe-area-inset-top, 0px));
   right: var(--p-space-2);
   min-width: 40px;
   min-height: 40px;
@@ -2650,6 +2651,15 @@ onUnmounted(() => {
     flex: 0 0 40px;
     width: 40px;
     height: 40px;
+  }
+}
+
+/* 320px 小屏：9 个 40px 控件会换行并把操作条撑到 132px；
+   收起底色与胶片条两个纯辅助开关，保留 7 个核心操作单行排列 */
+@media (max-width: 360px) {
+  .lightbox__controls .lb-btn--bg,
+  .lightbox__controls .lb-film-toggle {
+    display: none;
   }
 }
 

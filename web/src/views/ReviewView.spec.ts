@@ -154,6 +154,23 @@ describe('ReviewView 交互', () => {
     wrapper.unmount()
   })
 
+  it('进度行在选中后出现「复制选中清单」，替代手机端被隐藏的底部统计行', async () => {
+    const unmarked = items.map((it) => ({ ...it, review_state: 'pending' }))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ link: { title: '' }, items: unmarked }),
+    }))
+    const wrapper = await mountReview()
+    await flushPromises()
+    expect(wrapper.find('.review__copy-progress').exists()).toBe(false)
+
+    await wrapper.findAll('.review__actions .rv-btn')[0].trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.review__copy-progress').exists()).toBe(true)
+    expect(wrapper.find('.review__copy-progress').text()).toContain('复制')
+    wrapper.unmount()
+  })
+
   it('胶片条切换当前项', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,

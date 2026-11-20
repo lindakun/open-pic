@@ -832,3 +832,30 @@ body.has-batch-bar .toast {
   opacity: .55;
   cursor: not-allowed;
 }
+
+/* ---------- R23 移动端：小屏顶栏、iOS 聚焦缩放与触控尺寸 ---------- */
+@media (max-width: 680px) {
+  /* 13px 输入框在 iOS 聚焦时会触发整页放大 */
+  .search-input,
+  .sel,
+  .inp {
+    font-size: 16px;
+  }
+
+  .seg-btn {
+    min-height: 36px;
+    padding: 4px 10px;
+  }
+
+  .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+@media (max-width: 420px) {
+  /* 统计胶囊与品牌同排会把 320px 视口撑出 30px 横向滚动 */
+  .stat-pill {
+    display: none;
+  }
+}
