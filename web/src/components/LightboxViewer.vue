@@ -2628,7 +2628,8 @@ onUnmounted(() => {
     min-height: 36px;
   }
 
-  .lightbox__controls .lb-select {
+  .lightbox__controls .lb-select,
+  .lightbox__controls .lightbox__zoom {
     min-height: 36px;
   }
 
