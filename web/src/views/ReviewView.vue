@@ -310,6 +310,16 @@ function saveNote() {
   void setMark(marks.value[it.id]?.state ?? 'pending', noteDraft.value)
 }
 
+/** 切图前提交未保存的备注，避免用户输入随缩略图点击静默丢失 */
+function flushNoteDraft() {
+  const it = current.value
+  if (!it) return
+  const typed = noteDraft.value
+  const saved = marks.value[it.id]?.note ?? ''
+  if (typed.trim() === saved.trim()) return
+  void setMark(marks.value[it.id]?.state ?? 'pending', typed)
+}
+
 /** 胶片条跟随当前项滚动：键盘切图后选中项可能在可视区外 */
 async function scrollFilmToCurrent() {
   await nextTick()
@@ -322,6 +332,7 @@ async function scrollFilmToCurrent() {
 function step(delta: number) {
   const next = index.value + delta
   if (next >= 0 && next < items.value.length) {
+    flushNoteDraft()
     index.value = next
     noteDraft.value = marks.value[items.value[next].id]?.note ?? ''
     // 「已保存」是上一张的状态，切图后必须清掉
@@ -333,6 +344,7 @@ function step(delta: number) {
 }
 
 function jump(i: number) {
+  flushNoteDraft()
   index.value = i
   noteDraft.value = marks.value[items.value[i].id]?.note ?? ''
   savedAt.value = 0

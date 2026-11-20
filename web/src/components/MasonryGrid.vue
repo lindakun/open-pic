@@ -55,7 +55,7 @@ const previewingRowId = ref<string | null>(null)
 
 const selectedSet = computed(() => new Set(props.selectedIds))
 const likedSet = computed(() => new Set(props.likedIds))
-const { t, formatBytes, formatDate, formatNumber } = useI18n()
+const { t, formatBytes, formatDate, formatNumber, formatDuration } = useI18n()
 
 /**
  * 虚拟化的目的（D-17）：DOM 随滚动无限增长会拖慢合成与内存。
@@ -377,7 +377,7 @@ defineExpose({ renderedCount, isVisible, visibleRange })
             class="list-row__preview"
           />
           <span v-if="item.kind === 'video'" class="list-row__vbadge mono" aria-hidden="true">
-            ▶{{ item.duration ? `${Math.round(item.duration)}s` : '' }}
+            ▶{{ formatDuration(item.duration) }}
           </span>
         </div>
         <div class="list-row__info">

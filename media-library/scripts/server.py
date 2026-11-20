@@ -488,13 +488,18 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
         base_url = str(request.base_url).rstrip("/")
         title_esc = html.escape(it["title"] or it["name"])
         thumb_url = f"{base_url}/t/{it['id']}.jpg"
+        # OG 图/视频海报：缩略图缺失时图片回退到按需变换，避免分享卡片空白
+        if it["kind"] == "image" and not os.path.isfile(os.path.join(THUMBS, f"{it['id']}.jpg")):
+            thumb_url = f"{base_url}/img/{it['id']}?w=1200&fm=jpg"
         original_url = f"{base_url}/f/{it['file']}"
         if it["kind"] == "video":
             # 视频优先用后端生成的 H.264 兼容副本：HEVC/MKV 原文件在浏览器里
-            # 直接播放会黑屏，分享页必须走 ?play=1（与灯箱同款口径）
-            media_url = (
-                f"{original_url}?play=1" if it.get("play_file") else original_url
+            # 直接播放会黑屏，分享页必须走 ?play=1（与灯箱同款口径）；
+            # 兼容副本可能仍在转码或已丢失，只有真实存在时才指向它。
+            has_play = bool(it.get("play_file")) and os.path.isfile(
+                os.path.join(PLAY_DIR, it["play_file"])
             )
+            media_url = f"{original_url}?play=1" if has_play else original_url
         else:
             # 图片展示走按需变换（1920 长边 WebP）：分享页直接塞原图
             # 会让 20MB 的素材拖慢首屏，而下载按钮仍指向原文件

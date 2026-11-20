@@ -30,7 +30,7 @@ describe('MLMediaCard 显示逻辑', () => {
     const badge = wrapper.find('.ml-card__badge')
     expect(badge.exists()).toBe(true)
     expect(badge.find('.ml-card__play').exists()).toBe(true)
-    expect(badge.text()).toContain('13s')
+    expect(badge.text()).toContain('0:13')
   })
 
   it('图片卡片不显示视频徽标', () => {

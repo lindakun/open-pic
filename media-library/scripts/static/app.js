@@ -86,8 +86,11 @@
 
   function fmtDur(sec) {
     if (!sec) return '';
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
+    const total = Math.round(sec);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
     return `${m}:${String(s).padStart(2, '0')}`;
   }
 
@@ -450,6 +453,15 @@
         <button class="btn" id="vPip">画中画</button>
         <a class="btn primary" href="/f/${it.file}?dl=1" download>⬇ 下载原视频</a>`;
       const vid = $('#lbVideo');
+      vid.onerror = () => {
+        const original = `/f/${it.file}`;
+        if (new URL(vid.src, location.origin).searchParams.has('play')) {
+          vid.src = original;
+          vid.load();
+          return;
+        }
+        wrap.innerHTML = `<div class="lb-video-fail">视频暂时无法播放（可能仍在转码）<a class="btn primary" href="/f/${it.file}?dl=1" download>下载原文件</a></div>`;
+      };
       const speeds = [1, 1.25, 1.5, 2, 0.5];
       let si = 0;
       $('#vSpeed').onclick = () => { si = (si + 1) % speeds.length; vid.playbackRate = speeds[si]; $('#vSpeed').textContent = `倍速 ${speeds[si]}x`; };
@@ -571,6 +583,11 @@
           const im = document.createElement('img');
           im.src = sim.thumb ? `/t/${sim.id}_sm.webp` : `/f/${sim.file}`;
           im.title = sim.title;
+          im.onerror = () => {
+            const level = im.dataset.fb || '0';
+            if (!level) { im.dataset.fb = '1'; im.src = `/t/${sim.id}.jpg`; }
+            else if (level === '1') { im.dataset.fb = '2'; im.src = `/f/${sim.file}`; }
+          };
           im.onclick = () => {
             const found = state.items.findIndex(x => x.id === sim.id);
             if (found >= 0) openLightbox(found);
@@ -622,8 +639,13 @@
 
   // ---------- 上传、粘贴、拖拽、抓链接 ----------
 
+  let uploadBusy = false;
   async function uploadFiles(fileList) {
     if (!fileList || !fileList.length) return;
+    if (uploadBusy) { toast('正在上传，请等待当前批次完成'); return; }
+    uploadBusy = true;
+    const btn = $('#btnUpload');
+    if (btn) btn.disabled = true;
     const fd = new FormData();
     for (const f of fileList) fd.append('file', f);
     toast(`正在上传 ${fileList.length} 个文件…`);
@@ -640,6 +662,7 @@
         toast(d.detail || '上传失败');
       }
     } catch (e) { toast('上传请求失败'); }
+    finally { uploadBusy = false; if (btn) btn.disabled = false; }
   }
 
   $('#btnUpload').onclick = () => $('#filePicker').click();
@@ -671,24 +694,39 @@
   window.closeModal = (id) => { $('#' + id).hidden = true; };
   $('#btnIngestUrl').onclick = () => { $('#urlModal').hidden = false; $('#inUrl').focus(); };
   $('#btnSubmitUrl').onclick = async () => {
+    const btn = $('#btnSubmitUrl');
+    if (btn.disabled) return;
     const url = $('#inUrl').value.trim();
     if (!url) return toast('请输入链接');
-    const r = await fetch('/api/ingest-url', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, tags: $('#inUrlTags').value, title: $('#inUrlTitle').value }),
-    });
-    if (r.ok) {
-      closeModal('urlModal');
-      $('#inUrl').value = '';
-      toast('已加入后台抓取队列');
-      $('#jobDot').hidden = false;
-      loadJobs();
-    } else {
-      const d = await r.json();
-      toast(d.detail || '提交失败');
+    btn.disabled = true;
+    try {
+      const r = await fetch('/api/ingest-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, tags: $('#inUrlTags').value, title: $('#inUrlTitle').value }),
+      });
+      if (r.ok) {
+        closeModal('urlModal');
+        $('#inUrl').value = '';
+        toast('已加入后台抓取队列');
+        $('#jobDot').hidden = false;
+        loadJobs();
+      } else {
+        const d = await r.json();
+        toast(d.detail || '提交失败');
+      }
+    } catch (e) {
+      toast('提交失败，请检查网络');
+    } finally {
+      btn.disabled = false;
     }
   };
+  $('#inUrl').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      $('#btnSubmitUrl').click();
+    }
+  });
 
   // ---------- 批量多选 ----------
 

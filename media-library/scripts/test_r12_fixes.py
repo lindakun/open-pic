@@ -73,6 +73,10 @@ def test_share_page_video_uses_play_copy(client):
     assert r.status_code == 200, r.text
     it = r.json()["items"][0]
     client.app.state.db.update_item(it["id"], {"play_file": f"{it['id']}.mp4"})
+    # 分享页只指向真实存在的兼容副本，缺失时应回退原文件
+    os.makedirs(srv.PLAY_DIR, exist_ok=True)
+    with open(os.path.join(srv.PLAY_DIR, f"{it['id']}.mp4"), "wb") as f:
+        f.write(b"fake")
 
     html = client.get(f"/s/{it['id']}").text
     assert "?play=1" in html, "分享页视频未使用兼容播放副本"

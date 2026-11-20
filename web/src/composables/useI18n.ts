@@ -799,6 +799,17 @@ function formatDate(ts: number): string {
   }).format(new Date(ts * 1000))
 }
 
+/** 视频时长：秒数易读性差，统一成 m:ss（超 1 小时补 h:mm:ss） */
+function formatDuration(seconds?: number): string {
+  if (!seconds || seconds <= 0) return ''
+  const total = Math.round(seconds)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
 /** 按 locale 格式化文件体积 */
 function formatBytes(bytes: number): string {
   if (!bytes) return '—'
@@ -827,6 +838,7 @@ export function useI18n() {
     formatDate,
     formatBytes,
     formatNumber,
+    formatDuration,
     setLocale(next: Locale) {
       locale.value = next
       safeSet(STORAGE_KEY, next)

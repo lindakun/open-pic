@@ -65,7 +65,7 @@ function onClick(e: MouseEvent) {
   else emit('toggle', props.item.id)
 }
 
-const { t, formatNumber } = useI18n()
+const { t, formatNumber, formatDuration } = useI18n()
 
 /** 后端返回的宽高比，缺失时按 1:1 兜底；支持外部网格模式强制等高比例 */
 const ratio = computed(() => {
@@ -84,7 +84,7 @@ const meta = computed(() => {
     parts.push(`${formatNumber(props.item.width)}×${formatNumber(props.item.height)}`)
   }
   if (props.item.kind === 'video' && props.item.duration) {
-    parts.push(`${formatNumber(Math.round(props.item.duration))}s`)
+    parts.push(formatDuration(props.item.duration))
   }
   return parts.join(' · ')
 })
@@ -169,10 +169,10 @@ const extraTagCount = computed(() => {
         <span
           v-if="item.kind === 'video'"
           class="ml-card__badge mono"
-          :aria-label="`${t('facet.kindVideo')} ${item.duration ? Math.round(item.duration) + 's' : ''}`"
+          :aria-label="`${t('facet.kindVideo')} ${formatDuration(item.duration)}`"
         >
           <span class="ml-card__play" aria-hidden="true">▶</span>
-          {{ item.duration ? `${formatNumber(Math.round(item.duration))}s` : t('facet.kindVideo') }}
+          {{ item.duration ? formatDuration(item.duration) : t('facet.kindVideo') }}
         </span>
         <!-- 不可商用授权提示：卡片态一目了然，避免选图后才发现受限 -->
         <span

@@ -56,7 +56,7 @@ const dialogRef = ref<HTMLDialogElement | null>(null)
 const stageRef = ref<HTMLElement | null>(null)
 const helpRef = ref<HTMLDialogElement | null>(null)
 const videoRef = ref<HTMLVideoElement | null>(null)
-const { t, formatBytes, formatDate, formatNumber } = useI18n()
+const { t, formatBytes, formatDate, formatNumber, formatDuration } = useI18n()
 
 /** 视频播放控制：倍速、循环、静音、画中画 */
 const videoSpeed = ref(1)
@@ -124,6 +124,16 @@ function onVideoError() {
     return
   }
   videoFailed.value = true
+}
+
+/** 转码可能刚完成：清空失败态并重新按兼容副本加载 */
+function retryVideo() {
+  const v = videoRef.value
+  if (!v) return
+  videoFailed.value = false
+  v.src = props.item.play_file ? `/f/${props.item.file}?play=1` : `/f/${props.item.file}`
+  v.load()
+  void v.play().catch(() => {})
 }
 
 /** 信息面板行内编辑（REQ-05） */
@@ -354,7 +364,7 @@ const spec = computed(() => {
   }
   if (props.item.ext) parts.push(props.item.ext.replace(/^\./, '').toUpperCase())
   if (props.item.size) parts.push(formatBytes(props.item.size))
-  if (props.item.duration) parts.push(`${formatNumber(props.item.duration)}s`)
+  if (props.item.duration) parts.push(formatDuration(props.item.duration))
   if (props.item.kind === 'video' && props.item.fps) {
     parts.push(`${Math.round(props.item.fps)}fps`)
   }
@@ -974,6 +984,7 @@ onUnmounted(() => {
       <div v-if="videoFailed" class="lightbox__video-error" role="status">
         <p>{{ t('lightbox.videoFailed') }}</p>
         <a :href="downloadUrl" class="lb-btn" download>{{ t('lightbox.download') }}</a>
+        <button type="button" class="lb-btn" @click="retryVideo">{{ t('common.retry') }}</button>
       </div>
 
       <!-- 舞台左右悬浮切图箭头（桌面端 hover 显示，自动避让右侧信息面板） -->
