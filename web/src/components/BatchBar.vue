@@ -579,6 +579,27 @@ async function exportZip() {
   gap: 6px;
 }
 
+@media (max-width: 680px) {
+  /* 防止 iOS 聚焦下拉框时页面放大 */
+  .batch__select {
+    font-size: 16px;
+    min-height: 40px;
+  }
+
+  /* 操作轨道右缘渐隐，提示还有横向可滑出的操作 */
+  .batch__actions {
+    -webkit-mask-image: linear-gradient(to right, #000 92%, transparent);
+    mask-image: linear-gradient(to right, #000 92%, transparent);
+    padding-right: 6px;
+  }
+
+  .batch__clear,
+  .batch__export-more {
+    min-width: 36px;
+    min-height: 36px;
+  }
+}
+
 /* 移动端：操作条收窄，避免超出视口 */
 @media (max-width: 520px) {
   .batch {

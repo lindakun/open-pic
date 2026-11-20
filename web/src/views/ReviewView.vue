@@ -1253,13 +1253,14 @@ onUnmounted(() => {
   }
   .review__who input {
     min-height: 36px;
-    font-size: 0.8125rem;
+    font-size: 16px;
   }
   .rv-btn {
     min-height: 40px;
   }
   .review__note textarea {
     min-height: 40px;
+    font-size: 16px;
   }
   .review__auto-next input {
     width: 24px;

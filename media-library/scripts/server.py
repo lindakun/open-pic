@@ -589,6 +589,7 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#faf8f5">
 <title>{title_esc} - MediaLib</title>
 <link rel="canonical" href="{canonical_url}">
 <script type="application/ld+json">{jsonld}</script>
@@ -603,7 +604,7 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
 <meta name="twitter:title" content="{title_esc}">
 <meta name="twitter:image" content="{thumb_url}">
 <script>
-(function(){{try{{var m=localStorage.getItem('medialib.theme')||'auto';var d=m==='dark'||(m==='auto'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches);document.documentElement.dataset.theme=d?'dark':'light';}}catch(e){{}}}})();
+(function(){{try{{var m=localStorage.getItem('medialib.theme')||'auto';var d=m==='dark'||(m==='auto'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches);document.documentElement.dataset.theme=d?'dark':'light';var tm=document.querySelector('meta[name=theme-color]');if(tm)tm.setAttribute('content',d?'#14120f':'#faf8f5');}}catch(e){{}}}})();
 </script>
 <style>
 :root,html[data-theme="light"]{{--paper:#faf8f5;--surface:#fff;--sunken:#f4f0ea;--ink:#1a1815;--muted:#6f6a63;--rule:#e0d9cf;--accent:#8c6a4a;--accent-hover:#6f5238;--on-accent:#fdfcfa;--danger:#b04a3f;--danger-soft:#f7e8e6;--shadow:0 20px 56px rgba(26,24,21,.10);color-scheme:light}}
@@ -653,7 +654,7 @@ body{{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-syste
 .btn--primary:hover{{background:var(--accent-hover)}}
 @media (max-width:900px){{.main{{grid-template-columns:1fr;padding:16px}}.stage{{min-height:48dvh}}.stage__media{{max-height:66dvh}}}}
 @media (max-width:560px){{
-  .topbar{{padding:calc(10px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px));flex-wrap:nowrap}}
+  .topbar{{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--paper) 92%,transparent);backdrop-filter:blur(10px);padding:calc(10px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px));flex-wrap:nowrap}}
   .topbar__actions{{flex-wrap:nowrap;gap:6px}}
   /* 手机顶栏只保留主题与下载：在库入口在底部“浏览全部资产”仍可到达 */
   .topbar__actions .btn:not(.btn--primary){{display:none}}
@@ -705,7 +706,8 @@ body{{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-syste
 <script>
 (function(){{
   var root=document.documentElement,tb=document.getElementById('themeBtn');
-  function syncTb(){{if(tb)tb.textContent=root.dataset.theme==='dark'?'☾':'☀';}}
+  function syncMeta(){{var tm=document.querySelector('meta[name=theme-color]');if(tm)tm.setAttribute('content',root.dataset.theme==='dark'?'#14120f':'#faf8f5');}}
+  function syncTb(){{if(tb)tb.textContent=root.dataset.theme==='dark'?'☾':'☀';syncMeta();}}
   syncTb();
   if(tb){{tb.addEventListener('click',function(){{
     var next=root.dataset.theme==='dark'?'light':'dark';

@@ -822,5 +822,9 @@ defineExpose({ addFiles })
   .up__suggested-label {
     font-size: 0.8125rem;
   }
+
+  .up__url-textarea {
+    font-size: 16px;
+  }
 }
 </style>

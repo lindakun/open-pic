@@ -487,6 +487,7 @@ function groupActiveCount(key: string): number {
 
   .facet__tag-search {
     min-height: 38px;
+    font-size: 16px;
   }
 
   .facet__color-dot {

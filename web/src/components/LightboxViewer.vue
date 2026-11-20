@@ -991,7 +991,7 @@ onUnmounted(() => {
       <button
         v-if="hasPrev && !compareOn"
         type="button"
-        class="stage-nav stage-nav--prev"
+        class="stage-nav stage-nav--prev" :class="{ 'stage-nav--info-open': infoOpen }"
         :aria-label="t('lightbox.prev')"
         @click.stop="$emit('prev')"
       >
@@ -1000,7 +1000,7 @@ onUnmounted(() => {
       <button
         v-if="hasNext && !compareOn"
         type="button"
-        :class="['stage-nav', 'stage-nav--next', { 'stage-nav--shifted': infoOpen }]"
+        :class="['stage-nav', 'stage-nav--next', { 'stage-nav--shifted': infoOpen, 'stage-nav--info-open': infoOpen }]"
         :aria-label="t('lightbox.next')"
         @click.stop="$emit('next')"
       >
@@ -1274,7 +1274,7 @@ onUnmounted(() => {
         <button
           v-if="item.kind === 'image'"
           type="button"
-          class="lb-btn"
+          class="lb-btn lb-rare"
           :class="{ 'lb-btn--on': slideshow.on }"
           :aria-pressed="slideshow.on"
           :aria-label="t('lightbox.slideshowToggle')"
@@ -1285,7 +1285,7 @@ onUnmounted(() => {
         </button>
         <select
           v-if="item.kind === 'image'"
-          class="lb-select mono"
+          class="lb-select lb-rare mono"
           :value="slideshow.ms"
           :aria-label="t('lightbox.slideshowInterval')"
           @change="setInterval_(Number(($event.target as HTMLSelectElement).value))"
@@ -1298,7 +1298,7 @@ onUnmounted(() => {
         <!-- 视频倍速 / 循环 / 画中画 -->
         <template v-if="item.kind === 'video'">
           <select
-            class="lb-select mono"
+            class="lb-select lb-rare mono"
             :value="videoSpeed"
             :aria-label="t('lightbox.speed')"
             :title="t('lightbox.speed')"
@@ -1334,7 +1334,7 @@ onUnmounted(() => {
           <button
             v-if="pipSupported"
             type="button"
-            class="lb-btn"
+            class="lb-btn lb-rare"
             :aria-label="t('lightbox.pip')"
             :title="t('lightbox.pip')"
             @click="togglePip"
@@ -1409,7 +1409,7 @@ onUnmounted(() => {
         </button>
         <button
           type="button"
-          class="lb-btn"
+          class="lb-btn lb-rare"
           :aria-label="t('lightbox.help')"
           :title="`${t('lightbox.help')} (?)`"
           @click="openHelp"
@@ -1419,7 +1419,7 @@ onUnmounted(() => {
 
         <button
           type="button"
-          class="lb-btn"
+          class="lb-btn lb-nav"
           :disabled="!hasPrev"
           :aria-label="t('lightbox.prev')"
           :title="`${t('lightbox.prev')} (←)`"
@@ -1440,7 +1440,7 @@ onUnmounted(() => {
         </button>
         <button
           type="button"
-          class="lb-btn"
+          class="lb-btn lb-nav"
           :disabled="!hasNext"
           :aria-label="t('lightbox.next')"
           :title="`${t('lightbox.next')} (→)`"
@@ -1867,8 +1867,41 @@ onUnmounted(() => {
 }
 
 @media (max-width: 640px) {
+  /* 手机上保留大尺寸左右箭头：比隐藏后只靠滑动更易发现 */
   .stage-nav {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    opacity: 0.72;
+  }
+
+  .stage-nav--prev {
+    left: max(var(--p-space-2), env(safe-area-inset-left, 0px));
+  }
+
+  .stage-nav--next {
+    right: max(var(--p-space-2), env(safe-area-inset-right, 0px));
+  }
+
+  .stage-nav--info-open {
     display: none;
+  }
+}
+
+@media (hover: none) {
+  /* 触屏精简低频控件（快捷键/画中画/连播与倍速等），底部栏不换行 */
+  .lb-rare,
+  .lb-nav {
+    display: none;
+  }
+
+  .lb-btn {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  .lightbox__controls {
+    gap: 2px;
   }
 }
 
@@ -2581,4 +2614,27 @@ onUnmounted(() => {
   border-radius: var(--p-radius-md);
   border: 1px solid var(--rule);
 }
+
+/* 触屏精简低频控件：追加在基础按钮样式之后，避免被后续 display 规则覆盖 */
+@media (hover: none) {
+  .lb-btn.lb-rare,
+  .lb-btn.lb-nav,
+  .lb-select.lb-rare {
+    display: none;
+  }
+
+  .lightbox__controls .lb-btn {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  .lightbox__controls .lb-select {
+    min-height: 36px;
+  }
+
+  .lightbox__controls {
+    gap: 2px;
+  }
+}
+
 </style>

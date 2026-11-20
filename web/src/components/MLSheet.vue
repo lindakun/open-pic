@@ -170,6 +170,36 @@ onBeforeUnmount(() => {
   }
 }
 
+@keyframes sheet-bottom-in {
+  from {
+    transform: translateY(32px);
+    opacity: 0.6;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* 手机上的居中弹层改为底部抽屉：贴底、全宽、单手可达 */
+@media (max-width: 680px) {
+  .ml-sheet--modal {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+
+  .ml-sheet--modal .ml-sheet__panel {
+    width: 100vw;
+    max-width: 100vw;
+    max-height: 92vh;
+    max-height: 92dvh;
+    margin: 0;
+    border-radius: var(--p-radius-lg) var(--p-radius-lg) 0 0;
+    animation: sheet-bottom-in var(--p-dur-base) var(--p-ease-out);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ml-sheet--drawer .ml-sheet__panel,
   .ml-sheet--modal .ml-sheet__panel {

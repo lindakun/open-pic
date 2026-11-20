@@ -118,4 +118,10 @@ const describedBy = computed(() => {
   font-size: var(--p-step--1);
   color: var(--danger);
 }
+@media (max-width: 680px) {
+  /* 防止 iOS Safari 聚焦 <16px 输入框时触发页面放大 */
+  .ml-field__input {
+    font-size: 16px;
+  }
+}
 </style>

@@ -167,6 +167,14 @@ const { pause, resume } = useToast()
   opacity: 1;
 }
 
+@media (max-width: 680px) {
+  .ml-toast__close {
+    min-width: 32px;
+    min-height: 32px;
+    font-size: 1.25rem;
+  }
+}
+
 @keyframes toast-in {
   from {
     opacity: 0;

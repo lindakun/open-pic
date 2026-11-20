@@ -381,13 +381,50 @@ function cycleDensity() {
 /** 移动端判定：分面抽屉、滚动锁定与紧凑工具条只在窄屏生效 */
 const isMobile = ref(false)
 let mobileMq: MediaQueryList | null = null
+/** 分面抽屉焦点管理：打开时聚焦首个控件，关闭后交还筛选按钮 */
+const facetsEl = ref<HTMLElement | null>(null)
+const filterToggleEl = ref<HTMLElement | null>(null)
+let facetsWasOpen = false
 
 function syncMobile(e?: MediaQueryListEvent) {
   isMobile.value = e ? e.matches : Boolean(mobileMq?.matches)
 }
 
-watch([facetsOpen, isMobile], () => {
-  document.documentElement.classList.toggle('facets-open', facetsOpen.value && isMobile.value)
+function facetsFocusables(): HTMLElement[] {
+  const root = facetsEl.value
+  if (!root) return []
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary',
+    ),
+  ).filter((el) => el.tagName === 'SUMMARY' || !el.closest('details:not([open])'))
+}
+
+function onFacetsKeydown(e: KeyboardEvent) {
+  if (!facetsOpen.value || !isMobile.value || e.key !== 'Tab') return
+  const list = facetsFocusables()
+  if (!list.length) return
+  const first = list[0]
+  const last = list[list.length - 1]
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault()
+    last.focus()
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault()
+    first.focus()
+  }
+}
+
+watch([facetsOpen, isMobile], async () => {
+  const open = facetsOpen.value && isMobile.value
+  document.documentElement.classList.toggle('facets-open', open)
+  await nextTick()
+  if (open) {
+    facetsFocusables()[0]?.focus({ preventScroll: true })
+  } else if (facetsWasOpen) {
+    filterToggleEl.value?.focus({ preventScroll: true })
+  }
+  facetsWasOpen = open
 })
 
 function changeView(mode: ViewMode) {
@@ -702,6 +739,12 @@ function focusSearchBar() {
 
 function onKeydown(e: KeyboardEvent) {
   if (store.currentItem || uploadOpen.value) return
+  // 移动端分面抽屉是模态层：即使焦点在标签搜索框，Esc 也应关闭抽屉
+  if (e.key === 'Escape' && facetsOpen.value && isMobile.value) {
+    e.preventDefault()
+    facetsOpen.value = false
+    return
+  }
   const el = e.target as HTMLElement | null
   const tag = el?.tagName
   const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || Boolean(el?.isContentEditable)
@@ -846,7 +889,7 @@ onMounted(async () => {
   window.addEventListener('scroll', onScroll, { passive: true })
   window.addEventListener('mlib:reset-home', onBrandResetHome)
 
-  mobileMq = window.matchMedia?.('(max-width: 680px)') ?? null
+  mobileMq = window.matchMedia?.('(max-width: 900px)') ?? null
   syncMobile()
   mobileMq?.addEventListener('change', syncMobile)
 
@@ -1084,6 +1127,7 @@ watch(
     >
       <div class="wall__bar-left">
         <button
+          ref="filterToggleEl"
           type="button"
           :class="['wall__pill-btn wall__filter-toggle', { 'wall__pill-btn--on': facetsOpen || filters.activeCount > 0 }]"
           :aria-expanded="facetsOpen"
@@ -1343,8 +1387,11 @@ watch(
       <span v-if="selectedIds.length" class="wall__select-count mono">
         {{ t('batch.selected', { count: selectedIds.length }) }}
       </span>
-      <span v-if="visibleItems.length > 1" class="wall__select-hint muted">
+      <span v-if="visibleItems.length > 1" class="wall__select-hint wall__select-hint--mouse muted">
         {{ t('browse.shiftRangeHint') }}
+      </span>
+      <span v-if="visibleItems.length > 1" class="wall__select-hint wall__select-hint--touch muted">
+        {{ t('browse.tapRangeHint') }}
       </span>
     </div>
 
@@ -1361,10 +1408,12 @@ watch(
       <div
         v-show="facetsOpen"
         id="facet-panel"
+        ref="facetsEl"
         :class="['wall__facets', { 'wall__facets--open': facetsOpen }]"
         :role="isMobile ? 'dialog' : undefined"
         :aria-modal="isMobile ? 'true' : undefined"
         :aria-label="isMobile ? t('browse.filter') : undefined"
+        @keydown="onFacetsKeydown"
       >
         <div class="wall__facets-head">
           <span class="wall__facets-title">{{ t('browse.filter') }}</span>
@@ -2102,6 +2151,20 @@ watch(
   padding-right: var(--p-space-2);
 }
 
+.wall__select-hint--touch {
+  display: none;
+}
+
+@media (hover: none) {
+  .wall__select-hint--mouse {
+    display: none;
+  }
+
+  .wall__select-hint--touch {
+    display: inline;
+  }
+}
+
 /* ---------- 布局：默认全宽图墙，展开筛选时两栏并排 ---------- */
 .wall__layout {
   display: grid;
@@ -2353,10 +2416,56 @@ watch(
 
   .wall-search__input {
     min-height: 40px;
+    /* iOS Safari 对 <16px 的输入框聚焦会自动放大页面 */
+    font-size: 16px;
   }
 
   .wall-search__kbd {
     display: none;
+  }
+
+  /* 搜索历史：放大条目与删除按钮，并限制高度避免小键盘遮挡 */
+  .wall-search__history {
+    max-height: min(62dvh, 340px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .wall-search__history-head {
+    align-items: center;
+    font-size: 0.8125rem;
+  }
+
+  .wall-search__history-clear {
+    min-height: 32px;
+    padding: 0 var(--p-space-2);
+    font-size: 0.8125rem;
+  }
+
+  .wall-search__history-chip {
+    min-height: 36px;
+  }
+
+  .wall-search__history-item {
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
+    padding: 0 var(--p-space-3);
+    font-size: 0.8125rem;
+  }
+
+  .wall-search__history-del {
+    display: inline-grid;
+    place-items: center;
+    min-width: 32px;
+    min-height: 36px;
+    font-size: 1rem;
+  }
+
+  /* 骨架屏与真实瀑布流保持两列一致，减少首屏布局跳动 */
+  .wall__skeleton--masonry {
+    columns: 2 150px;
+    column-gap: var(--p-space-3);
   }
 
   .wall__bar {
@@ -2502,6 +2611,75 @@ watch(
 
   .wall__top {
     bottom: calc(var(--p-space-5) + env(safe-area-inset-bottom, 0px) + var(--batch-bar-offset, 0px));
+  }
+}
+
+/* 平板与手机统一使用分面抽屉（≤900px），避免侧栏把图墙推到屏幕下方 */
+@media (max-width: 900px) {
+  .wall__facets-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--p-z-sheet) - 1);
+    background: rgba(26, 24, 21, 0.44);
+    backdrop-filter: blur(2px);
+    animation: wall-scrim-in var(--p-dur-base) var(--p-ease-out);
+  }
+
+  .wall__facets {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    z-index: var(--p-z-sheet);
+    max-height: min(78dvh, 640px);
+    padding: 0 var(--p-space-4) calc(var(--p-space-3) + env(safe-area-inset-bottom, 0px));
+    background: var(--surface);
+    border-radius: var(--p-radius-lg) var(--p-radius-lg) 0 0;
+    box-shadow: var(--sheet-shadow);
+    animation: wall-sheet-in var(--p-dur-base) var(--p-ease-spring);
+  }
+
+  .wall__facets-head {
+    display: flex;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--p-space-3);
+    padding: var(--p-space-3) 0;
+    margin-bottom: var(--p-space-1);
+    background: var(--surface);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .wall__facets-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--p-space-2);
+  }
+
+  .wall__facets-reset {
+    min-height: 36px;
+    padding: 0 var(--p-space-2);
+    color: var(--ink-muted);
+    font-size: var(--p-step--1);
+  }
+
+  .wall__facets-done {
+    min-height: 40px;
+    padding: 0 var(--p-space-4);
+    border-radius: var(--p-radius-full);
+    background: var(--accent);
+    color: var(--on-accent);
+    font-weight: 500;
+    font-size: var(--p-step--1);
+  }
+
+  .wall__facets :deep(.facets__head) {
+    display: none;
   }
 }
 
