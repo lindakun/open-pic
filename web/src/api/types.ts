@@ -76,7 +76,10 @@ export interface Collection {
   cover_item_id: string | null
   created_at: number
   updated_at: number
-  count?: number
+  /** 后端统计的素材数量（list_collections 的 item_count） */
+  item_count?: number
+  /** 未手动指定封面时的最新素材 id */
+  resolved_cover?: string | null
 }
 
 /** 列表查询参数；tag 类参数可传数组，由 client 序列化为逗号分隔 */

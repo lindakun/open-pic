@@ -178,6 +178,20 @@ export const useMediaStore = defineStore('media', () => {
     lightboxIndex.value = index
   }
 
+  /**
+   * 打开不在当前列表中的资产（分享深链兜底）。
+   * 新资产插到列表首位即可参与灯箱前后切换，关闭后刷新会被后端顺序覆盖。
+   */
+  function openFetchedItem(item: MediaItem) {
+    const i = items.value.findIndex((it) => it.id === item.id)
+    if (i >= 0) {
+      lightboxIndex.value = i
+      return
+    }
+    items.value = [item, ...items.value]
+    lightboxIndex.value = 0
+  }
+
   function closeLightbox() {
     lightboxIndex.value = -1
   }
@@ -214,6 +228,7 @@ export const useMediaStore = defineStore('media', () => {
     promoteFeatured,
     refresh,
     openLightbox,
+    openFetchedItem,
     closeLightbox,
     stepLightbox,
     stepToFirst,

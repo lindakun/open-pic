@@ -18,6 +18,11 @@ const props = defineProps<{
   loading?: boolean
 }>()
 
+const emit = defineEmits<{
+  /** 请求父组件执行「清空全部筛选」：关键词等状态只有主页能统一重置并刷新 */
+  (e: 'reset'): void
+}>()
+
 const filters = useFilterStore()
 const { t } = useI18n()
 
@@ -154,7 +159,7 @@ function groupActiveCount(key: string): number {
         v-if="filters.hasFilters"
         type="button"
         class="facets__reset"
-        @click="filters.reset()"
+        @click="emit('reset')"
       >
         {{ t('facet.clear') }}
       </button>
@@ -173,7 +178,7 @@ function groupActiveCount(key: string): number {
           v-for="col in collections"
           :key="col.id"
           :label="col.name"
-          :count="col.count"
+          :count="col.item_count"
           :active="filters.collectionId === col.id"
           :removable="filters.collectionId === col.id"
           :interactive="true"

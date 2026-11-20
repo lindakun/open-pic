@@ -438,7 +438,14 @@ function clearAllFilters() {
 }
 
 async function copyFilterLink() {
-  const ok = await copyText(window.location.href)
+  // syncUrl 有 200ms 防抖，直接复制 location.href 可能拿到旧筛选；
+  // 以当前 store 状态重建链接，保证复制到的就是眼前看到的视图。
+  const url = new URL(window.location.href)
+  url.search = ''
+  for (const [k, v] of Object.entries(filters.toUrlQuery())) {
+    url.searchParams.set(k, v)
+  }
+  const ok = await copyText(url.toString())
   if (ok) toast.success(t('browse.filterLinkCopied'))
   else toast.error(t('lightbox.copyFailed'))
 }
@@ -550,7 +557,14 @@ function onCloseLightbox() {
   if (route.name === 'asset') {
     void router.replace({ name: 'home', query: filters.toUrlQuery() })
   }
-  restoreScrollAnchor(readScrollAnchor(), store.items)
+  const anchor = readScrollAnchor()
+  if (libraryRefreshPending) {
+    // 灯箱打开期间收到了库更新：关闭后再补刷新，避免当前列表被替换导致索引错位
+    libraryRefreshPending = false
+    void refreshWithFeatured().then(() => restoreScrollAnchor(anchor, store.items))
+    return
+  }
+  restoreScrollAnchor(anchor, store.items)
 }
 
 const compareCandidates = computed(() => {
@@ -727,7 +741,19 @@ async function resolveAssetFromSlug(slug: string) {
     suppressFilterWatch = false
     await refreshWithFeatured()
     const j = store.items.findIndex((x) => x.id === it.id)
-    if (j >= 0) store.openLightbox(j)
+    if (j >= 0) {
+      store.openLightbox(j)
+      return
+    }
+    // 资产不在首批 60 项里（老素材/分享链接）：按 id 直接取详情并插入列表，
+    // 否则深链会静默回落到普通图墙，用户以为链接失效。
+    try {
+      const full = await api.item(it.id)
+      store.openFetchedItem(full)
+      pushRecent({ id: full.id, title: full.title || full.name, kind: full.kind })
+    } catch {
+      // 资产已删除或不可见：保持普通图墙
+    }
   } catch {
     // 解析失败静默回退普通图墙
   }
@@ -736,6 +762,8 @@ async function resolveAssetFromSlug(slug: string) {
 // ---------- 任务事件流（SSE） ----------
 let es: EventSource | null = null
 let sseRefreshTimer: number | undefined
+/** 灯箱打开时暂缓的库更新：关闭后补一次刷新 */
+let libraryRefreshPending = false
 
 function onMediaReady(e: MessageEvent) {
   try {
@@ -750,7 +778,10 @@ function scheduleLibraryRefresh() {
   if (sseRefreshTimer !== undefined) return
   sseRefreshTimer = window.setTimeout(() => {
     sseRefreshTimer = undefined
-    if (store.currentItem) return
+    if (store.currentItem) {
+      libraryRefreshPending = true
+      return
+    }
     void refreshWithFeatured()
   }, 1500)
 }
@@ -1070,7 +1101,7 @@ watch(
             store.loading && !store.items.length
               ? t('site.loading')
               : onlyLiked
-                ? `${visibleItems.length} / ${store.total}`
+                ? `♥ ${visibleItems.length} / ${likedIds.length}`
                 : t('site.total', { count: store.total })
           }}
         </span>
@@ -1267,7 +1298,12 @@ watch(
     <!-- 主体区：默认单栏全宽瀑布流；展开筛选时切换为左栏分面 + 右栏图墙 -->
     <div :class="['wall__layout', { 'wall__layout--facets': facetsOpen }]">
       <div v-show="facetsOpen" id="facet-panel" class="wall__facets">
-        <FacetPanel :facets="store.facets" :collections="collections" :loading="store.facetsLoading" />
+        <FacetPanel
+          :facets="store.facets"
+          :collections="collections"
+          :loading="store.facetsLoading"
+          @reset="clearAllFilters"
+        />
       </div>
 
       <div class="wall__main">

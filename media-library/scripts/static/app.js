@@ -33,6 +33,10 @@
     panY: 0,
     pipeLogType: 'x_scrape',
     defaultVisionPrompt: '',
+    /** 加载中收到的重置请求：等当前请求结束后再补一次，避免筛选被吞 */
+    pendingReset: false,
+    /** 灯箱打开期间收到的库更新：关闭灯箱后补刷新 */
+    pendingLibRefresh: false,
   };
 
   function isMobileViewport() {
@@ -266,6 +270,7 @@
       if (col) chips.push(`📁 画板: ${col.name}`);
     }
     if (state.q) chips.push(`搜索: "${state.q}"`);
+    if (state.kind) chips.push(`类型: ${state.kind === 'image' ? '图片' : '视频'}`);
     state.tags.forEach(t => chips.push(`#${t}`));
     state.excludeTags.forEach(t => chips.push(`排除 #${t}`));
     if (state.orientation) chips.push(`方向: ${state.orientation}`);
@@ -340,7 +345,12 @@
 
   async function loadItems(reset = false) {
     if (state.nav === 'analytics' || state.nav === 'pipeline') return;
-    if (state.loading) return;
+    // 加载中直接 return 会让快速切换筛选的请求被吞，最终列表与 UI 不一致；
+    // 记录待执行的重置，当前请求结束后立即补一次。
+    if (state.loading) {
+      if (reset) state.pendingReset = true;
+      return;
+    }
     state.loading = true;
     const gal = $('#gallery');
     if (reset) {
@@ -391,6 +401,10 @@
       toast('加载列表失败');
     }
     state.loading = false;
+    if (state.pendingReset) {
+      state.pendingReset = false;
+      loadItems(true);
+    }
   }
 
   // 无限滚动
@@ -565,6 +579,13 @@
     $('#lb').hidden = true;
     $('#lbMediaWrap').innerHTML = '';
     document.body.style.overflow = '';
+    // 灯箱打开期间刻意不刷新列表（否则 curIdx 会指向新列表的错位项），
+    // 关闭后补上积压的库更新。
+    if (state.pendingLibRefresh) {
+      state.pendingLibRefresh = false;
+      loadStats();
+      if (state.nav !== 'analytics' && state.nav !== 'pipeline') loadItems(true);
+    }
   }
 
   function jumpLb(d) {
@@ -583,7 +604,10 @@
 
   document.addEventListener('keydown', e => {
     if ($('#lb').hidden) return;
-    if (e.target.tagName === 'INPUT') return;
+    const tag = e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+    // 视频获得焦点时方向键交给原生播放器做快进/快退，否则会一边 seek 一边切换素材
+    if (tag === 'VIDEO' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return;
     if (e.key === 'Escape') closeLightbox();
     if (e.key === 'ArrowLeft') jumpLb(-1);
     if (e.key === 'ArrowRight') jumpLb(1);
@@ -824,18 +848,33 @@
   $('#bPurge').onclick = () => { if (confirm('彻底删除后不可恢复，确定？')) runBatch('permanent_delete'); };
   $('#bZip').onclick = async () => {
     const ids = Array.from(state.selected);
+    if (!ids.length) return;
     const r = await fetch('/api/items/download-zip', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids }),
     });
-    if (r.ok) {
-      const blob = await r.blob();
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'medialib-pack.zip';
-      a.click();
+    if (r.status === 202) {
+      // 大批量导出返回 JSON（job_id），不能当 ZIP 下载
+      let d = {};
+      try { d = await r.json(); } catch (err) { /* 保留默认提示 */ }
+      toast(`导出任务 #${d.job_id || '-'} 已提交（${d.count || ids.length} 项），完成后在任务中心下载`);
+      $('#jobsDrawer').hidden = false;
+      loadJobs();
+      return;
     }
+    if (!r.ok) {
+      let msg = '导出失败';
+      try { const d = await r.json(); msg = d.detail || msg; } catch (err) { /* 保留默认提示 */ }
+      toast(msg);
+      return;
+    }
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'medialib-pack.zip';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
   };
 
   // ---------- 画板、统计看板、任务 SSE ----------
@@ -936,7 +975,12 @@
   async function loadJobs() {
     const r = await fetch('/api/jobs?limit=25');
     const d = await r.json();
-    $('#jobsList').innerHTML = (d.jobs || []).map(j => `
+    $('#jobsList').innerHTML = (d.jobs || []).map(j => {
+      const file = j.result && j.result.file;
+      const dl = j.status === 'done' && file
+        ? `<a class="mini-btn" href="/api/exports/${encodeURIComponent(file)}" style="margin-top:6px;display:inline-block">⬇ 下载导出包</a>`
+        : '';
+      return `
       <div class="job-item">
         <div style="display:flex;justify-content:space-between">
           <b>#${j.id} ${esc(j.job_type)}</b>
@@ -944,7 +988,9 @@
         </div>
         <div class="muted" style="margin-top:4px">${esc(j.message)}</div>
         <div class="job-bar"><i style="width:${j.progress}%"></i></div>
-      </div>`).join('') || '<div class="muted">暂无后台任务</div>';
+        ${dl}
+      </div>`;
+    }).join('') || '<div class="muted">暂无后台任务</div>';
   }
 
   $('#btnJobs').onclick = () => { $('#jobsDrawer').hidden = !$('#jobsDrawer').hidden; $('#jobDot').hidden = true; loadJobs(); };
@@ -959,7 +1005,15 @@
     });
     es.addEventListener('library_updated', () => {
       loadStats();
-      if (state.nav !== 'analytics' && state.nav !== 'pipeline') loadItems(true);
+      if (state.nav !== 'analytics' && state.nav !== 'pipeline') {
+        if (!$('#lb').hidden) {
+          // 灯箱内素材可能已被移动/删除，立即重排会让 curIdx 错位；
+          // 先记下待刷新，关闭灯箱后再执行。
+          state.pendingLibRefresh = true;
+          return;
+        }
+        loadItems(true);
+      }
     });
   } catch (e) {}
 
@@ -1291,6 +1345,7 @@
 
   function resetFilters() {
     state.q = '';
+    state.kind = '';
     state.tags = [];
     state.excludeTags = [];
     state.orientation = '';
@@ -1305,6 +1360,7 @@
     $('#btnClearQ').hidden = true;
     $('#orientFilter').value = '';
     $('#platformFilter').value = '';
+    $$('#kindTabs .seg-btn').forEach(b => b.classList.toggle('on', b.dataset.k === ''));
     $$('.swatch').forEach(s => s.classList.remove('on'));
     loadStats();
     loadItems(true);

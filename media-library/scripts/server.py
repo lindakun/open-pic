@@ -1189,7 +1189,9 @@ body{{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-syste
 
         items: List[Dict[str, Any]] = []
         total_bytes = 0
-        for iid in req.ids[:200]:
+        # 不再静默截断到 200 项：超过同步阈值会转异步任务，静默丢项
+        # 会让用户以为「选了多少就导出多少」。重复 id 先去重。
+        for iid in dict.fromkeys(req.ids):
             it = db.get_item(iid)
             if not it or it.get("deleted_at"):
                 continue

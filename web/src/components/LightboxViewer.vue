@@ -570,6 +570,9 @@ function onKeydown(e: KeyboardEvent) {
   // 输入态与输入法组字期间不拦截（A-04 验收）
   if (isTypingTarget(e.target)) return
   if (e.isComposing) return
+  // 视频获得焦点时方向键/空格交给原生播放器：否则会一边 seek 一边切换素材
+  const focusedTag = (e.target as HTMLElement | null)?.tagName
+  if (focusedTag === 'VIDEO' && (e.key.startsWith('Arrow') || e.key === ' ')) return
 
   switch (e.key) {
     case 'Escape':
@@ -755,6 +758,18 @@ watch(
     if (infoOpen.value) void loadSimilar()
   },
   { immediate: true },
+)
+
+// 灯箱实例在图片/视频间切换时复用：视频态不能保留滚轮缩放拦截，
+// 从视频切回图片也必须重新绑定，否则缩放/拖拽会静默失效。
+watch(
+  () => props.item.kind,
+  (kind) => {
+    const el = stageRef.value
+    if (!el) return
+    if (kind === 'image') bindZoom(el)
+    else unbindZoom(el)
+  },
 )
 
 watch(infoOpen, (open) => {
