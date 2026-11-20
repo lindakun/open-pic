@@ -298,23 +298,30 @@ def make_compatible_mp4(src: str, play_dir: str, item_id: str, codec: str = "", 
     if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
         return out_name
 
-    # 如果已经是 mp4 且是 h264，只需快速重封装 faststart（无需重编码）
+    full_cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-i", src,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "24", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart",
+        out_path,
+    ]
+    # 如果已经是 mp4 且是 h264，先尝试快速重封装（无需重编码）；
+    # 容器元数据异常时 copy 会失败，此时自动退化为完整转码而不是直接放弃。
     if ext.lower() == ".mp4" and codec.lower() == "h264":
-        cmd = [
+        copy_cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
             "-i", src, "-c", "copy", "-movflags", "+faststart", out_path,
         ]
-    else:
-        cmd = [
-            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-            "-i", src,
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "24", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "128k",
-            "-movflags", "+faststart",
-            out_path,
-        ]
+        try:
+            subprocess.run(copy_cmd, timeout=300, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
+                return out_name
+        except Exception:
+            # 半成品会被下一次 -y 覆盖
+            pass
     try:
-        subprocess.run(cmd, timeout=300, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        subprocess.run(full_cmd, timeout=300, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
             return out_name
     except Exception as e:

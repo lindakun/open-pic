@@ -915,14 +915,17 @@ class MediaDB:
             return self._hydrate_rows(conn, rows)
 
     def list_published_items(self) -> List[Dict[str, Any]]:
-        """sitemap 用：只列 published 且未删除的资产（E-19）。"""
+        """sitemap 用：与前台可见口径一致（published + 已到期定时 draft）。"""
+        now = int(time.time())
         with self.connect() as conn:
             rows = conn.execute(
                 "SELECT id, title, name, slug, ts, updated_at, kind, width, height,"
                 " author, license, license_url, copyright_holder, commercial_ok,"
                 " duration, dominant_color, file"
-                " FROM items WHERE deleted_at IS NULL AND status = 'published'"
-                " ORDER BY ts DESC"
+                " FROM items WHERE deleted_at IS NULL AND (status = 'published'"
+                " OR (status = 'draft' AND publish_at IS NOT NULL AND publish_at <= ?))"
+                " ORDER BY ts DESC",
+                (now,),
             ).fetchall()
             return [dict(r) for r in rows]
 
@@ -1572,8 +1575,9 @@ class MediaDB:
         """标签治理列表：频次、层级、别名（B-09）。"""
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT t.id, t.name, t.parent_id, COUNT(it.item_id) AS count"
+                "SELECT t.id, t.name, t.parent_id, COUNT(i.id) AS count"
                 " FROM tags t LEFT JOIN item_tags it ON it.tag_id=t.id"
+                " LEFT JOIN items i ON it.item_id=i.id AND i.deleted_at IS NULL"
                 " GROUP BY t.id ORDER BY count DESC, t.name ASC LIMIT ?",
                 (limit,),
             ).fetchall()

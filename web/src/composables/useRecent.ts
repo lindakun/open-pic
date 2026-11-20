@@ -41,9 +41,16 @@ function read(): RecentEntry[] {
   try {
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
+    // 存储可能被旧版本或手工修改污染：逐项校验并裁剪，防止 NaN/undefined 进入渲染层
     return parsed
-      .filter((e) => e && typeof e.id === 'string')
-      .slice(0, LIMIT) as RecentEntry[]
+      .filter((e) => e && typeof e.id === 'string' && /^[0-9a-zA-Z_-]{4,64}$/.test(e.id))
+      .map((e) => ({
+        id: e.id,
+        title: typeof e.title === 'string' ? e.title.slice(0, 200) : '',
+        kind: e.kind === 'video' ? 'video' as const : 'image' as const,
+        ts: Number.isFinite(e.ts) ? e.ts : Date.now(),
+      }))
+      .slice(0, LIMIT)
   } catch {
     return []
   }

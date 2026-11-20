@@ -757,6 +757,9 @@ body{{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-syste
             # 普通浏览放行以保持回收站预览可用
             if it.get("deleted_at"):
                 raise HTTPException(status_code=404, detail="资源已删除，请先从回收站恢复")
+            # 文件缺失时不要先计数，否则下载统计会被 404 请求虚增
+            if not os.path.isfile(os.path.join(FILES, it["file"])):
+                raise HTTPException(status_code=404, detail="文件不存在")
             db.increment_counter(iid, "downloads")
         # 若请求兼容播放副本且存在
         if play and it.get("play_file"):
@@ -1846,7 +1849,8 @@ def repair_library(db: MediaDB, verbose: bool = True) -> Dict[str, Any]:
                 fixed_thumb += 1
     if orphans:
         db.permanent_delete(orphans)
-    known = {it["file"] for it in items if it["id"] not in set(orphans)}
+    orphan_set = set(orphans)
+    known = {it["file"] for it in items if it["id"] not in orphan_set}
     try:
         stray = [f for f in os.listdir(FILES) if f not in known]
     except FileNotFoundError:

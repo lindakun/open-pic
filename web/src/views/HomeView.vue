@@ -202,6 +202,8 @@ async function searchByImage(file: File) {
     clearScrollAnchor()
     clearSelection()
     window.scrollTo({ top: 0, behavior: 'auto' })
+  } catch {
+    toast.error(t('ai.searchFailed'))
   } finally {
     aiBusy.value = false
   }
@@ -430,6 +432,9 @@ function clearAllFilters() {
   window.clearTimeout(debounceTimer)
   suppressFilterWatch = true
   searchInput.value = ''
+  // “清空全部”要回到真正的初始视图：只重置高级筛选会残留喜欢/以图搜图态
+  onlyLiked.value = false
+  aiSearchActive.value = false
   filters.reset()
   suppressFilterWatch = false
   void applyAndRefresh()

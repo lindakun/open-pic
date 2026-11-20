@@ -201,6 +201,18 @@ const infoOpen = ref(false)
 const helpOpen = ref(false)
 /** 胶片快速跳转条：长列表下快速跨项跳转，快捷键 F 显隐 */
 const filmstripOpen = ref(false)
+/** 缩略图多级回退：_sm.webp → 标准缩略图 → 原文件，避免老资产出现破图 */
+function onThumbError(e: Event, pick: MediaItem) {
+  const img = e.target as HTMLImageElement
+  const level = img.dataset.fb ?? '0'
+  if (level === '0') {
+    img.dataset.fb = '1'
+    img.src = `/t/${pick.id}.jpg`
+  } else if (level === '1') {
+    img.dataset.fb = '2'
+    img.src = `/f/${pick.file}`
+  }
+}
 /** 纯净看图模式：隐藏悬浮控制条与顶部对比条，仅留角落恢复按钮（快捷键 H） */
 const chromeHidden = ref(false)
 /** 看图背景底色：暗夜 / 纸白 / 透明棋盘格（快捷键 B） */
@@ -1187,6 +1199,7 @@ onUnmounted(() => {
               :src="sim.kind === 'video' ? `/t/${sim.id}.jpg` : `/t/${sim.id}_sm.webp`"
               :alt="sim.title || sim.name"
               loading="lazy"
+              @error="onThumbError($event, sim)"
             />
           </a>
         </div>
@@ -1212,6 +1225,7 @@ onUnmounted(() => {
           :src="c.kind === 'video' ? `/t/${c.id}.jpg` : `/t/${c.id}_sm.webp`"
           alt=""
           loading="lazy"
+          @error="onThumbError($event, c)"
         />
         <span v-if="c.kind === 'video'" class="lb-film__vid" aria-hidden="true">▶</span>
       </button>
