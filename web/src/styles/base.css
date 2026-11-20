@@ -251,6 +251,13 @@ html.lightbox-open body {
   padding-right: var(--scrollbar-comp, 0px);
 }
 
+/* ---------- 移动端分面抽屉打开时锁定背景滚动 ---------- */
+/* 组件内 scoped 样式无法命中 body，锁滚动规则需放在全局层 */
+html.facets-open,
+html.facets-open body {
+  overflow: hidden;
+}
+
 /* ---------- 主题切换柔和过渡（仅用户主动切换时短时挂载） ---------- */
 html.theme-transitioning,
 html.theme-transitioning body,

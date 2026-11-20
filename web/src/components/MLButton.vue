@@ -66,6 +66,20 @@ withDefaults(
   }
 }
 
+@media (max-width: 680px) {
+  .ml-btn {
+    min-height: 36px;
+  }
+
+  .ml-btn--md {
+    min-height: 40px;
+  }
+
+  .ml-btn--sm {
+    min-height: 32px;
+  }
+}
+
 .ml-btn--md {
   padding: 0 var(--p-space-4);
   font-size: var(--p-step-0);

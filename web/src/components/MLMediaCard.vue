@@ -554,4 +554,63 @@ const extraTagCount = computed(() => {
     transform: none;
   }
 }
+@media (hover: none) {
+  /* 触屏没有 hover：喜欢按钮常显并放大到可稳定点按的尺寸 */
+  .ml-card__like {
+    width: 36px;
+    height: 36px;
+    top: 6px;
+    left: 6px;
+    opacity: 0.92;
+    transform: scale(1);
+    font-size: 1rem;
+  }
+
+  /* 主色点常显，并用伪元素把可点击区域扩到约 36px */
+  .ml-card__swatch {
+    width: 22px;
+    height: 22px;
+    opacity: 0.96;
+    transform: none;
+  }
+
+  .ml-card__swatch::before {
+    content: '';
+    position: absolute;
+    inset: -7px;
+    border-radius: inherit;
+  }
+
+  /* 触屏看不到 4K/GIF 角标会缺失画质信息，这里低调常显 */
+  .ml-card__fmt {
+    opacity: 0.88;
+    transform: none;
+  }
+}
+
+@media (max-width: 680px) {
+  /* 手机屏幕下把 10–11px 的元信息提升到 12px，并保持 64px 固定盒高 */
+  .ml-card__tag,
+  .ml-card__spec {
+    font-size: 0.75rem;
+    line-height: 18px;
+  }
+
+  .ml-card__tag-more {
+    font-size: 0.6875rem;
+  }
+
+  .ml-card__badge {
+    font-size: 0.75rem;
+  }
+
+  .ml-card__play {
+    font-size: 0.625rem;
+  }
+
+  .ml-card__personal {
+    font-size: 0.6875rem;
+  }
+}
+
 </style>

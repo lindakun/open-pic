@@ -378,7 +378,7 @@ async function exportZip() {
 .batch {
   position: fixed;
   left: 50%;
-  bottom: var(--p-space-4);
+  bottom: calc(var(--p-space-4) + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   z-index: var(--p-z-lightbox);
   display: flex;

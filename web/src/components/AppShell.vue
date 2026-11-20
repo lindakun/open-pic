@@ -297,6 +297,9 @@ function formatRelative(tsMs: number): string {
   max-width: 1720px;
   margin: 0 auto;
   padding: var(--p-space-2) var(--p-space-5);
+  padding-top: max(var(--p-space-2), env(safe-area-inset-top, 0px));
+  padding-left: max(var(--p-space-5), env(safe-area-inset-left, 0px));
+  padding-right: max(var(--p-space-5), env(safe-area-inset-right, 0px));
   min-height: 54px;
 }
 
@@ -487,14 +490,15 @@ function formatRelative(tsMs: number): string {
 }
 
 .recent-row__remove {
-  width: 24px;
-  height: 24px;
+  width: 36px;
+  height: 36px;
   border-radius: var(--p-radius-full);
   color: var(--ink-faint);
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  opacity: 0.65;
+  opacity: 0.72;
+  font-size: 1rem;
   transition:
     opacity var(--p-dur-fast) var(--p-ease-out),
     background-color var(--p-dur-fast) var(--p-ease-out),
@@ -523,9 +527,28 @@ function formatRelative(tsMs: number): string {
   .brand__name {
     font-size: var(--p-step-0);
   }
+
+  .brand {
+    min-height: 40px;
+    padding: 2px 0;
+  }
+
   .icon-btn {
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
+  }
+
+  .admin-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 360px) {
+  /* 超窄屏把管理入口移出首屏，优先保证品牌与核心工具不换行 */
+  .admin-link {
+    display: none;
   }
 }
 </style>

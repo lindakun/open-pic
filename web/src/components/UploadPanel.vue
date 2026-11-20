@@ -381,6 +381,7 @@ defineExpose({ addFiles })
           multiple
           tabindex="-1"
           class="sr-only"
+          :aria-label="t('upload.dropHint')"
           @change="addFiles(($event.target as HTMLInputElement).files); ($event.target as HTMLInputElement).value = ''"
         />
 
@@ -800,5 +801,26 @@ defineExpose({ addFiles })
   color: var(--danger);
   background: var(--danger-soft);
   border-radius: var(--p-radius-sm);
+}
+
+@media (max-width: 680px) {
+  /* 移动端上传面板：标签页与移除按钮放大，标签胶囊便于点选 */
+  .up__tab {
+    min-height: 40px;
+  }
+
+  .up__remove {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  .up__tag-pill {
+    min-height: 30px;
+    padding: 3px 10px;
+  }
+
+  .up__suggested-label {
+    font-size: 0.8125rem;
+  }
 }
 </style>

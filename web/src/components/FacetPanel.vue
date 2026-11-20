@@ -475,6 +475,36 @@ function groupActiveCount(key: string): number {
 @media (hover: none) {
   .facet__exclude {
     opacity: 0.72;
+    min-width: 28px;
+    min-height: 28px;
+  }
+
+  /* 触屏没有悬停提示，扩大分面行与色点的可点区域 */
+  .facet__summary {
+    min-height: 44px;
+    padding: var(--p-space-2) 0;
+  }
+
+  .facet__tag-search {
+    min-height: 38px;
+  }
+
+  .facet__color-dot {
+    width: 26px;
+    height: 26px;
+  }
+
+  .facet__colors {
+    gap: var(--p-space-2);
+  }
+
+  .facet__color-clear {
+    min-width: 32px;
+    min-height: 32px;
+  }
+
+  .facet__active-dot {
+    font-size: 0.75rem;
   }
 }
 

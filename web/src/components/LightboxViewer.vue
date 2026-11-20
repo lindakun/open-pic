@@ -1489,8 +1489,10 @@ onUnmounted(() => {
 .lightbox {
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   max-width: 100vw;
   max-height: 100vh;
+  max-height: 100dvh;
   padding: 0;
   border: none;
   background: transparent;
@@ -1967,10 +1969,10 @@ onUnmounted(() => {
 
 .panel__close {
   position: absolute;
-  top: var(--p-space-3);
-  right: var(--p-space-3);
-  min-width: 28px;
-  min-height: 28px;
+  top: var(--p-space-2);
+  right: var(--p-space-2);
+  min-width: 40px;
+  min-height: 40px;
   border-radius: var(--p-radius-full);
   color: inherit;
   font-size: 1.25rem;
@@ -2478,25 +2480,56 @@ onUnmounted(() => {
 
 @media (max-width: 640px) {
   .lightbox__stage {
-    padding: var(--p-space-4) var(--p-space-2) 110px;
+    padding: var(--p-space-4) var(--p-space-2) calc(112px + env(safe-area-inset-bottom, 0px));
   }
   .lightbox__stage--has-compare {
     padding-top: 62px;
   }
   .lightbox__filmstrip {
-    bottom: 92px;
+    bottom: calc(94px + env(safe-area-inset-bottom, 0px));
   }
   .lightbox__bar {
     flex-direction: column;
     align-items: stretch;
     gap: var(--p-space-2);
     padding: var(--p-space-3) var(--p-space-3);
+    padding-bottom: calc(var(--p-space-2) + env(safe-area-inset-bottom, 0px));
   }
   .lightbox__controls {
     justify-content: center;
   }
+  /* 手机上把标题与序号压成一行，规格/署名收进信息面板，底部操作条减负 */
+  .lightbox__info {
+    flex-direction: row;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px var(--p-space-2);
+  }
+  .lightbox__spec,
+  .lightbox__credit {
+    display: none;
+  }
+  .lightbox__index {
+    margin-right: 0;
+  }
+  .lb-select {
+    min-height: 32px;
+  }
+  /* 信息面板内的小字与标签在手机上补足可读/可点尺寸 */
+  .panel__copy-tags {
+    min-height: 32px;
+    font-size: 0.75rem;
+  }
+  .panel__tag {
+    min-height: 32px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .swatch__hex {
+    font-size: 0.75rem;
+  }
   .lightbox__panel {
-    padding-bottom: 132px;
+    padding-bottom: calc(148px + env(safe-area-inset-bottom, 0px));
   }
   .lightbox__divider {
     display: none;

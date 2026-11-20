@@ -98,7 +98,19 @@ button.ml-chip--exclude:hover {
 
 .ml-chip__count {
   font-size: 0.6875rem;
-  color: var(--ink-faint);
+  color: var(--ink-muted);
+}
+
+@media (hover: none) {
+  /* 触屏上把可点筛选胶囊加高，减少误触 */
+  .ml-chip {
+    min-height: 32px;
+    padding: 0 var(--p-space-3);
+  }
+
+  .ml-chip__count {
+    font-size: 0.75rem;
+  }
 }
 
 .ml-chip__x {

@@ -372,6 +372,24 @@ function changeDensity(d: Density) {
   if (anchor) void nextTick(() => restoreScrollAnchor(anchor, store.items))
 }
 
+/** 移动端把 S/M/L 三键折叠为一个循环按钮，保留密度能力又省出工具条宽度 */
+function cycleDensity() {
+  const idx = DENSITY_KEYS.indexOf(density.value)
+  changeDensity(DENSITY_KEYS[(idx + 1) % DENSITY_KEYS.length])
+}
+
+/** 移动端判定：分面抽屉、滚动锁定与紧凑工具条只在窄屏生效 */
+const isMobile = ref(false)
+let mobileMq: MediaQueryList | null = null
+
+function syncMobile(e?: MediaQueryListEvent) {
+  isMobile.value = e ? e.matches : Boolean(mobileMq?.matches)
+}
+
+watch([facetsOpen, isMobile], () => {
+  document.documentElement.classList.toggle('facets-open', facetsOpen.value && isMobile.value)
+})
+
 function changeView(mode: ViewMode) {
   const anchor = sampleAnchor()
   filters.setView(mode)
@@ -828,6 +846,10 @@ onMounted(async () => {
   window.addEventListener('scroll', onScroll, { passive: true })
   window.addEventListener('mlib:reset-home', onBrandResetHome)
 
+  mobileMq = window.matchMedia?.('(max-width: 680px)') ?? null
+  syncMobile()
+  mobileMq?.addEventListener('change', syncMobile)
+
   if (typeof IntersectionObserver !== 'undefined') {
     pageObserver = new IntersectionObserver(
       (entries) => {
@@ -856,6 +878,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('scroll', onScroll)
   window.removeEventListener('mlib:reset-home', onBrandResetHome)
+  mobileMq?.removeEventListener('change', syncMobile)
+  document.documentElement.classList.remove('facets-open')
   pageObserver?.disconnect()
   es?.close()
   if (sseRefreshTimer !== undefined) window.clearTimeout(sseRefreshTimer)
@@ -1004,6 +1028,7 @@ watch(
           accept="image/*"
           tabindex="-1"
           class="sr-only"
+          :aria-label="t('ai.byImage')"
           @change="onPickAiFile"
         />
 
@@ -1124,8 +1149,10 @@ watch(
 
         <button
           type="button"
-          :class="['wall__pill-btn', { 'wall__pill-btn--on': filters.sort === 'random' }]"
+          :class="['wall__pill-btn', 'wall__flash-hide', { 'wall__pill-btn--on': filters.sort === 'random' }]"
           :aria-pressed="filters.sort === 'random'"
+          :aria-label="t('home.shuffle')"
+          :title="t('home.shuffle')"
           @click="triggerShuffle"
         >
           ↻ {{ t('home.shuffle') }}
@@ -1146,7 +1173,7 @@ watch(
           </button>
         </div>
 
-        <div v-if="filters.view !== 'list'" class="wall__seg" role="group" :aria-label="t('density.label')">
+        <div v-if="filters.view !== 'list'" class="wall__seg wall__density-seg" role="group" :aria-label="t('density.label')">
           <button
             v-for="d in DENSITY_KEYS"
             :key="d"
@@ -1162,27 +1189,50 @@ watch(
         </div>
 
         <button
+          v-if="filters.view !== 'list'"
           type="button"
-          :class="['wall__pill-btn', { 'wall__pill-btn--liked': onlyLiked }]"
+          class="wall__pill-btn wall__density-cycle mono"
+          :aria-label="`${t('density.label')} · ${t(`density.${density}`)}`"
+          :title="`${t('density.label')} · ${t(`density.${density}`)}`"
+          @click="cycleDensity"
+        >
+          {{ DENSITY_MAP[density].short }}
+        </button>
+
+        <button
+          type="button"
+          :class="['wall__pill-btn', 'wall__like-toggle', { 'wall__pill-btn--liked': onlyLiked }]"
           :aria-pressed="onlyLiked"
+          :aria-label="onlyLiked ? t('like.showAll') : t('like.onlyLiked')"
+          :title="onlyLiked ? t('like.showAll') : t('like.onlyLiked')"
           @click="toggleOnlyLiked"
         >
           <span aria-hidden="true">{{ onlyLiked ? '♥' : '♡' }}</span>
-          <span>{{ onlyLiked ? t('like.showAll') : t('like.onlyLiked') }}</span>
+          <span class="wall__pill-label">{{ onlyLiked ? t('like.showAll') : t('like.onlyLiked') }}</span>
           <span v-if="likedIds.length" class="mono">{{ likedIds.length }}</span>
         </button>
 
         <button
           type="button"
-          :class="['wall__pill-btn', { 'wall__pill-btn--on': selectMode }]"
+          :class="['wall__pill-btn', 'wall__select-toggle', { 'wall__pill-btn--on': selectMode }]"
           :aria-pressed="selectMode"
+          :aria-label="selectMode ? t('batch.exitSelect') : t('batch.select')"
+          :title="selectMode ? t('batch.exitSelect') : t('batch.select')"
           @click="toggleSelectMode"
         >
-          {{ selectMode ? t('batch.exitSelect') : t('batch.select') }}
+          <span aria-hidden="true">☑</span>
+          <span class="wall__pill-label">{{ selectMode ? t('batch.exitSelect') : t('batch.select') }}</span>
         </button>
 
-        <button type="button" class="wall__pill-btn" @click="uploadOpen = true">
-          + {{ t('home.upload') }}
+        <button
+          type="button"
+          class="wall__pill-btn wall__upload-btn"
+          :aria-label="t('home.upload')"
+          :title="t('home.upload')"
+          @click="uploadOpen = true"
+        >
+          <span aria-hidden="true">＋</span>
+          <span class="wall__pill-label">{{ t('home.upload') }}</span>
         </button>
       </div>
     </div>
@@ -1298,9 +1348,35 @@ watch(
       </span>
     </div>
 
+    <!-- 移动端分面抽屉遮罩：点击收起，避免整页滚动穿透 -->
+    <div
+      v-if="facetsOpen && isMobile"
+      class="wall__facets-scrim"
+      aria-hidden="true"
+      @click="facetsOpen = false"
+    />
+
     <!-- 主体区：默认单栏全宽瀑布流；展开筛选时切换为左栏分面 + 右栏图墙 -->
     <div :class="['wall__layout', { 'wall__layout--facets': facetsOpen }]">
-      <div v-show="facetsOpen" id="facet-panel" class="wall__facets">
+      <div
+        v-show="facetsOpen"
+        id="facet-panel"
+        :class="['wall__facets', { 'wall__facets--open': facetsOpen }]"
+        :role="isMobile ? 'dialog' : undefined"
+        :aria-modal="isMobile ? 'true' : undefined"
+        :aria-label="isMobile ? t('browse.filter') : undefined"
+      >
+        <div class="wall__facets-head">
+          <span class="wall__facets-title">{{ t('browse.filter') }}</span>
+          <span class="wall__facets-actions">
+            <button type="button" class="wall__facets-reset" @click="clearAllFilters">
+              {{ t('browse.clearAll') }}
+            </button>
+            <button type="button" class="wall__facets-done" @click="facetsOpen = false">
+              {{ t('browse.showResults', { count: store.total }) }}
+            </button>
+          </span>
+        </div>
         <FacetPanel
           :facets="store.facets"
           :collections="collections"
@@ -2050,6 +2126,25 @@ watch(
   scrollbar-color: var(--rule-strong) transparent;
 }
 
+/* 移动端抽屉头部与遮罩只在窄屏出现 */
+.wall__facets-head,
+.wall__facets-scrim {
+  display: none;
+}
+
+.wall__facets-title {
+  font-size: var(--p-step-0);
+  font-weight: 600;
+}
+
+/* 密度三键在移动端折叠为一个循环按钮 */
+.wall__density-cycle {
+  display: none;
+  min-width: 36px;
+  justify-content: center;
+  font-weight: 600;
+}
+
 .wall__main {
   min-width: 0;
 }
@@ -2256,15 +2351,199 @@ watch(
     max-width: none;
   }
 
+  .wall-search__input {
+    min-height: 40px;
+  }
+
+  .wall-search__kbd {
+    display: none;
+  }
+
+  .wall__bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: var(--p-space-1);
+    padding: var(--p-space-1) 0 var(--p-space-2);
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    -webkit-mask-image: linear-gradient(to right, #000 94%, transparent);
+    mask-image: linear-gradient(to right, #000 94%, transparent);
+  }
+
+  .wall__bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .wall__bar-left,
+  .wall__bar-right {
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+    gap: var(--p-space-1);
+  }
+
   .wall__bar-right {
     margin-left: 0;
+  }
+
+  .wall__pill-btn {
+    min-height: 36px;
+    padding: 2px var(--p-space-3);
+    flex-shrink: 0;
+  }
+
+  .wall__kind-btn {
+    min-height: 32px;
+    padding: 4px var(--p-space-3);
+  }
+
+  .wall__kinds,
+  .wall__seg,
+  .wall__sort-select,
+  .wall__count {
+    flex-shrink: 0;
+  }
+
+  .wall__seg-btn {
+    min-width: 32px;
+    min-height: 32px;
+  }
+
+  .wall__sort-select {
+    min-height: 36px;
+  }
+
+  .wall__flash-hide,
+  .wall__density-seg,
+  .wall__pill-label {
+    display: none;
+  }
+
+  .wall__density-cycle {
+    display: inline-flex;
+    min-width: 36px;
+    justify-content: center;
+  }
+
+  .wall__like-toggle,
+  .wall__select-toggle,
+  .wall__upload-btn {
+    min-width: 36px;
+    padding: 2px 0;
+    justify-content: center;
+  }
+
+  .wall__facets-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--p-z-sheet) - 1);
+    background: rgba(26, 24, 21, 0.44);
+    backdrop-filter: blur(2px);
+    animation: wall-scrim-in var(--p-dur-base) var(--p-ease-out);
+  }
+
+  .wall__facets {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    z-index: var(--p-z-sheet);
+    max-height: min(78dvh, 640px);
+    padding: 0 var(--p-space-4) calc(var(--p-space-3) + env(safe-area-inset-bottom, 0px));
+    background: var(--surface);
+    border-radius: var(--p-radius-lg) var(--p-radius-lg) 0 0;
+    box-shadow: var(--sheet-shadow);
+    animation: wall-sheet-in var(--p-dur-base) var(--p-ease-spring);
+  }
+
+  .wall__facets-head {
+    display: flex;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--p-space-3);
+    padding: var(--p-space-3) 0;
+    margin-bottom: var(--p-space-1);
+    background: var(--surface);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .wall__facets-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--p-space-2);
+  }
+
+  .wall__facets-reset {
+    min-height: 36px;
+    padding: 0 var(--p-space-2);
+    color: var(--ink-muted);
+    font-size: var(--p-step--1);
+  }
+
+  .wall__facets-done {
+    min-height: 40px;
+    padding: 0 var(--p-space-4);
+    border-radius: var(--p-radius-full);
+    background: var(--accent);
+    color: var(--on-accent);
+    font-weight: 500;
+    font-size: var(--p-step--1);
+  }
+
+  /* 抽屉自带标题与清空入口，隐藏面板内重复头部 */
+  .wall__facets :deep(.facets__head) {
+    display: none;
+  }
+
+  .wall__top {
+    bottom: calc(var(--p-space-5) + env(safe-area-inset-bottom, 0px) + var(--batch-bar-offset, 0px));
+  }
+}
+
+@keyframes wall-sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes wall-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 680px) {
+  html.facets-open,
+  html.facets-open body {
+    overflow: hidden;
+  }
+}
+
+@media (hover: none) {
+  .wall__bar--dim {
+    opacity: 1;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .wall__bar,
   .wall__top,
-  .wall-search__ai--busy {
+  .wall-search__ai--busy,
+  .wall__facets,
+  .wall__facets-scrim {
     transition: none;
     animation: none;
   }

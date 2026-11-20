@@ -655,5 +655,26 @@ defineExpose({ renderedCount, isVisible, visibleRange })
   .list-row__spec {
     display: none;
   }
+
+  .list-row__tag {
+    font-size: 0.75rem;
+  }
+
+  .list-row__vbadge {
+    font-size: 0.6875rem;
+  }
+}
+
+@media (hover: none) {
+  /* 触屏列表行的喜欢按钮放大到 40px，避免与滚动手势争抢 */
+  .list-row__like {
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .list-row__swatch {
+    width: 20px;
+    height: 20px;
+  }
 }
 </style>

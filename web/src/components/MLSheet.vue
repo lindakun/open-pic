@@ -106,8 +106,10 @@ onBeforeUnmount(() => {
   background: transparent;
   max-width: 100vw;
   max-height: 100vh;
+  max-height: 100dvh;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   color: var(--ink);
 }
 
@@ -142,6 +144,7 @@ onBeforeUnmount(() => {
   margin: 8vh auto;
   border-radius: var(--p-radius-lg);
   max-height: 84vh;
+  max-height: 84dvh;
   animation: sheet-modal-in var(--p-dur-base) var(--p-ease-out);
 }
 
@@ -194,8 +197,10 @@ onBeforeUnmount(() => {
   color: var(--ink-muted);
   padding: var(--p-space-1) var(--p-space-2);
   border-radius: var(--p-radius-md);
-  min-width: 32px;
-  min-height: 32px;
+  min-width: 44px;
+  min-height: 44px;
+  display: grid;
+  place-items: center;
 }
 
 .ml-sheet__close:hover {
@@ -205,6 +210,7 @@ onBeforeUnmount(() => {
 
 .ml-sheet__body {
   padding: var(--p-space-5);
+  padding-bottom: calc(var(--p-space-5) + env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
   overscroll-behavior: contain;
   flex: 1;
@@ -212,6 +218,7 @@ onBeforeUnmount(() => {
 
 .ml-sheet__foot {
   padding: var(--p-space-4) var(--p-space-5);
+  padding-bottom: calc(var(--p-space-4) + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--rule);
   display: flex;
   justify-content: flex-end;

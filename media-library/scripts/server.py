@@ -588,7 +588,7 @@ def create_app(data_dir: Optional[str] = None, port: int = 18100, start_workers:
 <html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>{title_esc} - MediaLib</title>
 <link rel="canonical" href="{canonical_url}">
 <script type="application/ld+json">{jsonld}</script>
@@ -652,6 +652,25 @@ body{{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-syste
 .btn--primary{{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}}
 .btn--primary:hover{{background:var(--accent-hover)}}
 @media (max-width:900px){{.main{{grid-template-columns:1fr;padding:16px}}.stage{{min-height:48dvh}}.stage__media{{max-height:66dvh}}}}
+@media (max-width:560px){{
+  .topbar{{padding:calc(10px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px));flex-wrap:nowrap}}
+  .topbar__actions{{flex-wrap:nowrap;gap:6px}}
+  /* 手机顶栏只保留主题与下载：在库入口在底部“浏览全部资产”仍可到达 */
+  .topbar__actions .btn:not(.btn--primary){{display:none}}
+  .topbar__actions .btn{{min-height:44px;padding:0 14px}}
+  .brand{{min-height:44px;align-items:center}}
+  .icon-btn{{width:44px;height:44px}}
+  .main{{padding:12px 12px calc(24px + env(safe-area-inset-bottom,0px));gap:16px}}
+  .stage{{min-height:42dvh;padding:12px 12px 10px;gap:10px}}
+  .stage__media{{max-height:58dvh}}
+  .stage-bg{{min-height:36px;padding:4px 10px}}
+  .aside{{padding:16px}}
+  .btn{{min-height:44px}}
+  .tag{{display:inline-flex;align-items:center;min-height:30px;padding:2px 12px;font-size:.8125rem}}
+  .swatch{{min-height:38px}}
+  .swatch span{{font-size:.8125rem}}
+  .actions{{gap:10px}}
+}}
 </style>
 </head>
 <body>

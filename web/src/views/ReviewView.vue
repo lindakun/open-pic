@@ -1215,6 +1215,7 @@ onUnmounted(() => {
 @media (max-width: 680px) {
   .review__head {
     padding: 6px var(--p-space-3);
+    padding-top: calc(6px + env(safe-area-inset-top, 0px));
   }
   .review__hint {
     display: none;
@@ -1224,7 +1225,8 @@ onUnmounted(() => {
     gap: 6px;
   }
   .review__img {
-    max-height: clamp(170px, calc(100dvh - 375px), 400px);
+    /* 为更高的操作按钮与胶片筛选让出 30px，维持一屏完整露出 */
+    max-height: clamp(170px, calc(100dvh - 405px), 380px);
   }
   .film {
     width: 44px;
@@ -1236,7 +1238,44 @@ onUnmounted(() => {
   }
   .review__counts {
     gap: var(--p-space-2);
-    padding: 4px var(--p-space-3) 8px;
+    padding: 4px var(--p-space-3) calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* 触屏操作台：按钮与输入框加高到 36–40px，避免选片时误触 */
+  .review__theme,
+  .review__lang {
+    width: 36px;
+    height: 36px;
+  }
+  .review__brand {
+    min-height: 36px;
+    padding: 2px 0;
+  }
+  .review__who input {
+    min-height: 36px;
+    font-size: 0.8125rem;
+  }
+  .rv-btn {
+    min-height: 40px;
+  }
+  .review__note textarea {
+    min-height: 40px;
+  }
+  .review__auto-next input {
+    width: 24px;
+    height: 24px;
+  }
+  .film-filter {
+    min-height: 32px;
+    padding: 4px 10px;
+    font-size: 0.8125rem;
+  }
+  .review__count-btn {
+    min-height: 32px;
+    padding: 4px var(--p-space-2);
+  }
+  .review__copy-summary {
+    min-height: 32px;
   }
 }
 </style>

@@ -57,7 +57,7 @@ const { pause, resume } = useToast()
   position: fixed;
   left: 50%;
   /* 批量操作条占据底部中央，toast 需要让位，否则两者重叠看不清 */
-  bottom: calc(var(--p-space-6) + var(--batch-bar-offset, 0px));
+  bottom: calc(var(--p-space-6) + env(safe-area-inset-bottom, 0px) + var(--batch-bar-offset, 0px));
   transition: bottom var(--p-dur-base) var(--p-ease-out);
   transform: translateX(-50%);
   display: flex;
