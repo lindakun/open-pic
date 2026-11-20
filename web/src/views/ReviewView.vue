@@ -90,8 +90,15 @@ interface Mark {
 }
 const marks = ref<Record<string, Mark>>({})
 const noteDraft = ref('')
-/** 上一次因 saving 锁而未提交的标记，写入完成后补发 */
-const pendingMark = ref<{ itemId: string; state: MarkState; note?: string } | null>(null)
+const saveError = ref('')
+/** 保存中收到的新标记：按 item_id 排队，保存完成后逐个补发（不依赖当前项） */
+interface PendingMark {
+  state: MarkState
+  note: string
+  advance: boolean
+  prev?: Mark
+}
+const pendingMarks = new Map<string, PendingMark>()
 /** 审阅人名字持久化：客户刷新后不用重输（C-14）。
  *  localStorage 用安全访问器：测试环境/隐私模式下不可用时静默降级。
  */
@@ -220,54 +227,80 @@ async function load() {
 /** 写入标记；乐观更新 + 失败回滚（C-15 同款约定） */
 async function setMark(state: MarkState, note?: string) {
   const it = current.value
-  // 快速连点时不应丢弃最后一次操作：用队列记录待提交状态
   if (!it) return
-  if (saving.value) {
-    pendingMark.value = { itemId: it.id, state, note }
-    return
-  }
   const prev = marks.value[it.id]
+  const effectiveNote = note ?? prev?.note ?? ''
   const next: Mark = {
     state,
-    note: note ?? prev?.note ?? '',
+    note: effectiveNote,
     reviewer: reviewer.value || prev?.reviewer || '',
   }
+  // 先乐观更新当前项，快速连点时界面始终反映最后一次选择
   marks.value = { ...marks.value, [it.id]: next }
+  saveError.value = ''
+
+  if (saving.value) {
+    const existing = pendingMarks.get(it.id)
+    pendingMarks.set(it.id, {
+      state,
+      note: effectiveNote,
+      advance: note === undefined,
+      // 同一项多次排队时保留最初的旧值，回滚才有意义
+      prev: existing ? existing.prev : prev,
+    })
+    return
+  }
+
   saving.value = true
+  let job: { itemId: string; state: MarkState; note: string; advance: boolean; prev?: Mark } = {
+    itemId: it.id,
+    state,
+    note: effectiveNote,
+    advance: note === undefined,
+    prev,
+  }
+  while (job) {
+    const ok = await sendMark(job.itemId, job.state, job.note, job.prev)
+    if (ok && autoNext.value && job.advance && current.value?.id === job.itemId && index.value < items.value.length - 1) {
+      step(1)
+    }
+    const nextJob = pendingMarks.entries().next()
+    if (nextJob.done) break
+    const [itemId, p] = nextJob.value
+    pendingMarks.delete(itemId)
+    job = { itemId, state: p.state, note: p.note, advance: p.advance, prev: p.prev }
+  }
+  saving.value = false
+}
+
+async function sendMark(itemId: string, state: MarkState, note: string, prev?: Mark): Promise<boolean> {
   try {
     const res = await fetch(`/api/review/${encodeURIComponent(token.value)}/mark`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        item_id: it.id,
-        state: next.state,
-        note: next.note,
-        reviewer: next.reviewer,
+        item_id: itemId,
+        state,
+        note,
+        reviewer: reviewer.value || prev?.reviewer || '',
       }),
     })
     if (!res.ok) throw new Error(t('review.saveFailed'))
     savedAt.value = Date.now()
-    if (autoNext.value && note === undefined && current.value?.id === it.id && index.value < items.value.length - 1) {
-      step(1)
-    }
+    saveError.value = ''
+    return true
   } catch {
-    // 回滚
-    if (prev) marks.value = { ...marks.value, [it.id]: prev }
-    else {
-      const copy = { ...marks.value }
-      delete copy[it.id]
-      marks.value = copy
-    }
-  } finally {
-    saving.value = false
-    const next = pendingMark.value
-    pendingMark.value = null
-    if (next) {
-      // 只在仍停留在同一资产时补发，避免把 A 的标记写到 B
-      if (current.value?.id === next.itemId) {
-        void setMark(next.state, next.note)
+    // 若同一项还有排队中的新标记，回滚会覆盖用户最新选择，交给后续补发处理
+    if (!pendingMarks.has(itemId)) {
+      if (prev) marks.value = { ...marks.value, [itemId]: prev }
+      else {
+        const copy = { ...marks.value }
+        delete copy[itemId]
+        marks.value = copy
       }
     }
+    saveError.value = t('review.saveFailed')
+    return false
   }
 }
 
@@ -293,6 +326,7 @@ function step(delta: number) {
     noteDraft.value = marks.value[items.value[next].id]?.note ?? ''
     // 「已保存」是上一张的状态，切图后必须清掉
     savedAt.value = 0
+    saveError.value = ''
     zoomed.value = false
     void scrollFilmToCurrent()
   }
@@ -302,6 +336,7 @@ function jump(i: number) {
   index.value = i
   noteDraft.value = marks.value[items.value[i].id]?.note ?? ''
   savedAt.value = 0
+  saveError.value = ''
   zoomed.value = false
   void scrollFilmToCurrent()
 }
@@ -336,6 +371,9 @@ function onKeydown(e: KeyboardEvent) {
     return
   }
   if (isTypingTarget(e.target) || e.isComposing) return
+  // 视频获得焦点时方向键交给原生播放器，避免一边 seek 一边切换素材
+  const focusedTag = (e.target as HTMLElement | null)?.tagName
+  if (focusedTag === 'VIDEO' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return
   switch (e.key) {
     case 'ArrowLeft':
       step(-1)
@@ -547,7 +585,8 @@ onUnmounted(() => {
               @keydown.meta.enter.prevent="saveNote"
             />
             <button type="button" class="rv-btn" @click="saveNote">{{ t('review.saveNote') }}</button>
-            <span v-if="saving" class="review__saving">{{ t('review.saving') }}</span>
+            <span v-if="saveError" class="review__saving review__saving--err" role="alert">{{ saveError }}</span>
+            <span v-else-if="saving" class="review__saving">{{ t('review.saving') }}</span>
             <span v-else-if="savedAt" class="review__saving review__saving--ok">✓ {{ t('review.saved') }}</span>
           </div>
         </div>
@@ -1093,6 +1132,10 @@ onUnmounted(() => {
 
 .review__saving--ok {
   color: var(--success);
+}
+
+.review__saving--err {
+  color: var(--danger);
 }
 
 .review__film {

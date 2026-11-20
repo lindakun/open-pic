@@ -18,6 +18,7 @@
     platform: '',
     color: '',
     sort: 'newest',
+    seed: 0,
     view: localStorage.getItem('mlib_view') || 'masonry',
     theme: localStorage.getItem('mlib_theme') || 'dark',
     selectMode: false,
@@ -153,7 +154,11 @@
       state.collections.forEach(c => {
         const div = document.createElement('div');
         div.className = 'col-item' + (state.nav === 'collection' && state.collectionId === c.id ? ' on' : '');
-        div.innerHTML = `<span class="col-item__name">📁 ${esc(c.name)}</span>
+        const cover = c.resolved_cover
+          ? `<img class="col-item__cover" src="/t/${esc(c.resolved_cover)}_sm.webp" alt="" loading="lazy" decoding="async" onerror="this.hidden=true">`
+          : `<span class="col-item__cover col-item__cover--ph" aria-hidden="true">📁</span>`;
+        div.innerHTML = `${cover}
+          <span class="col-item__name">${esc(c.name)}</span>
           <span class="col-item__meta"><b>${c.item_count}</b>
             <span class="col-item__acts">
               <button class="mini-icon" data-act="rename" title="重命名" aria-label="重命名">✎</button>
@@ -366,6 +371,8 @@
         offset: state.offset,
         sort: state.sort,
       });
+      // 随机排序用固定 seed，翻页时不会重复或漏项
+      if (state.sort === 'random') p.set('seed', state.seed || 1);
       if (state.q) p.set('q', state.q);
       if (state.kind) p.set('kind', state.kind);
       if (state.tags.length) p.set('tag', state.tags.join(','));
@@ -624,7 +631,9 @@
       const r = await fetch('/api/upload', { method: 'POST', body: fd });
       const d = await r.json();
       if (r.ok) {
-        toast(`成功入库 ${d.count} 项`);
+        const fresh = (d.items || []).filter(it => !it.duplicate).length;
+        const dup = (d.items || []).length - fresh;
+        toast(dup > 0 ? `新入库 ${fresh} 项，${dup} 项已存在` : `成功入库 ${d.count} 项`);
         loadStats();
         loadItems(true);
       } else {
@@ -951,7 +960,8 @@
 
     $('#topViewed').innerHTML = (an.top_viewed || []).map(it => `
       <div class="top-item" onclick="window.open('/s/${it.id}','_blank')">
-        <img src="${it.thumb ? `/t/${it.id}_sm.webp` : `/f/${it.file}`}">
+        <img loading="lazy" decoding="async" src="${it.thumb ? `/t/${it.id}_sm.webp` : `/f/${it.file}`}"
+             onerror="this.onerror=null;this.src='/f/${it.file}'">
         <div style="min-width:0">
           <div class="meta-title">${esc(it.title)}</div>
           <div class="muted">👁 ${it.views} · ⬇ ${it.downloads}</div>
@@ -1385,7 +1395,12 @@
     };
   });
 
-  $('#sortSelect').onchange = e => { state.sort = e.target.value; loadItems(true); };
+  $('#sortSelect').onchange = e => {
+    state.sort = e.target.value;
+    // 每次切到随机都换一批；同一轮翻页沿用当前 seed
+    state.seed = state.sort === 'random' ? Math.floor(Math.random() * 2147483646) + 1 : 0;
+    loadItems(true);
+  };
 
   $$('#viewTabs .seg-btn').forEach(b => {
     b.onclick = () => {

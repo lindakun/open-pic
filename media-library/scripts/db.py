@@ -783,6 +783,7 @@ class MediaDB:
         deleted: bool = False,
         status: str = "",
         include_unpublished: bool = False,
+        seed: int = 0,
     ) -> Tuple[int, List[Dict[str, Any]]]:
         where = ["i.deleted_at IS NOT NULL" if deleted else "i.deleted_at IS NULL"]
         params: List[Any] = []
@@ -870,7 +871,9 @@ class MediaDB:
             "size": "i.size DESC",
             "pixels": "(i.width * i.height) DESC",
             "views": "i.views DESC, i.ts DESC",
-            "random": "RANDOM()",
+            # RANDOM() 每次查询都重新洗牌，分页翻页会出现重复/漏项；
+            # 用 rowid + seed 的确定性伪随机排序，同一 seed 下翻页稳定。
+            "random": f"((i.rowid * 1103515245 + {int(seed)}) % 2147483647) ASC",
         }
         order_sql = order_map.get(sort, order_map["newest"])
 
@@ -1076,21 +1079,34 @@ class MediaDB:
             return dict(row) if row else None
 
     def list_collections(self) -> List[Dict[str, Any]]:
+        """画板列表：计数与封面只统计「当前可见」的资产。
+
+        点击画板后走 query_items 默认口径（未删除且 published/已到期 draft），
+        若这里把回收站或未发布草稿也计入，侧栏数字会永远大于实际结果。
+        """
+        now = int(time.time())
+        visible = (
+            "(i.deleted_at IS NULL AND (i.status = 'published'"
+            " OR (i.status = 'draft' AND i.publish_at IS NOT NULL AND i.publish_at <= ?)))"
+        )
         with self.connect() as conn:
             rows = conn.execute(
-                """
-                SELECT c.*, COUNT(ci.item_id) AS item_count,
+                f"""
+                SELECT c.*,
+                       COUNT(CASE WHEN {visible} THEN ci.item_id END) AS item_count,
                        COALESCE(c.cover_item_id, (
                            SELECT ci2.item_id FROM collection_items ci2
                            JOIN items i ON ci2.item_id=i.id
-                           WHERE ci2.collection_id=c.id AND i.deleted_at IS NULL
+                           WHERE ci2.collection_id=c.id AND {visible}
                            ORDER BY ci2.added_at DESC LIMIT 1
                        )) AS resolved_cover
                 FROM collections c
                 LEFT JOIN collection_items ci ON c.id=ci.collection_id
+                LEFT JOIN items i ON ci.item_id=i.id
                 GROUP BY c.id
                 ORDER BY c.updated_at DESC
-                """
+                """,
+                (now, now),
             ).fetchall()
             return [dict(r) for r in rows]
 
@@ -1414,7 +1430,8 @@ class MediaDB:
     def get_analytics(self) -> Dict[str, Any]:
         with self.connect() as conn:
             top_viewed = conn.execute(
-                "SELECT id, title, kind, thumb, file, views, downloads FROM items WHERE deleted_at IS NULL ORDER BY views DESC LIMIT 10"
+                "SELECT id, title, kind, thumb, file, views, downloads FROM items"
+                " WHERE deleted_at IS NULL AND views > 0 ORDER BY views DESC LIMIT 10"
             ).fetchall()
             daily = conn.execute(
                 """

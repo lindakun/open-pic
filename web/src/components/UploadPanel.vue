@@ -209,6 +209,7 @@ async function submit() {
   errors.value = []
   progress.value = { done: 0, total: queue.value.length }
   let ok = 0
+  let duplicated = 0
   const failed: string[] = []
   /** 失败文件保留在队列里，便于用户直接重试（此前成功即清空整个队列） */
   const failedFiles: File[] = []
@@ -222,8 +223,12 @@ async function submit() {
       const file = pending.shift()
       if (!file) return
       try {
-        await api.upload(file, { title: title.value, tags: tags.value })
-        ok++
+        const res = await api.upload(file, { title: title.value, tags: tags.value })
+        const list = res.items ?? []
+        // 兼容旧响应：没有 items 时按 count 计为新增
+        const fresh = list.length ? list.filter((it) => !it.duplicate).length : (res.count ?? 1)
+        ok += fresh
+        duplicated += Math.max(0, list.length - fresh)
       } catch (e) {
         failed.push(`${file.name}: ${(e as Error).message}`)
         failedFiles.push(file)
@@ -235,11 +240,15 @@ async function submit() {
 
   uploading.value = false
   if (failed.length) errors.value = failed
-  if (ok > 0) {
+  if (ok > 0 || duplicated > 0) {
     // 只清掉成功的；失败项留在队列里可直接重试
     queue.value = failedFiles
     if (!failedFiles.length) title.value = ''
-    toast.success(t('upload.done', { count: ok }))
+    if (duplicated > 0) {
+      toast.info(t('upload.doneWithDuplicates', { fresh: ok, dup: duplicated }))
+    } else {
+      toast.success(t('upload.done', { count: ok }))
+    }
     emit('uploaded', ok)
     // 全部成功才自动关闭，有失败时留在面板里便于重试
     if (!failed.length) emit('update:open', false)
@@ -276,9 +285,12 @@ watch(
   () => props.open,
   (isOpen) => {
     if (!isOpen) {
-      errors.value = []
       dragActive.value = false
-      progress.value = { done: 0, total: 0 }
+      // 上传中关闭面板时保留进度，重新打开可继续看到队列状态
+      if (!uploading.value) {
+        errors.value = []
+        progress.value = { done: 0, total: 0 }
+      }
     }
   },
 )
@@ -312,7 +324,7 @@ defineExpose({ addFiles })
     :title="t('upload.title')"
     variant="modal"
     width="520px"
-    @update:open="!uploading && emit('update:open', $event)"
+    @update:open="emit('update:open', $event)"
   >
     <div
       class="up"

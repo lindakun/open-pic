@@ -104,6 +104,28 @@ async function togglePip() {
   }
 }
 
+/**
+ * 兼容播放副本缺失或转码未完成时，先回退原文件再试一次；
+ * 仍失败则展示下载引导，避免用户只看到一块黑屏。
+ */
+function onVideoError() {
+  const v = videoRef.value
+  if (!v) return
+  const original = `/f/${props.item.file}`
+  let usingPlayCopy = false
+  try {
+    usingPlayCopy = new URL(v.currentSrc || v.src, window.location.origin).searchParams.has('play')
+  } catch {
+    usingPlayCopy = false
+  }
+  if (usingPlayCopy) {
+    v.src = original
+    v.load()
+    return
+  }
+  videoFailed.value = true
+}
+
 /** 信息面板行内编辑（REQ-05） */
 const editing = ref(false)
 const editTitle = ref('')
@@ -196,6 +218,8 @@ const stageBgLabel = computed(() => {
 })
 /** 当前主图解码完成标记：切换大图时显示柔和加载环 */
 const imgLoaded = ref(false)
+/** 视频解码/播放失败（兼容副本缺失或仍在转码） */
+const videoFailed = ref(false)
 /** 放大 >1.2x 升级加载原图时的状态标记 */
 const upgradingOriginal = ref(false)
 /** 复制反馈：'link' | 'hex:<color>' | null，1.6s 后自动清除 */
@@ -745,6 +769,7 @@ watch(
   () => {
     imgLoaded.value = false
     upgradingOriginal.value = false
+    videoFailed.value = false
     resetZoom()
     compareIds.value = []
     compareSplit.value = false
@@ -931,7 +956,13 @@ onUnmounted(() => {
         preload="metadata"
         class="lightbox__video"
         @loadedmetadata="videoRef && (videoRef.playbackRate = videoSpeed)"
+        @error="onVideoError"
       />
+      <!-- 视频彻底无法播放时的兜底引导，避免只有黑屏 -->
+      <div v-if="videoFailed" class="lightbox__video-error" role="status">
+        <p>{{ t('lightbox.videoFailed') }}</p>
+        <a :href="downloadUrl" class="lb-btn" download>{{ t('lightbox.download') }}</a>
+      </div>
 
       <!-- 舞台左右悬浮切图箭头（桌面端 hover 显示，自动避让右侧信息面板） -->
       <button
@@ -1660,6 +1691,37 @@ onUnmounted(() => {
   transition:
     transform var(--p-dur-base) var(--p-ease-out),
     opacity var(--p-dur-fast) var(--p-ease-out);
+}
+
+.lightbox__video-error {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: min(90%, 420px);
+  padding: 18px 22px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(18, 16, 13, 0.84);
+  color: #faf8f5;
+  text-align: center;
+}
+
+.lightbox__video-error p {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.lightbox__video-error .lb-btn {
+  color: #faf8f5;
+  border-color: rgba(255, 255, 255, 0.28);
+  text-decoration: none;
 }
 
 .lightbox__img--ready {

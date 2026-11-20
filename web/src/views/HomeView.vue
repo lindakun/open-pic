@@ -392,9 +392,7 @@ function onSortSelect(e: Event) {
 
 /** 随机漫步：未开启时切到随机，已开启时再次点击立即换一批 */
 function triggerShuffle() {
-  if (filters.sort !== 'random') {
-    filters.setSort('random')
-  }
+  filters.shuffle()
   void applyAndRefresh()
 }
 

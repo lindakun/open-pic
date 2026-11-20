@@ -455,6 +455,9 @@ defineExpose({ renderedCount, isVisible, visibleRange })
 
 .grid-view__cell {
   min-width: 0;
+  /* 网格不做虚拟化，离屏卡片交给浏览器跳过渲染，避免长列表拖慢滚动 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
 }
 
 @media (max-width: 600px) {
@@ -479,6 +482,9 @@ defineExpose({ renderedCount, isVisible, visibleRange })
   border-radius: var(--p-radius-md);
   background: var(--surface);
   border: 1px solid var(--rule);
+  /* 紧凑列表跳过离屏行渲染，长列表滚动更稳 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 64px;
   transition:
     border-color var(--p-dur-fast) var(--p-ease-out),
     background-color var(--p-dur-fast) var(--p-ease-out);

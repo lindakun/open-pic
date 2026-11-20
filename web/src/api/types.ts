@@ -98,6 +98,8 @@ export interface ItemQuery {
   /** 分辨率分桶：4k / hd / sd / small */
   size_class?: string
   sort?: string
+  /** 随机排序种子：同一 seed 下分页顺序稳定，避免翻页重复/漏项 */
+  seed?: number
   deleted?: boolean
 }
 

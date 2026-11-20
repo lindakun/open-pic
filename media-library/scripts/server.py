@@ -911,6 +911,7 @@ body{{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-syste
         deleted: bool = False,
         status: str = "",
         include_unpublished: bool = False,
+        seed: int = Query(0, ge=0, le=2147483646),
     ):
         tags_list = [t.strip() for t in tag.split(",") if t.strip()] if tag else []
         ex_list = [t.strip() for t in exclude_tag.split(",") if t.strip()] if exclude_tag else []
@@ -931,6 +932,7 @@ body{{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-syste
             deleted=deleted,
             status=status,
             include_unpublished=include_unpublished,
+            seed=seed,
         )
         return {"total": total, "items": items}
 

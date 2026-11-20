@@ -42,6 +42,12 @@ export const useFilterStore = defineStore('filters', () => {
   const collectionId = ref<number | null>(null)
   const sort = ref<SortKey>('newest')
   const view = ref<ViewMode>('masonry')
+  /** 随机排序种子（只保存在内存，刷新页面换一批） */
+  const seed = ref(0)
+
+  function newSeed(): number {
+    return Math.floor(Math.random() * 2147483646) + 1
+  }
 
   /** 是否有任何激活的筛选 */
   const activeCount = computed(
@@ -73,6 +79,7 @@ export const useFilterStore = defineStore('filters', () => {
     color: color.value,
     collection_id: collectionId.value,
     sort: sort.value,
+    seed: seed.value,
   }))
 
   /** 序列化为 URL query string */
@@ -199,7 +206,17 @@ export const useFilterStore = defineStore('filters', () => {
   }
 
   function setSort(value: SortKey): void {
+    const wasRandom = sort.value === 'random'
     sort.value = value
+    // 从其他排序切回随机时换一批；同一轮随机内翻页沿用当前 seed
+    if (value === 'random' && (!seed.value || !wasRandom)) seed.value = newSeed()
+    syncUrl()
+  }
+
+  /** 重新随机漫步：换一个种子，分页仍保持一致 */
+  function shuffle(): void {
+    seed.value = newSeed()
+    sort.value = 'random'
     syncUrl()
   }
 
@@ -236,6 +253,7 @@ export const useFilterStore = defineStore('filters', () => {
     collectionId,
     sort,
     view,
+    seed,
     activeCount,
     hasFilters,
     queryParams,
@@ -256,6 +274,7 @@ export const useFilterStore = defineStore('filters', () => {
     setCollectionId,
     setSort,
     setView,
+    shuffle,
     reset,
   }
 })

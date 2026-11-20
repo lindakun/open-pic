@@ -134,7 +134,12 @@ export const api = {
   upload(
     file: File,
     opts: { title?: string; tags?: string; source?: string } = {},
-  ): Promise<{ ok: boolean; count: number; items: MediaItem[] }> {
+  ): Promise<{
+    ok: boolean
+    count: number
+    items: (MediaItem & { duplicate?: boolean; near_duplicate_id?: string })[]
+    errors?: string[]
+  }> {
     const fd = new FormData()
     fd.append('file', file)
     if (opts.title) fd.append('title', opts.title)
