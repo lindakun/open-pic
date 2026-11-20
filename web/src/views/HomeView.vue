@@ -55,6 +55,36 @@ const toolbarScrolled = ref(false)
 const showBackTop = ref(false)
 const toolbarEl = ref<HTMLElement | null>(null)
 
+/** 工具条横向滚动状态：只在可继续滚动的方向显示渐隐，避免把排序控件也淡掉 */
+const barCanLeft = ref(false)
+const barCanRight = ref(false)
+
+function updateBarScroll() {
+  const el = toolbarEl.value
+  if (!el) return
+  barCanLeft.value = el.scrollLeft > 4
+  barCanRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 4
+}
+
+/** 分面抽屉的 visualViewport 偏移：iOS 键盘弹出时固定定位会相对布局视口，需手动抬升 */
+const facetsPanelStyle = ref<Record<string, string>>({})
+
+function syncFacetsViewport() {
+  const vv = window.visualViewport
+  if (!isMobile.value || !facetsOpen.value || !vv) {
+    facetsPanelStyle.value = {}
+    return
+  }
+  const keyboard = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop))
+  facetsPanelStyle.value =
+    keyboard > 24
+      ? {
+          bottom: `${keyboard}px`,
+          maxHeight: `${Math.max(240, Math.round(vv.height - 12))}px`,
+        }
+      : {}
+}
+
 // ---------- 搜索与历史 ----------
 const searchInput = ref(filters.q)
 const searchInputEl = ref<HTMLInputElement | null>(null)
@@ -337,6 +367,7 @@ function toggleSelectMode() {
   if (!selectMode.value) clearSelection()
   void nextTick(() => {
     toolbarEl.value?.scrollTo?.({ left: 0, behavior: 'auto' })
+    updateBarScroll()
   })
 }
 
@@ -432,6 +463,7 @@ watch([facetsOpen, isMobile], async () => {
   const open = facetsOpen.value && isMobile.value
   document.documentElement.classList.toggle('facets-open', open)
   await nextTick()
+  syncFacetsViewport()
   if (open) {
     facetsFocusables()[0]?.focus({ preventScroll: true })
   } else if (facetsWasOpen) {
@@ -498,6 +530,11 @@ async function applyAndRefresh() {
   window.scrollTo({ top: 0, behavior: 'auto' })
   await refreshWithFeatured()
 }
+
+/** 抽屉「清空全部」只在确有可清空的状态时可用，避免空点 */
+const hasClearableState = computed(
+  () => filters.hasFilters || onlyLiked.value || aiSearchActive.value,
+)
 
 function clearAllFilters() {
   window.clearTimeout(debounceTimer)
@@ -893,6 +930,7 @@ onMounted(async () => {
 
   await refreshWithFeatured()
   restoreScrollAnchor(readScrollAnchor(), store.items)
+  void nextTick(updateBarScroll)
 
   void loadAiStatus()
   void loadCollections()
@@ -902,6 +940,9 @@ onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('scroll', onScroll, { passive: true })
   window.addEventListener('mlib:reset-home', onBrandResetHome)
+  window.addEventListener('resize', updateBarScroll)
+  window.visualViewport?.addEventListener('resize', syncFacetsViewport)
+  window.visualViewport?.addEventListener('scroll', syncFacetsViewport)
 
   mobileMq = window.matchMedia?.('(max-width: 900px)') ?? null
   syncMobile()
@@ -935,6 +976,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('scroll', onScroll)
   window.removeEventListener('mlib:reset-home', onBrandResetHome)
+  window.removeEventListener('resize', updateBarScroll)
+  window.visualViewport?.removeEventListener('resize', syncFacetsViewport)
+  window.visualViewport?.removeEventListener('scroll', syncFacetsViewport)
   mobileMq?.removeEventListener('change', syncMobile)
   document.documentElement.classList.remove('facets-open')
   pageObserver?.disconnect()
@@ -1138,8 +1182,11 @@ watch(
           'wall__bar--scrolled': toolbarScrolled,
           'wall__bar--dim': toolbarDim && !facetsOpen && !selectMode,
           'wall__bar--selecting': selectMode,
+          'wall__bar--can-left': barCanLeft,
+          'wall__bar--can-right': barCanRight,
         },
       ]"
+      @scroll.passive="updateBarScroll"
     >
       <div class="wall__bar-left">
         <span v-if="selectMode" class="wall__select-summary mono">
@@ -1273,6 +1320,26 @@ watch(
           <span aria-hidden="true">{{ onlyLiked ? '♥' : '♡' }}</span>
           <span class="wall__pill-label">{{ onlyLiked ? t('like.showAll') : t('like.onlyLiked') }}</span>
           <span v-if="likedIds.length" class="mono">{{ likedIds.length }}</span>
+        </button>
+
+        <!-- 手机多选时页面一滚，顶部全选/反选条就会离开视口；把全选放进吸顶工具条 -->
+        <button
+          v-if="selectMode"
+          type="button"
+          class="wall__pill-btn wall__select-all-mobile"
+          :aria-label="allSelected ? t('batch.unselectAll') : t('batch.selectAll')"
+          @click="toggleSelectAll"
+        >
+          {{ allSelected ? t('batch.unselectAll') : t('batch.selectAll') }}
+        </button>
+
+        <button
+          v-if="selectMode && visibleItems.length > 1"
+          type="button"
+          class="wall__pill-btn wall__select-invert-mobile"
+          @click="invertSelection"
+        >
+          {{ t('batch.invert') }}
         </button>
 
         <button
@@ -1437,6 +1504,7 @@ watch(
         id="facet-panel"
         ref="facetsEl"
         :class="['wall__facets', { 'wall__facets--open': facetsOpen }]"
+        :style="facetsPanelStyle"
         :role="isMobile ? 'dialog' : undefined"
         :aria-modal="isMobile ? 'true' : undefined"
         :aria-label="isMobile ? t('browse.filter') : undefined"
@@ -1445,7 +1513,12 @@ watch(
         <div class="wall__facets-head">
           <span class="wall__facets-title">{{ t('browse.filter') }}</span>
           <span class="wall__facets-actions">
-            <button type="button" class="wall__facets-reset" @click="clearAllFilters">
+            <button
+              type="button"
+              class="wall__facets-reset"
+              :disabled="!hasClearableState"
+              @click="clearAllFilters"
+            >
               {{ t('browse.clearAll') }}
             </button>
             <button type="button" class="wall__facets-done" @click="facetsOpen = false">
@@ -2176,7 +2249,9 @@ watch(
   white-space: nowrap;
 }
 
-.wall__select-summary {
+.wall__select-summary,
+.wall__select-all-mobile,
+.wall__select-invert-mobile {
   display: none;
 }
 
@@ -2522,8 +2597,34 @@ watch(
     padding: var(--p-space-1) 0 var(--p-space-2);
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
-    -webkit-mask-image: linear-gradient(to right, #000 94%, transparent);
-    mask-image: linear-gradient(to right, #000 94%, transparent);
+  }
+
+  /* 渐隐只在确有内容可滚动的方向出现；固定 94% 的右缘渐隐会一直淡化排序控件 */
+  .wall__bar--can-right {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent);
+  }
+
+  .wall__bar--can-left.wall__bar--can-right {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 12px,
+      #000 calc(100% - 14px),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 12px,
+      #000 calc(100% - 14px),
+      transparent
+    );
+  }
+
+  .wall__bar--can-left:not(.wall__bar--can-right) {
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 12px);
+    mask-image: linear-gradient(to right, transparent 0, #000 12px);
   }
 
   .wall__bar::-webkit-scrollbar {
@@ -2549,7 +2650,21 @@ watch(
   }
 
   .wall__bar--selecting .wall__bar-left > :not(.wall__select-summary),
-  .wall__bar--selecting .wall__bar-right > :not(.wall__select-toggle) {
+  .wall__bar--selecting
+    .wall__bar-right
+    > :not(.wall__select-toggle):not(.wall__select-all-mobile):not(
+      .wall__select-invert-mobile
+    ) {
+    display: none;
+  }
+
+  .wall__bar--selecting .wall__select-all-mobile,
+  .wall__bar--selecting .wall__select-invert-mobile {
+    display: inline-flex;
+  }
+
+  /* 手机端全选/反选已并入吸顶工具条，页内选择条会重复且随滚动消失 */
+  .wall__select-bar {
     display: none;
   }
 
@@ -2582,7 +2697,7 @@ watch(
   }
 
   .wall__kind-btn {
-    min-height: 32px;
+    min-height: 36px;
     padding: 4px var(--p-space-3);
   }
 
@@ -2594,12 +2709,14 @@ watch(
   }
 
   .wall__seg-btn {
-    min-width: 32px;
-    min-height: 32px;
+    min-width: 36px;
+    min-height: 36px;
   }
 
   .wall__sort-select {
     min-height: 36px;
+    /* 低于 16px 时 iOS 聚焦原生下拉会整页放大 */
+    font-size: 16px;
   }
 
   .wall__flash-hide,
@@ -2674,6 +2791,11 @@ watch(
     font-size: var(--p-step--1);
   }
 
+  .wall__facets-reset:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
   .wall__facets-done {
     min-height: 40px;
     padding: 0 var(--p-space-4);
@@ -2685,6 +2807,14 @@ watch(
   }
 
   .wall__facets :deep(.facets__head) {
+    display: none;
+  }
+}
+
+/* 手机上原生排序下拉要按最长选项「随机漫步」预留宽度，和类型快筛同时出现时
+   右缘会被裁掉；把总数让给抽屉里的「查看 N 项」，保证排序控件完整可见。 */
+@media (max-width: 640px) {
+  .wall__count {
     display: none;
   }
 }

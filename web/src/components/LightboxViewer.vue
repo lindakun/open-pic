@@ -1923,12 +1923,15 @@ onUnmounted(() => {
 .lightbox__compare {
   position: absolute;
   left: 50%;
-  top: var(--p-space-4);
+  /* 真机 iPhone 的状态栏/灵动岛会压住顶部，对比条必须让出安全区 */
+  top: calc(var(--p-space-4) + env(safe-area-inset-top, 0px));
   transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: var(--p-space-2);
-  max-width: calc(100vw - var(--p-space-5));
+  max-width: calc(
+    100vw - var(--p-space-5) - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)
+  );
   overflow-x: auto;
   scrollbar-width: none;
   padding: var(--p-space-2) var(--p-space-3);
@@ -2517,7 +2520,7 @@ onUnmounted(() => {
     padding: var(--p-space-4) var(--p-space-2) calc(112px + env(safe-area-inset-bottom, 0px));
   }
   .lightbox__stage--has-compare {
-    padding-top: 62px;
+    padding-top: calc(78px + env(safe-area-inset-top, 0px));
   }
   .lightbox__filmstrip {
     bottom: calc(94px + env(safe-area-inset-bottom, 0px));
@@ -2624,18 +2627,29 @@ onUnmounted(() => {
     display: none;
   }
 
+  /* 触屏把底部操作格统一到 40px：9 个按钮正好铺满 390px 宽，
+     比 36px 更接近可稳定点按的尺寸，且「1:1」不再比邻居宽出一截。 */
   .lightbox__controls .lb-btn {
-    min-width: 36px;
-    min-height: 36px;
+    min-width: 40px;
+    min-height: 40px;
   }
 
   .lightbox__controls .lb-select,
   .lightbox__controls .lightbox__zoom {
-    min-height: 36px;
+    min-width: 40px;
+    min-height: 40px;
   }
 
   .lightbox__controls {
-    gap: 2px;
+    gap: 0;
+  }
+
+  /* 对比缩略图从 32px 提到 40px，手指更容易点中；
+     flex 固定宽度避免 8 个缩略图在 390px 内被压缩 */
+  .cmp-dot {
+    flex: 0 0 40px;
+    width: 40px;
+    height: 40px;
   }
 }
 

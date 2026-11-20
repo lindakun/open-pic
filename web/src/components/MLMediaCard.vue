@@ -381,6 +381,10 @@ const extraTagCount = computed(() => Math.max(0, visibleTags.value.length - 1))
   .ml-card__like {
     opacity: 0.88;
     transform: scale(1);
+    /* 触屏常显的心形是独立按钮，28px 太容易点空 */
+    width: 40px;
+    height: 40px;
+    font-size: 1rem;
   }
 }
 

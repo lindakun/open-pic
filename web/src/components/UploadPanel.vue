@@ -35,6 +35,14 @@ const emit = defineEmits<{
 const { t, formatBytes } = useI18n()
 const toast = useToast()
 
+/** 触屏设备没有拖拽与 Ctrl/⌘+V，文案改为「点按选择 / 相册」避免误导 */
+const isTouch =
+  typeof window !== 'undefined' &&
+  typeof window.matchMedia === 'function' &&
+  window.matchMedia('(hover: none)').matches
+const dropHint = computed(() => t(isTouch ? 'upload.dropHintTouch' : 'upload.dropHint'))
+const dropSub = computed(() => t(isTouch ? 'upload.dropSubTouch' : 'upload.dropSub'))
+
 type Tab = 'file' | 'url'
 const tab = ref<Tab>('file')
 const dragActive = ref(false)
@@ -368,11 +376,11 @@ defineExpose({ addFiles })
           @keydown.space.prevent="fileInput?.click()"
           role="button"
           tabindex="0"
-          :aria-label="t('upload.dropHint')"
+          :aria-label="dropHint"
         >
           <span class="up__drop-icon" aria-hidden="true">＋</span>
-          <span class="up__drop-text">{{ t('upload.dropHint') }}</span>
-          <span class="up__drop-sub">{{ t('upload.dropSub') }}</span>
+          <span class="up__drop-text">{{ dropHint }}</span>
+          <span class="up__drop-sub">{{ dropSub }}</span>
         </div>
         <input
           ref="fileInput"
@@ -381,7 +389,7 @@ defineExpose({ addFiles })
           multiple
           tabindex="-1"
           class="sr-only"
-          :aria-label="t('upload.dropHint')"
+          :aria-label="dropHint"
           @change="addFiles(($event.target as HTMLInputElement).files); ($event.target as HTMLInputElement).value = ''"
         />
 

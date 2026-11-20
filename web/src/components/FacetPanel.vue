@@ -257,7 +257,7 @@ function groupActiveCount(key: string): number {
           v-for="opt in group.key === 'tag' ? visibleTagOptions(group.options) : group.options"
           :key="opt.value"
         >
-          <span class="facet__item">
+          <span :class="['facet__item', { 'facet__item--tag': group.key === 'tag' }]">
             <MLChip
               :label="displayName(group.key, opt.value)"
               :count="opt.count"
@@ -460,8 +460,14 @@ function groupActiveCount(key: string): number {
   min-width: 0;
 }
 
-/* 为右侧「排除」按钮预留宽度，避免长标签把行撑出容器 */
+/* 为右侧「排除」按钮预留宽度，避免长标签把行撑出容器。
+   仅标签组会渲染排除按钮；其他分组若也预留 24px，会让胶囊收缩到只剩计数，
+   标签文字宽度被压成 0（移动端表现为只剩 313 / 161 这样的数字）。 */
 .facet__item > .ml-chip {
+  max-width: 100%;
+}
+
+.facet__item--tag > .ml-chip {
   max-width: calc(100% - 24px);
 }
 
@@ -493,7 +499,7 @@ function groupActiveCount(key: string): number {
     font-size: 1rem;
   }
 
-  .facet__item > .ml-chip {
+  .facet__item--tag > .ml-chip {
     max-width: calc(100% - 40px);
   }
 

@@ -69,8 +69,18 @@ const candidateTags = computed(() => {
  */
 function syncBatchOffset(visible: boolean) {
   const root = document.documentElement
-  if (visible) root.style.setProperty('--batch-bar-offset', '72px')
-  else root.style.removeProperty('--batch-bar-offset')
+  if (!visible) {
+    root.style.removeProperty('--batch-bar-offset')
+    return
+  }
+  // 手机端批量条改为两行（计数 + 动作网格），需要更高的 toast / 回顶避让基线
+  const narrow =
+    typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 640px)').matches
+  root.style.setProperty('--batch-bar-offset', narrow ? '136px' : '72px')
+}
+
+function onViewportResize() {
+  syncBatchOffset(count.value > 0)
 }
 
 watch(count, (n) => {
@@ -78,9 +88,13 @@ watch(count, (n) => {
   trashConfirm.value = false
   if (trashTimer !== undefined) window.clearTimeout(trashTimer)
 })
-onMounted(() => syncBatchOffset(count.value > 0))
+onMounted(() => {
+  syncBatchOffset(count.value > 0)
+  window.addEventListener('resize', onViewportResize)
+})
 onBeforeUnmount(() => {
   syncBatchOffset(false)
+  window.removeEventListener('resize', onViewportResize)
   if (trashTimer !== undefined) window.clearTimeout(trashTimer)
 })
 
@@ -644,14 +658,69 @@ async function exportZip() {
   }
 }
 
-/* 移动端：操作条收窄，避免超出视口 */
-@media (max-width: 520px) {
+/* 移动端：动作改为三列网格。
+   单行横向滚动在 390px 下会把「导出」截成半个字，并把「设为精选 / 移入回收站」
+   完全藏到屏幕外；网格让全部动作始终可见，代价是批量条变为两行。 */
+@media (max-width: 640px) {
   .batch {
+    left: var(--p-space-3);
+    right: var(--p-space-3);
+    transform: none;
+    max-width: none;
+    flex-wrap: wrap;
     gap: var(--p-space-2);
-    padding: var(--p-space-1) var(--p-space-2);
+    padding: var(--p-space-2) var(--p-space-3);
+    border-radius: var(--p-radius-lg);
+    animation: none;
   }
+
+  .batch__count {
+    order: 1;
+  }
+
+  .batch__clear {
+    order: 2;
+    margin-left: auto;
+    min-width: 36px;
+    min-height: 36px;
+  }
+
   .batch__actions {
-    gap: 0;
+    order: 3;
+    flex: 1 0 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--p-space-1);
+    overflow: visible;
+    padding-right: 0;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
+  .batch__actions > .ml-btn,
+  .batch__export-group > .ml-btn {
+    min-height: 36px;
+    padding: 2px var(--p-space-1);
+    justify-content: center;
+    font-size: 0.8125rem;
+    background: var(--surface-sunken);
+    border-radius: var(--p-radius-md);
+  }
+
+  .batch__export-group {
+    display: flex;
+    min-width: 0;
+  }
+
+  .batch__export-group > .ml-btn {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .batch__export-more {
+    flex: 0 0 32px;
+    min-width: 32px;
+    min-height: 36px;
   }
 }
 </style>
