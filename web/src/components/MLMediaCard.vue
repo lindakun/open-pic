@@ -566,19 +566,9 @@ const extraTagCount = computed(() => {
     font-size: 1rem;
   }
 
-  /* 主色点常显，并用伪元素把可点击区域扩到约 36px */
+  /* 主色圆点在触屏上会压住图片左下角，影响看图；按主色筛选仍可从分面面板进入 */
   .ml-card__swatch {
-    width: 22px;
-    height: 22px;
-    opacity: 0.96;
-    transform: none;
-  }
-
-  .ml-card__swatch::before {
-    content: '';
-    position: absolute;
-    inset: -7px;
-    border-radius: inherit;
+    display: none;
   }
 
   /* 触屏看不到 4K/GIF 角标会缺失画质信息，这里低调常显 */
